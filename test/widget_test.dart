@@ -1,30 +1,43 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
-
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-
 import 'package:fedmind_mobile_app/main.dart';
+import 'package:fedmind_mobile_app/core/network/api_client.dart';
+import 'package:fedmind_mobile_app/data/datasources/screening_remote_datasource.dart';
+import 'package:fedmind_mobile_app/data/models/screening_models.dart';
+import 'package:fedmind_mobile_app/data/repositories/screening_repository.dart';
+
+class FakeScreeningRepository extends ScreeningRepository {
+  FakeScreeningRepository()
+      : super(remoteDataSource: ScreeningRemoteDataSource(apiClient: ApiClient()));
+
+  @override
+  Future<Map<String, dynamic>> checkHealth() async {
+    return {'status': 'ok', 'model_loaded': true, 'device': 'cuda'};
+  }
+
+  @override
+  Future<Map<String, dynamic>> getModelInfo() async {
+    return {'architecture': 'Late-Fusion Attention', 'model': 'Baseline'};
+  }
+
+  @override
+  Future<ScreeningListResponse> getScreeningHistory({
+    int skip = 0,
+    int limit = 20,
+    String? participantId,
+    String? status,
+  }) async {
+    return ScreeningListResponse(total: 0, screenings: []);
+  }
+}
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const MyApp());
+  testWidgets('FedMindApp smoke test with stub repository', (WidgetTester tester) async {
+    await tester.pumpWidget(FedMindApp(repository: FakeScreeningRepository()));
+    await tester.pumpAndSettle();
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
-
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pump();
-
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+    expect(find.text('FED-MIND'), findsOneWidget);
+    expect(find.text('Dashboard'), findsOneWidget);
+    expect(find.text('Skrining'), findsOneWidget);
+    expect(find.text('Riwayat'), findsOneWidget);
   });
 }
