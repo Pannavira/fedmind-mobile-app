@@ -25,20 +25,47 @@ class ServerStatusCard extends StatelessWidget {
                       height: 10,
                       decoration: BoxDecoration(
                         color: provider.isServerHealthy
-                            ? const Color(0xFF10B981) // Green
-                            : const Color(0xFFEF4444), // Red
+                            ? const Color(0xFF10B981) // Emerald Green
+                            : const Color(0xFFEF4444), // Crimson
                         shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: (provider.isServerHealthy
+                                    ? const Color(0xFF10B981)
+                                    : const Color(0xFFEF4444))
+                                .withValues(alpha: 0.4),
+                            blurRadius: 6,
+                            spreadRadius: 1,
+                          ),
+                        ],
                       ),
                     ),
-                    const SizedBox(width: 8),
-                    Text(
-                      provider.isServerHealthy
-                          ? 'Server FastAPI Terhubung'
-                          : 'Server Offline',
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 14,
-                      ),
+                    const SizedBox(width: 10),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          provider.isServerHealthy
+                              ? 'Mesin Inferensi AI Siap'
+                              : 'Koneksi Server Terputus',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 14,
+                            color: Color(0xFF0F172A),
+                          ),
+                        ),
+                        Text(
+                          provider.isServerHealthy
+                              ? 'Koneksi API Aman & Layanan Aktif'
+                              : 'Tidak dapat terhubung ke server inferensi',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: provider.isServerHealthy
+                                ? const Color(0xFF059669)
+                                : const Color(0xFFDC2626),
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
@@ -52,54 +79,93 @@ class ServerStatusCard extends StatelessWidget {
                           height: 16,
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
-                      : const Icon(Icons.refresh, size: 20),
-                  tooltip: 'Cek Ulang Server',
+                      : const Icon(Icons.sync_rounded, size: 20),
+                  tooltip: 'Cek Ulang Status Mesin AI',
                   visualDensity: VisualDensity.compact,
                 ),
               ],
             ),
-            const SizedBox(height: 10),
-            Row(
+            const SizedBox(height: 12),
+
+            // Diagnostic Badges
+            Wrap(
+              spacing: 8,
+              runSpacing: 6,
               children: [
-                _buildInfoPill(
-                  icon: Icons.memory,
-                  label: 'Device',
+                _buildDiagnosticPill(
+                  icon: Icons.speed_rounded,
+                  label: 'Hardware',
                   value: provider.serverDevice.toUpperCase(),
-                  isHighlight: provider.serverDevice.toLowerCase().contains('cuda'),
+                  isSuccess: provider.serverDevice.toLowerCase().contains('cuda'),
                 ),
-                const SizedBox(width: 8),
-                _buildInfoPill(
+                _buildDiagnosticPill(
                   icon: Icons.psychology_outlined,
-                  label: 'Model Loaded',
-                  value: provider.isModelLoaded ? 'READY' : 'NOT LOADED',
-                  isHighlight: provider.isModelLoaded,
+                  label: 'Model Status',
+                  value: provider.isModelLoaded ? 'READY' : 'MEMUAT',
+                  isSuccess: provider.isModelLoaded,
+                ),
+                _buildDiagnosticPill(
+                  icon: Icons.shield_outlined,
+                  label: 'Privasi',
+                  value: 'RAM-ONLY',
+                  isSuccess: true,
                 ),
               ],
             ),
+
             if (provider.modelInfo != null && provider.modelInfo!['architecture'] != null) ...[
-              const SizedBox(height: 8),
-              Text(
-                'Arsitektur: ${provider.modelInfo!['architecture']} (${provider.modelInfo!['model'] ?? 'Baseline'})',
-                style: const TextStyle(
-                  fontSize: 11,
-                  color: Color(0xFF64748B),
+              const SizedBox(height: 10),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF8FAFC),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.layers_outlined, size: 14, color: Color(0xFF64748B)),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        'Arsitektur: ${provider.modelInfo!['architecture']} (${provider.modelInfo!['model'] ?? 'Baseline'})',
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: Color(0xFF475569),
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],
+
             if (provider.errorMessage != null && !provider.isServerHealthy) ...[
               const SizedBox(height: 10),
               Container(
-                padding: const EdgeInsets.all(8),
+                padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
                   color: const Color(0xFFFEF2F2),
-                  borderRadius: BorderRadius.circular(6),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: const Color(0xFFFECACA)),
                 ),
-                child: Text(
-                  provider.errorMessage!,
-                  style: const TextStyle(
-                    fontSize: 11,
-                    color: Color(0xFFDC2626),
-                  ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(Icons.info_outline, color: Color(0xFFDC2626), size: 16),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Peringatan: ${provider.errorMessage!}. Pastikan server FastAPI aktif di port 8000.',
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: Color(0xFFB91C1C),
+                          height: 1.3,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],
@@ -109,22 +175,22 @@ class ServerStatusCard extends StatelessWidget {
     );
   }
 
-  Widget _buildInfoPill({
+  Widget _buildDiagnosticPill({
     required IconData icon,
     required String label,
     required String value,
-    required bool isHighlight,
+    required bool isSuccess,
   }) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4.5),
       decoration: BoxDecoration(
         color: const Color(0xFFF1F5F9),
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: BorderRadius.circular(8),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 14, color: const Color(0xFF475569)),
+          Icon(icon, size: 13, color: const Color(0xFF64748B)),
           const SizedBox(width: 4),
           Text(
             '$label: ',
@@ -134,8 +200,8 @@ class ServerStatusCard extends StatelessWidget {
             value,
             style: TextStyle(
               fontSize: 11,
-              fontWeight: FontWeight.bold,
-              color: isHighlight ? const Color(0xFF0F766E) : const Color(0xFF1E293B),
+              fontWeight: FontWeight.w700,
+              color: isSuccess ? const Color(0xFF0F766E) : const Color(0xFF1E293B),
             ),
           ),
         ],

@@ -4,12 +4,29 @@ import '../../core/constants/clinical_constants.dart';
 class RiskBadge extends StatelessWidget {
   final String? riskCategory;
   final bool isLarge;
+  final bool showIcon;
 
   const RiskBadge({
     super.key,
     required this.riskCategory,
     this.isLarge = false,
+    this.showIcon = true,
   });
+
+  IconData _getRiskIcon(String? category) {
+    switch (category?.toLowerCase()) {
+      case 'low':
+        return Icons.health_and_safety_outlined;
+      case 'borderline':
+        return Icons.visibility_outlined;
+      case 'moderate':
+        return Icons.warning_amber_rounded;
+      case 'high':
+        return Icons.crisis_alert_rounded;
+      default:
+        return Icons.help_outline;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -18,33 +35,42 @@ class RiskBadge extends StatelessWidget {
 
     return Container(
       padding: EdgeInsets.symmetric(
-        horizontal: isLarge ? 14 : 10,
-        vertical: isLarge ? 6 : 4,
+        horizontal: isLarge ? 12 : 9,
+        vertical: isLarge ? 5 : 3.5,
       ),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: color.withValues(alpha: 0.4), width: 1.2),
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: color.withValues(alpha: 0.35), width: 1.2),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Container(
-            width: isLarge ? 8 : 6,
-            height: isLarge ? 8 : 6,
-            decoration: BoxDecoration(
+          if (showIcon) ...[
+            Icon(
+              _getRiskIcon(riskCategory),
+              size: isLarge ? 15 : 12,
               color: color,
-              shape: BoxShape.circle,
             ),
-          ),
-          const SizedBox(width: 6),
+            const SizedBox(width: 5),
+          ] else ...[
+            Container(
+              width: isLarge ? 7 : 5,
+              height: isLarge ? 7 : 5,
+              decoration: BoxDecoration(
+                color: color,
+                shape: BoxShape.circle,
+              ),
+            ),
+            const SizedBox(width: 5),
+          ],
           Text(
             label,
             style: TextStyle(
               color: color,
-              fontWeight: FontWeight.bold,
-              fontSize: isLarge ? 13 : 11,
-              letterSpacing: 0.5,
+              fontWeight: FontWeight.w700,
+              fontSize: isLarge ? 12 : 10.5,
+              letterSpacing: 0.4,
             ),
           ),
         ],

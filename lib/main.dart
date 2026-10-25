@@ -34,7 +34,7 @@ class FedMindApp extends StatelessWidget {
         ),
       ],
       child: MaterialApp(
-        title: 'FED-MIND Mobile',
+        title: 'FED-MIND Clinical',
         debugShowCheckedModeBanner: false,
         theme: AppTheme.lightTheme,
         home: const MainNavigationShell(),
@@ -66,30 +66,37 @@ class _MainNavigationShellState extends State<MainNavigationShell> {
         index: _currentIndex,
         children: _screens,
       ),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _currentIndex,
-        onDestinationSelected: (index) {
-          setState(() {
-            _currentIndex = index;
-          });
-        },
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.dashboard_outlined),
-            selectedIcon: Icon(Icons.dashboard),
-            label: 'Dashboard',
+      bottomNavigationBar: Container(
+        decoration: const BoxDecoration(
+          border: Border(
+            top: BorderSide(color: Color(0xFFE2E8F0), width: 1),
           ),
-          NavigationDestination(
-            icon: Icon(Icons.analytics_outlined),
-            selectedIcon: Icon(Icons.analytics),
-            label: 'Skrining',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.history_outlined),
-            selectedIcon: Icon(Icons.history),
-            label: 'Riwayat',
-          ),
-        ],
+        ),
+        child: NavigationBar(
+          selectedIndex: _currentIndex,
+          onDestinationSelected: (index) {
+            setState(() {
+              _currentIndex = index;
+            });
+          },
+          destinations: const [
+            NavigationDestination(
+              icon: Icon(Icons.grid_view_outlined),
+              selectedIcon: Icon(Icons.grid_view_rounded),
+              label: 'Dashboard',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.psychology_outlined),
+              selectedIcon: Icon(Icons.psychology_rounded),
+              label: 'Skrining',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.history_edu_outlined),
+              selectedIcon: Icon(Icons.history_edu_rounded),
+              label: 'Riwayat',
+            ),
+          ],
+        ),
       ),
     );
   }

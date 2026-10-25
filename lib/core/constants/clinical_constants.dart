@@ -65,4 +65,36 @@ class ClinicalConstants {
         return '-';
     }
   }
+
+  /// Rekomendasi tindakan terapeutik bagi psikolog / konselor klinis
+  static String getCounselingGuidance(String? riskCategory) {
+    switch (riskCategory?.toLowerCase()) {
+      case 'low':
+        return 'Fasilitasi psikoedukasi kesehatan mental promotif, eksplorasi sumber daya koping adaptif pasien, dan pertahankan rutinitas pemulihan.';
+      case 'borderline':
+        return 'Eksplorasi pemicu stres subklinis (pekerjaan, hubungan, kualitas tidur). Lakukan pemantauan aktif dan jadwalkan evaluasi tindak lanjut dalam 2–4 minggu.';
+      case 'moderate':
+        return 'Inisiasi protokol psikoterapi terstruktur (seperti CBT atau ACT). Evaluasi distorsi kognitif, anhedonia, dan disabilitas fungsi harian pasien.';
+      case 'high':
+        return 'Prioritaskan stabilisasi afektif dan asesmen keselamatan krisis (risiko bunuh diri/self-harm). Segera koordinasikan rujukan ke psikiater untuk evaluasi komprehensif.';
+      default:
+        return 'Lakukan observasi klinis holistik dan sesuaikan dengan riwayat afektif pasien.';
+    }
+  }
+
+  /// Judul singkat rekomendasi tindakan konseling
+  static String getCounselingActionTitle(String? riskCategory) {
+    switch (riskCategory?.toLowerCase()) {
+      case 'low':
+        return 'Konseling Promotif & Penguatan Resiliensi';
+      case 'borderline':
+        return 'Observasi Klinis & Konseling Berkala';
+      case 'moderate':
+        return 'Intervensi Terapi Terstruktur (CBT/ACT)';
+      case 'high':
+        return 'Prioritas Tinggi / Kolaborasi Psikiatri';
+      default:
+        return 'Observasi Klinis Umum';
+    }
+  }
 }
