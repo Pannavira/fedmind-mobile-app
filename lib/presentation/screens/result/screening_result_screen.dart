@@ -2,14 +2,20 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:fedmind_mobile_app/core/constants/clinical_constants.dart';
 import 'package:fedmind_mobile_app/data/models/screening_models.dart';
+import 'package:fedmind_mobile_app/presentation/widgets/local_video_player_dialog.dart';
 import 'package:fedmind_mobile_app/presentation/widgets/modality_shapley_chart.dart';
 import 'package:fedmind_mobile_app/presentation/widgets/quality_flag_alert.dart';
 import 'package:fedmind_mobile_app/presentation/widgets/risk_badge.dart';
 
 class ScreeningResultScreen extends StatefulWidget {
   final ScreeningResponse result;
+  final String? localVideoPath;
 
-  const ScreeningResultScreen({super.key, required this.result});
+  const ScreeningResultScreen({
+    super.key,
+    required this.result,
+    this.localVideoPath,
+  });
 
   @override
   State<ScreeningResultScreen> createState() => _ScreeningResultScreenState();
@@ -277,6 +283,71 @@ Catatan Tambahan Konselor: ${_counselorActionNoteController.text.trim()}
               ),
             ),
             const SizedBox(height: 16),
+            if (widget.localVideoPath != null) ...[
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF0F766E).withValues(alpha: 0.12),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.video_library_rounded,
+                          color: Color(0xFF0F766E),
+                          size: 24,
+                        ),
+                      ),
+                      const SizedBox(width: 14),
+                      const Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Rekaman Sesi Tersimpan di HP',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w700,
+                                fontSize: 13.5,
+                                color: Color(0xFF0F172A),
+                              ),
+                            ),
+                            SizedBox(height: 2),
+                            Text(
+                              'Privat di memori HP konselor (Tidak diunggah)',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: Color(0xFF059669),
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      ElevatedButton.icon(
+                        onPressed: () {
+                          LocalVideoPlayerDialog.show(
+                            context,
+                            videoPath: widget.localVideoPath!,
+                            participantId: result.participantId,
+                          );
+                        },
+                        icon: const Icon(Icons.play_circle_fill_rounded, size: 16),
+                        label: const Text('Tonton', style: TextStyle(fontSize: 12)),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF0F766E),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+            ],
 
             // 2. EXPLAINABLE AI (XAI) CHART
             if (attribution != null)
