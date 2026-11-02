@@ -14,6 +14,9 @@ class ScreeningProvider extends ChangeNotifier {
   bool _isServerHealthy = false;
   bool get isServerHealthy => _isServerHealthy;
 
+  bool _isEdgeHealthy = false;
+  bool get isEdgeHealthy => _isEdgeHealthy;
+
   bool _isModelLoaded = false;
   bool get isModelLoaded => _isModelLoaded;
 
@@ -56,7 +59,7 @@ class ScreeningProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Cek kesiapan server backend FastAPI
+  /// Cek kesiapan server backend FastAPI (Central & Edge)
   Future<void> checkServerHealth() async {
     _isCheckingHealth = true;
     _errorMessage = null;
@@ -78,8 +81,64 @@ class ScreeningProvider extends ChangeNotifier {
       _isServerHealthy = false;
       _isModelLoaded = false;
       _errorMessage = e.toString();
+    }
+
+    // Periksa status Local Edge Service (Port 8001)
+    try {
+      final edgeHealth = await repository.checkEdgeHealth();
+      _isEdgeHealthy = edgeHealth['status'] == 'healthy';
+    } catch (_) {
+      _isEdgeHealthy = false;
+    }
+
+    _isCheckingHealth = false;
+    notifyListeners();
+  }
+
+  /// Menjalankan inferensi dan ekstraksi riil via Local Edge Server (Port 8001)
+  /// Video diproses on-premise di klinik dengan OpenFace 2.2.0, openSMILE, Whisper & MentalBERT
+  Future<bool> processVideoAtEdge({
+    required String videoPath,
+    required String participantId,
+    String? sessionId,
+  }) async {
+    _isExecuting = true;
+    _errorMessage = null;
+    _currentScreening = null;
+    _executionStatusMessage = 'Menghubungkan ke Local Edge Server (Port 8001)...';
+    notifyListeners();
+
+    try {
+      final result = await repository.processVideoViaEdge(
+        videoPath: videoPath,
+        participantId: participantId,
+        sessionId: sessionId,
+        onSendProgress: (sent, total) {
+          if (total > 0) {
+            final pct = (sent / total * 100).toInt();
+            if (pct < 100) {
+              _executionStatusMessage = 'Mengunggah video ke Edge Node: $pct%...';
+            } else {
+              _executionStatusMessage =
+                  'Mengekstrak OpenFace 2.2.0 (AU), openSMILE, & Whisper AI di Edge...';
+            }
+            notifyListeners();
+          }
+        },
+      );
+
+      _currentScreening = result;
+      _executionStatusMessage = 'Selesai!';
+
+      // Refresh riwayat skrining
+      fetchHistory();
+      return true;
+    } catch (e) {
+      _errorMessage = e.toString();
+      return false;
     } finally {
-      _isCheckingHealth = false;
+      _isExecuting = false;
+      _executionStatusMessage = '';
       notifyListeners();
     }
   }

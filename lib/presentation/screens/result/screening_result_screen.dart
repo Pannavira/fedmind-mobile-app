@@ -514,7 +514,9 @@ Catatan Tambahan Konselor: ${_counselorActionNoteController.text.trim()}
                         _buildMetaRow(
                           'Checksum SHA-256',
                           result.model?.checksum.isNotEmpty == true
-                              ? result.model!.checksum.substring(0, 16)
+                              ? (result.model!.checksum.length > 16
+                                  ? result.model!.checksum.substring(0, 16)
+                                  : result.model!.checksum)
                               : '-',
                         ),
                       ],

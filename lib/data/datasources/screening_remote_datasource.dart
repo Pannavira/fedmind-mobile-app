@@ -1,3 +1,4 @@
+import 'package:dio/dio.dart';
 import 'package:fedmind_mobile_app/core/constants/constants.dart';
 
 import '../../core/network/api_client.dart';
@@ -11,6 +12,12 @@ class ScreeningRemoteDataSource {
   /// Cek kesehatan backend dan ketersediaan CUDA
   Future<Map<String, dynamic>> checkHealth() async {
     final response = await apiClient.dio.get(ApiConstants.health);
+    return response.data as Map<String, dynamic>;
+  }
+
+  /// Cek kesehatan Local Edge Server (port 8001)
+  Future<Map<String, dynamic>> checkEdgeHealth() async {
+    final response = await apiClient.edgeDio.get(ApiConstants.edgeHealth);
     return response.data as Map<String, dynamic>;
   }
 
@@ -56,6 +63,33 @@ class ScreeningRemoteDataSource {
       ApiConstants.screeningPredict(screeningId),
       data: request.toJson(),
     );
+    return ScreeningResponse.fromJson(response.data as Map<String, dynamic>);
+  }
+
+  /// Kirim video rekaman klinis langsung ke Local Edge Server (port 8001)
+  /// Ekstraksi OpenFace, openSMILE, dan Whisper dijalankan on-premise
+  Future<ScreeningResponse> processVideoViaEdge({
+    required String videoPath,
+    required String participantId,
+    String? sessionId,
+    ProgressCallback? onSendProgress,
+  }) async {
+    final fileName = videoPath.split(RegExp(r'[/\\]')).last;
+    final formData = FormData.fromMap({
+      'video_file': await MultipartFile.fromFile(
+        videoPath,
+        filename: fileName,
+      ),
+      'participant_id': participantId,
+      'session_id': ?sessionId,
+    });
+
+    final response = await apiClient.edgeDio.post(
+      ApiConstants.edgeProcessVideo,
+      data: formData,
+      onSendProgress: onSendProgress,
+    );
+
     return ScreeningResponse.fromJson(response.data as Map<String, dynamic>);
   }
 

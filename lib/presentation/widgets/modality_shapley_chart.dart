@@ -62,24 +62,30 @@ class ModalityShapleyChart extends StatelessWidget {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Row(
-                  children: [
-                    Icon(
-                      Icons.insights_rounded,
-                      color: Color(0xFF0F766E),
-                      size: 20,
-                    ),
-                    SizedBox(width: 8),
-                    Text(
-                      'Atribusi Modalitas (Exact Shapley)',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w700,
-                        fontSize: 15,
-                        color: Color(0xFF0F172A),
+                const Expanded(
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.insights_rounded,
+                        color: Color(0xFF0F766E),
+                        size: 20,
                       ),
-                    ),
-                  ],
+                      SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Atribusi Modalitas (Exact Shapley)',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 14,
+                            color: Color(0xFF0F172A),
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
+                const SizedBox(width: 8),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                   decoration: BoxDecoration(
@@ -281,8 +287,10 @@ class ModalityShapleyChart extends StatelessWidget {
                 borderRadius: BorderRadius.circular(10),
                 border: Border.all(color: const Color(0xFFE2E8F0)),
               ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceAround,
+              child: Wrap(
+                alignment: WrapAlignment.spaceAround,
+                spacing: 8,
+                runSpacing: 4,
                 children: [
                   _buildLegendItem(
                     color: ClinicalConstants.textModalityColor,

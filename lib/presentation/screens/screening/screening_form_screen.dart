@@ -3,7 +3,6 @@ import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/services/local_storage_service.dart';
-import '../../../core/services/multimodal_extractor_service.dart';
 import '../../../data/datasources/sample_patient_data.dart';
 import '../../providers/screening_provider.dart';
 import '../../widgets/local_video_player_dialog.dart';
@@ -32,12 +31,9 @@ class _ScreeningFormScreenState extends State<ScreeningFormScreen> {
   Map<String, dynamic>? _selectedPayload;
   String _dataSourceDescription = 'Belum ada data sensor atau video yang dipilih';
 
-  // Local Video State (Solusi 2: Zero-Leakage)
+  // Local Video State (Cross-Silo Edge Extraction)
   String? _localVideoPath;
   double _localVideoSizeMb = 0.0;
-  bool _isExtractingOnDevice = false;
-  String _extractionStage = '';
-  double _extractionProgress = 0.0;
 
   @override
   void initState() {
@@ -140,70 +136,28 @@ class _ScreeningFormScreenState extends State<ScreeningFormScreen> {
     }
   }
 
-  // --- 3. Ekstraksi Fitur On-Device (Zero-Leakage) ---
+  // --- 3. Akuisisi Video Sesi Pasien untuk Local Edge Extractor (Port 8001) ---
   Future<void> _processLocalVideo(String videoPath) async {
-    final pid = _participantIdController.text.trim().isEmpty
-        ? 'PASIEN_01'
-        : _participantIdController.text.trim();
-
     final sizeMb = await LocalStorageService.getFileSizeInMb(videoPath);
 
     setState(() {
       _localVideoPath = videoPath;
       _localVideoSizeMb = sizeMb;
-      _isExtractingOnDevice = true;
-      _extractionProgress = 0.0;
-      _extractionStage = 'Memulai proses ekstraksi fitur multimodal on-device...';
+      _selectedPayload = null; // Prioritaskan pemrosesan video riil di edge
+      _dataSourceDescription =
+          'Video Sesi Pasien (${sizeMb.toStringAsFixed(1)} MB) • Siap diekstrak riil di Local Edge Server (Port 8001)';
     });
 
-    try {
-      final features = await MultimodalExtractorService.extractFromLocalVideo(
-        videoPath: videoPath,
-        participantId: pid,
-        onProgress: (stage, progress) {
-          if (mounted) {
-            setState(() {
-              _extractionStage = stage;
-              _extractionProgress = progress;
-            });
-          }
-        },
-      );
-
-      if (!mounted) return;
-
-      setState(() {
-        _isExtractingOnDevice = false;
-        _selectedPayload = {
-          'participant_id': pid,
-          'text_features': features.textFeatures,
-          'audio_features': features.audioFeatures,
-          'visual_features': features.visualFeatures,
-          'metadata': features.toMetadataMap(),
-        };
-        _dataSourceDescription =
-            'Video Sesi Pasien (${features.videoSizeMb.toStringAsFixed(1)} MB) • Ekstraksi On-Device Sukses (Privat di HP)';
-      });
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Fitur berhasil diekstrak di HP! Video tetap aman di memori lokal.'),
-          backgroundColor: Color(0xFF0F766E),
-          duration: Duration(seconds: 3),
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'Video (${sizeMb.toStringAsFixed(1)} MB) berhasil dimuat. Tekan tombol "Kirim Video ke Edge Server" di bawah untuk analisis riil!',
         ),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _isExtractingOnDevice = false;
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Gagal mengekstrak fitur: $e'),
-          backgroundColor: const Color(0xFFDC2626),
-        ),
-      );
-    }
+        backgroundColor: const Color(0xFF0F766E),
+        duration: const Duration(seconds: 4),
+      ),
+    );
   }
 
   Future<void> _previewCurrentVideo() async {
@@ -230,30 +184,40 @@ class _ScreeningFormScreenState extends State<ScreeningFormScreen> {
       return;
     }
 
-    if (_selectedPayload == null) {
+    if (_localVideoPath == null && _selectedPayload == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Rekam video atau pilih data tensor terlebih dahulu!'),
+          content: Text('Rekam video atau pilih data kasus acuan terlebih dahulu!'),
           backgroundColor: Color(0xFFDC2626),
         ),
       );
       return;
     }
 
-    final success = await provider.startAndExecuteScreening(
-      participantId: participantId,
-      textFeatures: _selectedPayload!['text_features'],
-      audioFeatures: _selectedPayload!['audio_features'],
-      visualFeatures: _selectedPayload!['visual_features'],
-      metadata: {
-        'source_app': 'FED-MIND Mobile Clinical Flutter',
-        'session_type': _selectedSessionType,
-        'counselor_note': _counselorNoteController.text.trim(),
-        'dataset_case': _dataSourceDescription,
-        'has_local_video': _localVideoPath != null,
-        'local_video_path': _localVideoPath,
-      },
-    );
+    bool success = false;
+
+    if (_localVideoPath != null) {
+      // Jalur 1: Video riil dikirim ke Local Edge Server (Port 8001)
+      success = await provider.processVideoAtEdge(
+        videoPath: _localVideoPath!,
+        participantId: participantId,
+      );
+    } else {
+      // Jalur 2: Vektor Acuan / Sintetis dikirim ke Server Pusat (Port 8000)
+      success = await provider.startAndExecuteScreening(
+        participantId: participantId,
+        textFeatures: _selectedPayload!['text_features'],
+        audioFeatures: _selectedPayload!['audio_features'],
+        visualFeatures: _selectedPayload!['visual_features'],
+        metadata: {
+          'source_app': 'FED-MIND Mobile Clinical Flutter',
+          'session_type': _selectedSessionType,
+          'counselor_note': _counselorNoteController.text.trim(),
+          'dataset_case': _dataSourceDescription,
+          'has_local_video': false,
+        },
+      );
+    }
 
     if (!mounted) return;
 
@@ -272,7 +236,7 @@ class _ScreeningFormScreenState extends State<ScreeningFormScreen> {
         SnackBar(
           content: Text(provider.errorMessage!),
           backgroundColor: const Color(0xFFDC2626),
-          duration: const Duration(seconds: 4),
+          duration: const Duration(seconds: 5),
         ),
       );
     }
@@ -289,7 +253,7 @@ class _ScreeningFormScreenState extends State<ScreeningFormScreen> {
           children: [
             Text('Form Skrining Multimodal'),
             Text(
-              'Konsol Asesmen Klinis & Ekstraksi On-Device',
+              'Konsol Asesmen Klinis & Edge Processing (Port 8001)',
               style: TextStyle(fontSize: 11, color: Color(0xFF64748B)),
             ),
           ],
@@ -329,7 +293,7 @@ class _ScreeningFormScreenState extends State<ScreeningFormScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Privasi Terjamin: On-Device Feature Extraction',
+                          'Privasi Terjamin: Cross-Silo Edge Architecture',
                           style: TextStyle(
                             fontSize: 13,
                             fontWeight: FontWeight.w700,
@@ -338,7 +302,7 @@ class _ScreeningFormScreenState extends State<ScreeningFormScreen> {
                         ),
                         SizedBox(height: 3),
                         Text(
-                          'Video pasien 100% diproses dan disimpan privat di HP ini. Server hanya menerima vektor numerik abstrak (75 Visual, 248 Audio, 768 Teks).',
+                          'Video klinis diproses lokal di Edge Server klinik (Port 8001) menggunakan OpenFace 2.2.0, openSMILE, dan Whisper. Raw video tidak pernah bocor ke server publik.',
                           style: TextStyle(
                             fontSize: 11.5,
                             color: Color(0xFF115E59),
@@ -382,7 +346,7 @@ class _ScreeningFormScreenState extends State<ScreeningFormScreen> {
                         hintText: 'Misal: P600, P302, RM-2026-01',
                         prefixIcon: Icon(Icons.badge_outlined, size: 20),
                       ),
-                      enabled: !provider.isExecuting && !_isExtractingOnDevice,
+                      enabled: !provider.isExecuting,
                     ),
                     const SizedBox(height: 14),
                     const Text(
@@ -401,7 +365,7 @@ class _ScreeningFormScreenState extends State<ScreeningFormScreen> {
                         return ChoiceChip(
                           label: Text(type),
                           selected: isSelected,
-                          onSelected: provider.isExecuting || _isExtractingOnDevice
+                          onSelected: provider.isExecuting
                               ? null
                               : (selected) {
                                   if (selected) {
@@ -435,7 +399,7 @@ class _ScreeningFormScreenState extends State<ScreeningFormScreen> {
                         hintText: 'Misal: Kontak mata minim, nada bicara pelan dan datar...',
                         prefixIcon: Icon(Icons.edit_note_rounded, size: 22),
                       ),
-                      enabled: !provider.isExecuting && !_isExtractingOnDevice,
+                      enabled: !provider.isExecuting,
                     ),
                   ],
                 ),
@@ -466,7 +430,7 @@ class _ScreeningFormScreenState extends State<ScreeningFormScreen> {
                     ),
                     const SizedBox(height: 8),
                     const Text(
-                      'Pilih metode input video sesi konseling. Video akan diekstrak langsung di HP dan tetap tersimpan privat untuk peninjauan.',
+                      'Pilih metode input video sesi konseling. Video akan diekstrak riil di Local Edge Server klinik (Port 8001) dan tetap tersimpan privat untuk peninjauan.',
                       style: TextStyle(fontSize: 11.5, color: Color(0xFF64748B)),
                     ),
                     const SizedBox(height: 14),
@@ -476,7 +440,7 @@ class _ScreeningFormScreenState extends State<ScreeningFormScreen> {
                       children: [
                         Expanded(
                           child: ElevatedButton.icon(
-                            onPressed: provider.isExecuting || _isExtractingOnDevice
+                            onPressed: provider.isExecuting
                                 ? null
                                 : _openCameraRecording,
                             icon: const Icon(Icons.videocam_rounded, size: 18),
@@ -491,7 +455,7 @@ class _ScreeningFormScreenState extends State<ScreeningFormScreen> {
                         const SizedBox(width: 10),
                         Expanded(
                           child: OutlinedButton.icon(
-                            onPressed: provider.isExecuting || _isExtractingOnDevice
+                            onPressed: provider.isExecuting
                                 ? null
                                 : _pickVideoFromGallery,
                             icon: const Icon(Icons.video_library_rounded, size: 18),
@@ -510,7 +474,7 @@ class _ScreeningFormScreenState extends State<ScreeningFormScreen> {
                       children: [
                         Expanded(
                           child: TextButton.icon(
-                            onPressed: provider.isExecuting || _isExtractingOnDevice
+                            onPressed: provider.isExecuting
                                 ? null
                                 : _loadP600GoldenCase,
                             icon: const Icon(Icons.verified_outlined, size: 15),
@@ -520,7 +484,7 @@ class _ScreeningFormScreenState extends State<ScreeningFormScreen> {
                         const SizedBox(width: 8),
                         Expanded(
                           child: TextButton.icon(
-                            onPressed: provider.isExecuting || _isExtractingOnDevice
+                            onPressed: provider.isExecuting
                                 ? null
                                 : _generateRandomSynthetic,
                             icon: const Icon(Icons.shuffle_rounded, size: 15),
@@ -540,92 +504,77 @@ class _ScreeningFormScreenState extends State<ScreeningFormScreen> {
                           borderRadius: BorderRadius.circular(10),
                           border: Border.all(color: const Color(0xFFBBF7D0)),
                         ),
-                        child: Row(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Container(
-                              padding: const EdgeInsets.all(8),
-                              decoration: const BoxDecoration(
-                                color: Color(0xFF10B981),
-                                shape: BoxShape.circle,
-                              ),
-                              child: const Icon(Icons.check_rounded, color: Colors.white, size: 16),
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  const Text(
-                                    'Video Tersimpan di HP Konselor',
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.w700,
-                                      fontSize: 12,
-                                      color: Color(0xFF065F46),
-                                    ),
+                            Row(
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.all(8),
+                                  decoration: const BoxDecoration(
+                                    color: Color(0xFF10B981),
+                                    shape: BoxShape.circle,
                                   ),
-                                  Text(
-                                    'Ukuran: ${_localVideoSizeMb.toStringAsFixed(1)} MB • Privat Local Storage',
-                                    style: const TextStyle(fontSize: 10.5, color: Color(0xFF047857)),
+                                  child: const Icon(Icons.check_rounded, color: Colors.white, size: 16),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      const Text(
+                                        'Video Rekaman Pasien Terpilih',
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.w700,
+                                          fontSize: 12,
+                                          color: Color(0xFF065F46),
+                                        ),
+                                      ),
+                                      Text(
+                                        'Ukuran: ${_localVideoSizeMb.toStringAsFixed(1)} MB • Siap diproses di Local Edge Node (Port 8001)',
+                                        style: const TextStyle(fontSize: 10.5, color: Color(0xFF047857)),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                IconButton(
+                                  onPressed: _previewCurrentVideo,
+                                  icon: const Icon(Icons.play_circle_fill_rounded, color: Color(0xFF0F766E)),
+                                  tooltip: 'Putar Ulang Video',
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(6),
+                                border: Border.all(color: const Color(0xFFD1FAE5)),
+                              ),
+                              child: const Row(
+                                children: [
+                                  Icon(Icons.hub_outlined, size: 13, color: Color(0xFF0F766E)),
+                                  SizedBox(width: 6),
+                                  Expanded(
+                                    child: Text(
+                                      'Pipeline: OpenFace 2.2.0 (75D) + openSMILE (248D) + Whisper-MentalBERT (768D)',
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        color: Color(0xFF0F766E),
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
                                   ),
                                 ],
                               ),
-                            ),
-                            IconButton(
-                              onPressed: _previewCurrentVideo,
-                              icon: const Icon(Icons.play_circle_fill_rounded, color: Color(0xFF0F766E)),
-                              tooltip: 'Putar Ulang Video',
                             ),
                           ],
                         ),
                       ),
                     ],
 
-                    // Indikator Progress Ekstraksi On-Device
-                    if (_isExtractingOnDevice) ...[
-                      const SizedBox(height: 14),
-                      Container(
-                        padding: const EdgeInsets.all(14),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFF8FAFC),
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(color: const Color(0xFFE2E8F0)),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                const SizedBox(
-                                  width: 14,
-                                  height: 14,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    color: Color(0xFF0F766E),
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: Text(
-                                    _extractionStage,
-                                    style: const TextStyle(
-                                      fontSize: 11.5,
-                                      fontWeight: FontWeight.w700,
-                                      color: Color(0xFF0F766E),
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 8),
-                            LinearProgressIndicator(
-                              value: _extractionProgress,
-                              color: const Color(0xFF0F766E),
-                              backgroundColor: const Color(0xFFE2E8F0),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
+
 
                     const SizedBox(height: 14),
                     Container(
@@ -744,23 +693,26 @@ class _ScreeningFormScreenState extends State<ScreeningFormScreen> {
             SizedBox(
               height: 50,
               child: ElevatedButton.icon(
-                onPressed: provider.isExecuting || _isExtractingOnDevice ? null : _submitScreening,
-                icon: const Icon(Icons.analytics_rounded, size: 20),
+                onPressed: provider.isExecuting ? null : _submitScreening,
+                icon: Icon(
+                  _localVideoPath != null ? Icons.hub_rounded : Icons.analytics_rounded,
+                  size: 20,
+                ),
                 label: Text(
                   provider.isExecuting
-                      ? 'Sedang Memproses di Server AI...'
-                      : _isExtractingOnDevice
-                          ? 'Sedang Mengekstrak di HP...'
-                          : 'Kirim Vektor & Jalankan XAI',
+                      ? 'Sedang Memproses Asesmen...'
+                      : _localVideoPath != null
+                          ? 'Kirim Video ke Edge Server & Analisis (Port 8001)'
+                          : 'Kirim Vektor ke Server Pusat (Port 8000)',
                   style: const TextStyle(
-                    fontSize: 14,
+                    fontSize: 13.5,
                     fontWeight: FontWeight.w700,
                     letterSpacing: 0.3,
                   ),
                 ),
               ),
             ),
-            const SizedBox(height: 24),
+            const SizedBox(height: 48),
           ],
         ),
       ),

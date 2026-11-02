@@ -18,6 +18,17 @@ class ScreeningRepository {
     }
   }
 
+  /// Cek kesehatan Local Edge Server (port 8001)
+  Future<Map<String, dynamic>> checkEdgeHealth() async {
+    try {
+      return await remoteDataSource.checkEdgeHealth();
+    } on DioException catch (e) {
+      throw _handleDioError(e);
+    } catch (e) {
+      throw 'Gagal terhubung ke Local Edge Server: $e';
+    }
+  }
+
   /// Ambil info model
   Future<Map<String, dynamic>> getModelInfo() async {
     try {
@@ -69,6 +80,27 @@ class ScreeningRepository {
     }
   }
 
+  /// Kirim video rekaman klinis ke Local Edge Server (port 8001) untuk ekstraksi multimodal riil
+  Future<ScreeningResponse> processVideoViaEdge({
+    required String videoPath,
+    required String participantId,
+    String? sessionId,
+    ProgressCallback? onSendProgress,
+  }) async {
+    try {
+      return await remoteDataSource.processVideoViaEdge(
+        videoPath: videoPath,
+        participantId: participantId,
+        sessionId: sessionId,
+        onSendProgress: onSendProgress,
+      );
+    } on DioException catch (e) {
+      throw _handleDioError(e);
+    } catch (e) {
+      throw 'Gagal memproses video di Local Edge Server: $e';
+    }
+  }
+
   /// Ambil detail skrining tersimpan
   Future<ScreeningResponse> getScreeningDetail(String screeningId) async {
     try {
@@ -107,9 +139,9 @@ class ScreeningRepository {
       case DioExceptionType.connectionTimeout:
       case DioExceptionType.sendTimeout:
       case DioExceptionType.receiveTimeout:
-        return 'Koneksi ke backend timeout. Pastikan server FastAPI aktif dan jaringan stabil.';
+        return 'Koneksi ke server timeout. Proses ekstraksi video neural mungkin memerlukan waktu lebih lama.';
       case DioExceptionType.connectionError:
-        return 'Gagal terhubung ke backend server (${error.requestOptions.baseUrl}). Pastikan Uvicorn berjalan di port 8000.';
+        return 'Gagal terhubung ke server (${error.requestOptions.baseUrl}). Pastikan Uvicorn berjalan (Central: 8000, Edge: 8001).';
       case DioExceptionType.badResponse:
         final statusCode = error.response?.statusCode;
         final responseData = error.response?.data;

@@ -105,9 +105,15 @@ class ServerStatusCard extends StatelessWidget {
                   isSuccess: provider.isModelLoaded,
                 ),
                 _buildDiagnosticPill(
+                  icon: Icons.hub_outlined,
+                  label: 'Edge Node (8001)',
+                  value: provider.isEdgeHealthy ? 'ONLINE' : 'OFFLINE',
+                  isSuccess: provider.isEdgeHealthy,
+                ),
+                _buildDiagnosticPill(
                   icon: Icons.shield_outlined,
                   label: 'Privasi',
-                  value: 'RAM-ONLY',
+                  value: 'EDGE-LOCAL',
                   isSuccess: true,
                 ),
               ],

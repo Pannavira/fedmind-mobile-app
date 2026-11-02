@@ -70,42 +70,46 @@ class _HomeScreenState extends State<HomeScreen> {
                 size: 22,
               ),
             ),
-            const SizedBox(width: 12),
-            const Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Text(
-                      'FED-MIND',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: 0.5,
-                        color: Color(0xFF0F172A),
+            const SizedBox(width: 10),
+            const Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    children: [
+                      Text(
+                        'FED-MIND',
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 0.5,
+                          color: Color(0xFF0F172A),
+                        ),
                       ),
-                    ),
-                    SizedBox(width: 6),
-                    Text(
-                      'CLINICAL',
-                      style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w700,
-                        color: Color(0xFF0F766E),
-                        letterSpacing: 0.8,
+                      SizedBox(width: 6),
+                      Text(
+                        'CLINICAL',
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF0F766E),
+                          letterSpacing: 0.8,
+                        ),
                       ),
-                    ),
-                  ],
-                ),
-                Text(
-                  'Asisten AI Konseling Klinis & Multimodal XAI',
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: Color(0xFF64748B),
-                    fontWeight: FontWeight.w500,
+                    ],
                   ),
-                ),
-              ],
+                  Text(
+                    'Asisten AI Konseling & Multimodal XAI',
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 10.5,
+                      color: Color(0xFF64748B),
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ],
         ),
