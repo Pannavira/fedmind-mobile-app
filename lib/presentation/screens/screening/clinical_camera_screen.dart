@@ -65,12 +65,12 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen> with Widget
         await _initCamera();
       } else {
         setState(() {
-          _errorMessage = 'Izin kamera dan mikrofon dibutuhkan untuk merekam sesi klinis.';
+          _errorMessage = 'Camera and microphone permissions are required to record clinical sessions.';
         });
       }
     } catch (e) {
       setState(() {
-        _errorMessage = 'Gagal mengakses permission plugin: $e\n\nPastikan aplikasi telah di-restart penuh (Stop dan jalankan ulang "flutter run").';
+        _errorMessage = 'Failed to request camera/microphone permissions: $e';
       });
     }
   }
@@ -80,12 +80,12 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen> with Widget
       _availableCameras = await availableCameras();
       if (_availableCameras.isEmpty) {
         setState(() {
-          _errorMessage = 'Tidak ada sensor kamera yang terdeteksi di perangkat ini.';
+          _errorMessage = 'No camera sensors detected on this device.';
         });
         return;
       }
 
-      // Prioritaskan kamera depan agar pasien melihat langsung ke layar
+      // Prioritize front camera for direct clinical eye contact
       CameraDescription selectedCamera = _availableCameras.first;
       for (final cam in _availableCameras) {
         if (cam.lensDirection == CameraLensDirection.front) {
@@ -108,7 +108,7 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen> with Widget
       });
     } catch (e) {
       setState(() {
-        _errorMessage = 'Gagal menginisialisasi kamera: $e';
+        _errorMessage = 'Failed to initialize camera: $e';
       });
     }
   }
@@ -131,7 +131,7 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen> with Widget
           _secondsRecorded++;
         });
 
-        // Berhenti otomatis jika mencapai durasi maksimal
+        // Automatically stop if maximum duration is reached
         if (_secondsRecorded >= _maxDuration) {
           _stopRecording();
         }
@@ -140,7 +140,7 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen> with Widget
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Gagal memulai perekaman: $e'),
+          content: Text('Failed to start recording: $e'),
           backgroundColor: Colors.red,
         ),
       );
@@ -157,20 +157,20 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen> with Widget
         _isRecording = false;
       });
 
-      // Simpan video ke local storage privat HP konselor
+      // Save video securely to private app storage
       final savedPath = await LocalStorageService.saveClinicalVideo(
         sourceFilePath: xFile.path,
         participantId: widget.participantId,
       );
 
       if (!mounted) return;
-      // Kembalikan path video lokal permanen ke form skrining
+      // Return saved video path to screening form
       Navigator.of(context).pop(savedPath);
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Gagal menyimpan rekaman: $e'),
+          content: Text('Failed to save recording: $e'),
           backgroundColor: Colors.red,
         ),
       );
@@ -187,7 +187,7 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen> with Widget
   Widget build(BuildContext context) {
     if (_errorMessage != null) {
       return Scaffold(
-        appBar: AppBar(title: const Text('Kamera Klinis Pasien')),
+        appBar: AppBar(title: const Text('Clinical Session Camera')),
         body: Center(
           child: Padding(
             padding: const EdgeInsets.all(24),
@@ -205,7 +205,7 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen> with Widget
                 ElevatedButton.icon(
                   onPressed: _checkPermissionsAndInit,
                   icon: const Icon(Icons.refresh),
-                  label: const Text('Coba Lagi'),
+                  label: const Text('Retry'),
                 ),
               ],
             ),
@@ -228,12 +228,12 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen> with Widget
       body: Stack(
         fit: StackFit.expand,
         children: [
-          // 1. Kamera Preview
+          // 1. Camera Preview
           Center(
             child: CameraPreview(_controller!),
           ),
 
-          // 2. Face Guide Overlay (Pemandu Posisi Wajah Pasien)
+          // 2. Face Guide Overlay
           IgnorePointer(
             child: Center(
               child: Container(
@@ -259,7 +259,7 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen> with Widget
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: Text(
-                        _isRecording ? 'Posisi Wajah Terkunci' : 'Posisikan Wajah Pasien di Sini',
+                        _isRecording ? 'Face Position Locked' : 'Align Patient Face Here',
                         style: const TextStyle(
                           color: Colors.white,
                           fontSize: 10.5,
@@ -273,7 +273,7 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen> with Widget
             ),
           ),
 
-          // 3. Top Bar (Teleprompter Pertanyaan Klinis Terpandu)
+          // 3. Top Bar (Guided Interview Prompter)
           SafeArea(
             child: Align(
               alignment: Alignment.topCenter,
@@ -317,8 +317,8 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen> with Widget
                               const SizedBox(width: 6),
                               Text(
                                 _isRecording
-                                    ? 'Merekam: ${_formatTimer(_secondsRecorded)}'
-                                    : 'Kamera Siap',
+                                    ? 'Recording: ${_formatTimer(_secondsRecorded)}'
+                                    : 'Camera Ready',
                                 style: const TextStyle(
                                   color: Colors.white,
                                   fontSize: 12,
@@ -328,7 +328,7 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen> with Widget
                             ],
                           ),
                         ),
-                        const SizedBox(width: 48), // Spacer penyeimbang
+                        const SizedBox(width: 48),
                       ],
                     ),
                     const SizedBox(height: 8),
@@ -351,7 +351,7 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen> with Widget
                               Icon(Icons.record_voice_over_outlined, color: Color(0xFF5EEAD4), size: 14),
                               SizedBox(width: 6),
                               Text(
-                                'Panduan Pertanyaan Klinis Pasien (Bicara Santai):',
+                                'Guided Clinical Interview Prompts (Conversational):',
                                 style: TextStyle(
                                   color: Color(0xFF5EEAD4),
                                   fontSize: 11,
@@ -362,7 +362,7 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen> with Widget
                           ),
                           SizedBox(height: 6),
                           Text(
-                            '1. Bagaimana perasaan, pikiran, dan kualitas tidur Anda dalam beberapa hari terakhir?',
+                            '1. How have your feelings, thoughts, and sleep patterns been over the past few days?',
                             style: TextStyle(
                               color: Colors.white,
                               fontSize: 11.5,
@@ -371,7 +371,7 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen> with Widget
                           ),
                           SizedBox(height: 4),
                           Text(
-                            '2. Hal apa yang paling membebani Anda atau membuat Anda merasa kehilangan energi?',
+                            '2. What has been feeling most overwhelming or draining your energy recently?',
                             style: TextStyle(
                               color: Colors.white,
                               fontSize: 11.5,
@@ -387,7 +387,7 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen> with Widget
             ),
           ),
 
-          // 4. Bottom Controls (Shutter & Durasi)
+          // 4. Bottom Controls (Shutter & Duration)
           Align(
             alignment: Alignment.bottomCenter,
             child: SafeArea(
@@ -406,17 +406,17 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen> with Widget
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceAround,
                   children: [
-                    // Durasi Info
+                    // Duration Info
                     Column(
                       mainAxisSize: MainAxisSize.min,
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const Text(
-                          'Saran Durasi:',
+                          'Recommended:',
                           style: TextStyle(color: Colors.white70, fontSize: 10),
                         ),
                         Text(
-                          '$_recommendedDuration detik',
+                          '$_recommendedDuration sec',
                           style: const TextStyle(
                             color: Colors.white,
                             fontSize: 12,
@@ -465,7 +465,7 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen> with Widget
                       crossAxisAlignment: CrossAxisAlignment.end,
                       children: [
                         Text(
-                          'Privasi Pasien:',
+                          'Patient Privacy:',
                           style: TextStyle(color: Colors.white70, fontSize: 10),
                         ),
                         Text(

@@ -42,7 +42,7 @@ class QualityFlagAlert extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Integritas Sinyal Sesi Valid',
+                    'Multimodal Signal Integrity Valid',
                     style: TextStyle(
                       color: Color(0xFF065F46),
                       fontSize: 13,
@@ -51,7 +51,7 @@ class QualityFlagAlert extends StatelessWidget {
                   ),
                   SizedBox(height: 2),
                   Text(
-                    'Kualitas tensor teks, akustik suara, & video ekspresi memenuhi standar baku inferensi.',
+                    'Text transcript, vocal acoustic, and visual facial signals satisfy quality standards.',
                     style: TextStyle(
                       color: Color(0xFF047857),
                       fontSize: 11,
@@ -68,22 +68,22 @@ class QualityFlagAlert extends StatelessWidget {
     final warnings = <Map<String, dynamic>>[];
     if (flags!.lowTextInformation) {
       warnings.add({
-        'title': 'Kuantitas Transkrip Teks Rendah',
-        'desc': 'Respons verbal terlalu singkat atau leksikon afektif minim.',
+        'title': 'Low Text Transcript Quantity',
+        'desc': 'Verbal responses are very brief or minimal affective vocabulary detected.',
         'icon': Icons.chat_bubble_outline,
       });
     }
     if (flags!.poorAudioQuality) {
       warnings.add({
-        'title': 'Kualitas Sinyal Audio Lemah',
-        'desc': 'Energi vokal rendah, volume mikrofon tidak memadai, atau derau latar belakang.',
+        'title': 'Suboptimal Audio Signal Quality',
+        'desc': 'Low vocal energy, insufficient microphone level, or excessive background noise.',
         'icon': Icons.mic_off_outlined,
       });
     }
     if (flags!.poorVisualQuality) {
       warnings.add({
-        'title': 'Dinamika Ekspresi Wajah Rendah',
-        'desc': 'Mikro-ekspresi fasial minim atau oklusi pencahayaan/kamera.',
+        'title': 'Flat Facial Expression Dynamics',
+        'desc': 'Minimal micro-expression variance or suboptimal lighting/camera angle.',
         'icon': Icons.videocam_off_outlined,
       });
     }
@@ -115,7 +115,7 @@ class QualityFlagAlert extends StatelessWidget {
               const SizedBox(width: 10),
               const Expanded(
                 child: Text(
-                  'Catatan Validitas Sinyal Multimodal:',
+                  'Multimodal Signal Validity Notes:',
                   style: TextStyle(
                     color: Color(0xFF92400E),
                     fontWeight: FontWeight.w700,
@@ -173,7 +173,7 @@ class QualityFlagAlert extends StatelessWidget {
                 borderRadius: BorderRadius.circular(6),
               ),
               child: Text(
-                'Detail Diagnostik: ${flags!.details}',
+                'Diagnostic Details: ${flags!.details}',
                 style: const TextStyle(
                   color: Color(0xFF78350F),
                   fontSize: 11,

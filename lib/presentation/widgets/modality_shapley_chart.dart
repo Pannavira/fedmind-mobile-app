@@ -29,11 +29,11 @@ class ModalityShapleyChart extends StatelessWidget {
   String _getModalityLabel(String modality) {
     switch (modality.toLowerCase()) {
       case 'text':
-        return 'Teks / Transkrip';
+        return 'Text / Transcript';
       case 'visual':
-        return 'Visual / Ekspresi';
+        return 'Visual / Expression';
       case 'audio':
-        return 'Audio / Akustik';
+        return 'Audio / Acoustic';
       default:
         return modality.toUpperCase();
     }
@@ -73,7 +73,7 @@ class ModalityShapleyChart extends StatelessWidget {
                       SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          'Atribusi Modalitas (Exact Shapley)',
+                          'Modality Attribution (Exact Shapley)',
                           style: TextStyle(
                             fontWeight: FontWeight.w700,
                             fontSize: 14,
@@ -96,7 +96,7 @@ class ModalityShapleyChart extends StatelessWidget {
                     ),
                   ),
                   child: Text(
-                    'Dominan: ${_getModalityLabel(attribution.dominantModality)}',
+                    'Dominant: ${_getModalityLabel(attribution.dominantModality)}',
                     style: TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.w700,
@@ -108,7 +108,7 @@ class ModalityShapleyChart extends StatelessWidget {
             ),
             const SizedBox(height: 6),
             Text(
-              'Perbandingan bobot kontribusi sinyal sesi konseling pasien terhadap rujukan kohort klinis (${ref.cohort}).',
+              'Signal contribution weight breakdown compared against the clinical benchmark cohort (${ref.cohort}).',
               style: const TextStyle(fontSize: 12, color: Color(0xFF64748B), height: 1.4),
             ),
             const SizedBox(height: 20),
@@ -124,11 +124,11 @@ class ModalityShapleyChart extends StatelessWidget {
                     touchTooltipData: BarTouchTooltipData(
                       getTooltipItem: (group, groupIndex, rod, rodIndex) {
                         final modalityName = groupIndex == 0
-                            ? 'Teks'
+                            ? 'Text'
                             : (groupIndex == 1 ? 'Visual' : 'Audio');
                         final isPatient = rodIndex == 0;
                         return BarTooltipItem(
-                          '$modalityName\n${isPatient ? "Sesi Pasien" : "Rujukan Global"}: ${rod.toY.toStringAsFixed(1)}%',
+                          '$modalityName\n${isPatient ? "Patient Session" : "Cohort Reference"}: ${rod.toY.toStringAsFixed(1)}%',
                           const TextStyle(
                             color: Colors.white,
                             fontSize: 12,
@@ -150,7 +150,7 @@ class ModalityShapleyChart extends StatelessWidget {
 
                           switch (value.toInt()) {
                             case 0:
-                              label = 'Teks';
+                              label = 'Text';
                               icon = Icons.text_fields_rounded;
                               col = ClinicalConstants.textModalityColor;
                               break;
@@ -219,7 +219,7 @@ class ModalityShapleyChart extends StatelessWidget {
                   ),
                   borderData: FlBorderData(show: false),
                   barGroups: [
-                    // Teks (index 0)
+                    // Text (index 0)
                     BarChartGroupData(
                       x: 0,
                       barRods: [
@@ -279,7 +279,7 @@ class ModalityShapleyChart extends StatelessWidget {
             ),
             const SizedBox(height: 14),
 
-            // Legenda Warna
+            // Color Legend
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               decoration: BoxDecoration(
@@ -294,28 +294,28 @@ class ModalityShapleyChart extends StatelessWidget {
                 children: [
                   _buildLegendItem(
                     color: ClinicalConstants.textModalityColor,
-                    label: 'Teks Pasien',
+                    label: 'Patient Text',
                   ),
                   _buildLegendItem(
                     color: ClinicalConstants.visualModalityColor,
-                    label: 'Visual Pasien',
+                    label: 'Patient Visual',
                   ),
                   _buildLegendItem(
                     color: ClinicalConstants.audioModalityColor,
-                    label: 'Audio Pasien',
+                    label: 'Patient Audio',
                   ),
                   _buildLegendItem(
                     color: const Color(0xFFCBD5E1),
-                    label: 'Rujukan Global',
+                    label: 'Cohort Reference',
                   ),
                 ],
               ),
             ),
             const SizedBox(height: 18),
 
-            // Nilai Kontribusi Eksak Shapley (phi)
+            // Exact Shapley Decomposition Values (phi)
             const Text(
-              'Dekomposisi Nilai Shapley Eksak (φ):',
+              'Exact Shapley Attribution Values (φ):',
               style: TextStyle(
                 fontWeight: FontWeight.w700,
                 fontSize: 13,
@@ -327,8 +327,8 @@ class ModalityShapleyChart extends StatelessWidget {
               children: [
                 Expanded(
                   child: _buildShapValueCard(
-                    title: 'Teks Sesi',
-                    subtitle: 'Leksikal Afek',
+                    title: 'Session Text',
+                    subtitle: 'Lexical Affect',
                     pct: attribution.textPct,
                     shap: attribution.shapValues.text,
                     color: ClinicalConstants.textModalityColor,
@@ -338,8 +338,8 @@ class ModalityShapleyChart extends StatelessWidget {
                 const SizedBox(width: 8),
                 Expanded(
                   child: _buildShapValueCard(
-                    title: 'Visual Sesi',
-                    subtitle: 'Ekspresi Mikro',
+                    title: 'Session Visual',
+                    subtitle: 'Micro-Expressions',
                     pct: attribution.visualPct,
                     shap: attribution.shapValues.visual,
                     color: ClinicalConstants.visualModalityColor,
@@ -349,8 +349,8 @@ class ModalityShapleyChart extends StatelessWidget {
                 const SizedBox(width: 8),
                 Expanded(
                   child: _buildShapValueCard(
-                    title: 'Audio Sesi',
-                    subtitle: 'Prosodi Vokal',
+                    title: 'Session Audio',
+                    subtitle: 'Vocal Prosody',
                     pct: attribution.audioPct,
                     shap: attribution.shapValues.audio,
                     color: ClinicalConstants.audioModalityColor,
@@ -361,7 +361,7 @@ class ModalityShapleyChart extends StatelessWidget {
             ),
             const SizedBox(height: 10),
 
-            // Penjelasan Klinis untuk Psikolog
+            // Clinical Explanation
             Container(
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
@@ -369,15 +369,15 @@ class ModalityShapleyChart extends StatelessWidget {
                 borderRadius: BorderRadius.circular(8),
                 border: Border.all(color: const Color(0xFFCCFBF1)), // Teal 100
               ),
-              child: Row(
+              child: const Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Icon(Icons.info_outline, size: 15, color: Color(0xFF0F766E)),
-                  const SizedBox(width: 8),
+                  Icon(Icons.info_outline, size: 15, color: Color(0xFF0F766E)),
+                  SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      'Keterangan: Nilai φ bernilai (+) meningkatkan estimasi depresi relatif terhadap baseline, sedangkan nilai (-) memberikan efek protektif (menurunkan skor).',
-                      style: const TextStyle(
+                      'Note: Positive (+) φ values indicate features increasing depressive risk relative to baseline, whereas negative (-) values indicate protective effects (reducing score).',
+                      style: TextStyle(
                         fontSize: 11,
                         color: Color(0xFF115E59),
                         height: 1.4,

@@ -23,7 +23,7 @@ class LocalStorageService {
   }) async {
     final sourceFile = File(sourceFilePath);
     if (!await sourceFile.exists()) {
-      throw 'Berkas video sumber tidak ditemukan di path: $sourceFilePath';
+      throw 'Source video file not found at path: $sourceFilePath';
     }
 
     final dir = await _getRecordingsDirectory();

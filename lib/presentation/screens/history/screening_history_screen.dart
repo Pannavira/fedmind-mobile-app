@@ -16,14 +16,14 @@ class ScreeningHistoryScreen extends StatefulWidget {
 
 class _ScreeningHistoryScreenState extends State<ScreeningHistoryScreen> {
   final TextEditingController _searchController = TextEditingController();
-  String _selectedRiskFilter = 'Semua';
+  String _selectedRiskFilter = 'All';
 
   final List<String> _riskFilterOptions = [
-    'Semua',
-    'Tinggi',
-    'Moderat',
+    'All',
+    'High',
+    'Moderate',
     'Borderline',
-    'Rendah',
+    'Low',
   ];
 
   @override
@@ -96,9 +96,9 @@ class _ScreeningHistoryScreenState extends State<ScreeningHistoryScreen> {
         title: const Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Riwayat Skrining Pasien'),
+            Text('Patient Screening History'),
             Text(
-              'Arsip Sesi Konseling & Keputusan Klinis',
+              'Clinical Sessions & Decision Archives',
               style: TextStyle(fontSize: 11, color: Color(0xFF64748B)),
             ),
           ],
@@ -107,7 +107,7 @@ class _ScreeningHistoryScreenState extends State<ScreeningHistoryScreen> {
           IconButton(
             onPressed: () => provider.fetchHistory(),
             icon: const Icon(Icons.sync_rounded),
-            tooltip: 'Segarkan Riwayat',
+            tooltip: 'Refresh History',
           ),
         ],
       ),
@@ -126,7 +126,7 @@ class _ScreeningHistoryScreenState extends State<ScreeningHistoryScreen> {
                     controller: _searchController,
                     onChanged: (_) => setState(() {}),
                     decoration: InputDecoration(
-                      hintText: 'Cari berdasarkan ID Pasien atau Sesi...',
+                      hintText: 'Search by Patient or Session ID...',
                       prefixIcon: const Icon(Icons.search_rounded, size: 20),
                       suffixIcon: _searchController.text.isNotEmpty
                           ? IconButton(
@@ -213,7 +213,7 @@ class _ScreeningHistoryScreenState extends State<ScreeningHistoryScreen> {
                 ),
                 const SizedBox(height: 14),
                 const Text(
-                  'Belum ada riwayat skrining',
+                  'No screening history yet',
                   style: TextStyle(
                     fontSize: 15,
                     fontWeight: FontWeight.w700,
@@ -222,7 +222,7 @@ class _ScreeningHistoryScreenState extends State<ScreeningHistoryScreen> {
                 ),
                 const SizedBox(height: 6),
                 const Text(
-                  'Jalankan skrining sesi konseling baru untuk mencatat riwayat pasien.',
+                  'Complete a clinical assessment session to log patient records.',
                   style: TextStyle(fontSize: 12, color: Color(0xFF94A3B8)),
                   textAlign: TextAlign.center,
                 ),
@@ -242,17 +242,17 @@ class _ScreeningHistoryScreenState extends State<ScreeningHistoryScreen> {
 
       if (!matchesQuery) return false;
 
-      if (_selectedRiskFilter == 'Semua') return true;
+      if (_selectedRiskFilter == 'All') return true;
 
       final category = item.riskCategory?.toLowerCase() ?? '';
       switch (_selectedRiskFilter) {
-        case 'Tinggi':
+        case 'High':
           return category == 'high';
-        case 'Moderat':
+        case 'Moderate':
           return category == 'moderate';
         case 'Borderline':
           return category == 'borderline';
-        case 'Rendah':
+        case 'Low':
           return category == 'low';
         default:
           return true;
@@ -269,7 +269,7 @@ class _ScreeningHistoryScreenState extends State<ScreeningHistoryScreen> {
                 Icon(Icons.search_off_rounded, size: 44, color: Colors.grey.shade400),
                 const SizedBox(height: 10),
                 const Text(
-                  'Tidak ditemukan data yang sesuai',
+                  'No matching screening records',
                   style: TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w700,
@@ -278,7 +278,7 @@ class _ScreeningHistoryScreenState extends State<ScreeningHistoryScreen> {
                 ),
                 const SizedBox(height: 4),
                 const Text(
-                  'Coba ubah kata kunci pencarian atau filter tingkat risiko.',
+                  'Try adjusting your search query or risk filter.',
                   style: TextStyle(fontSize: 12, color: Color(0xFF94A3B8)),
                 ),
               ],
@@ -368,7 +368,7 @@ class _ScreeningHistoryScreenState extends State<ScreeningHistoryScreen> {
                             ),
                             const SizedBox(width: 4),
                             Text(
-                              'Modalitas: ${dominantMod.toUpperCase()}',
+                              'Modality: ${dominantMod.toUpperCase()}',
                               style: const TextStyle(
                                 fontSize: 11,
                                 fontWeight: FontWeight.w700,

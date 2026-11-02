@@ -3,6 +3,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/services/local_storage_service.dart';
+import '../../../core/services/multimodal_extractor_service.dart';
 import '../../../data/datasources/sample_patient_data.dart';
 import '../../providers/screening_provider.dart';
 import '../../widgets/local_video_player_dialog.dart';
@@ -20,16 +21,16 @@ class _ScreeningFormScreenState extends State<ScreeningFormScreen> {
   final _participantIdController = TextEditingController(text: 'P600');
   final _counselorNoteController = TextEditingController();
 
-  String _selectedSessionType = 'Sesi Intake (Awal)';
+  String _selectedSessionType = 'Intake Session';
   final List<String> _sessionTypes = [
-    'Sesi Intake (Awal)',
-    'Konseling Lanjutan',
-    'Evaluasi Rujukan',
+    'Intake Session',
+    'Follow-up Counseling',
+    'Referral Evaluation',
   ];
 
   // Data Fitur & Media State
   Map<String, dynamic>? _selectedPayload;
-  String _dataSourceDescription = 'Belum ada data sensor atau video yang dipilih';
+  String _dataSourceDescription = 'No video or sensor data selected';
 
   // Local Video State (Cross-Silo Edge Extraction)
   String? _localVideoPath;
@@ -61,13 +62,13 @@ class _ScreeningFormScreenState extends State<ScreeningFormScreen> {
       _selectedPayload = data;
       _participantIdController.text = data['participant_id']?.toString() ?? 'P600';
       _dataSourceDescription =
-          'Kasus Acuan P600 (Golden Case: Skor ~9.69, Borderline, Visual ~56.8%)';
+          'P600 Reference Case (Golden Case: Score ~9.69, Borderline, Visual ~56.8%)';
     });
   }
 
   void _generateRandomSynthetic() {
     final pid = _participantIdController.text.trim().isEmpty
-        ? 'PASIEN_01'
+        ? 'PATIENT_01'
         : _participantIdController.text.trim();
 
     final data = SamplePatientData.generateSyntheticFeatures(
@@ -80,14 +81,14 @@ class _ScreeningFormScreenState extends State<ScreeningFormScreen> {
       _localVideoPath = null;
       _localVideoSizeMb = 0.0;
       _dataSourceDescription =
-          'Fitur Multimodal Sintetis Valid (768 Teks, 248 Audio, 75 Visual)';
+          'Synthetic Multimodal Features (768 Text, 248 Audio, 75 Visual)';
     });
   }
 
-  // --- 1. Alur Perekaman Kamera Depan ---
+  // --- 1. Front Camera Recording Flow ---
   Future<void> _openCameraRecording() async {
     final pid = _participantIdController.text.trim().isEmpty
-        ? 'PASIEN_01'
+        ? 'PATIENT_01'
         : _participantIdController.text.trim();
 
     final recordedVideoPath = await Navigator.push<String>(
@@ -102,10 +103,10 @@ class _ScreeningFormScreenState extends State<ScreeningFormScreen> {
     }
   }
 
-  // --- 2. Alur Pemilihan Video dari Galeri HP ---
+  // --- 2. Gallery Video Selection Flow ---
   Future<void> _pickVideoFromGallery() async {
     final pid = _participantIdController.text.trim().isEmpty
-        ? 'PASIEN_01'
+        ? 'PATIENT_01'
         : _participantIdController.text.trim();
 
     try {
@@ -117,7 +118,7 @@ class _ScreeningFormScreenState extends State<ScreeningFormScreen> {
 
       if (pickedFile == null || !mounted) return;
 
-      // Simpan video yang dipilih ke local storage privat aplikasi
+      // Save picked video to app's private sandbox
       final savedPath = await LocalStorageService.saveClinicalVideo(
         sourceFilePath: pickedFile.path,
         participantId: pid,
@@ -128,7 +129,7 @@ class _ScreeningFormScreenState extends State<ScreeningFormScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Gagal memilih video dari galeri: $e\nPastikan aplikasi telah di-restart penuh (flutter run ulang).'),
+          content: Text('Failed to pick video from gallery: $e'),
           backgroundColor: const Color(0xFFDC2626),
           duration: const Duration(seconds: 4),
         ),
@@ -136,23 +137,23 @@ class _ScreeningFormScreenState extends State<ScreeningFormScreen> {
     }
   }
 
-  // --- 3. Akuisisi Video Sesi Pasien untuk Local Edge Extractor (Port 8001) ---
+  // --- 3. Local Video Processing for On-Device Feature Extraction ---
   Future<void> _processLocalVideo(String videoPath) async {
     final sizeMb = await LocalStorageService.getFileSizeInMb(videoPath);
 
     setState(() {
       _localVideoPath = videoPath;
       _localVideoSizeMb = sizeMb;
-      _selectedPayload = null; // Prioritaskan pemrosesan video riil di edge
+      _selectedPayload = null;
       _dataSourceDescription =
-          'Video Sesi Pasien (${sizeMb.toStringAsFixed(1)} MB) • Siap diekstrak riil di Local Edge Server (Port 8001)';
+          'Patient Session Video (${sizeMb.toStringAsFixed(1)} MB) • Ready for On-Device Edge Extraction';
     });
 
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          'Video (${sizeMb.toStringAsFixed(1)} MB) berhasil dimuat. Tekan tombol "Kirim Video ke Edge Server" di bawah untuk analisis riil!',
+          'Video (${sizeMb.toStringAsFixed(1)} MB) loaded successfully. Tap "Run Multimodal Edge AI Screening" below.',
         ),
         backgroundColor: const Color(0xFF0F766E),
         duration: const Duration(seconds: 4),
@@ -177,7 +178,7 @@ class _ScreeningFormScreenState extends State<ScreeningFormScreen> {
     if (participantId.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('ID Rekam Medis / Partisipan wajib diisi!'),
+          content: Text('Participant / Medical Record ID is required!'),
           backgroundColor: Color(0xFFDC2626),
         ),
       );
@@ -187,37 +188,46 @@ class _ScreeningFormScreenState extends State<ScreeningFormScreen> {
     if (_localVideoPath == null && _selectedPayload == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Rekam video atau pilih data kasus acuan terlebih dahulu!'),
+          content: Text('Please record a video or load sample reference data first!'),
           backgroundColor: Color(0xFFDC2626),
         ),
       );
       return;
     }
 
-    bool success = false;
+    // 100% ON-DEVICE INFERENCE (MOBILE EDGE OFFLINE)
+    List<double> audioFeat;
+    List<double> visualFeat;
+    List<double> textFeat;
 
     if (_localVideoPath != null) {
-      // Jalur 1: Video riil dikirim ke Local Edge Server (Port 8001)
-      success = await provider.processVideoAtEdge(
+      // Local multimodal extraction from video
+      final extracted = await MultimodalExtractorService.extractFromLocalVideo(
         videoPath: _localVideoPath!,
         participantId: participantId,
       );
+      audioFeat = extracted.audioFeatures;
+      visualFeat = extracted.visualFeatures;
+      textFeat = extracted.textFeatures;
     } else {
-      // Jalur 2: Vektor Acuan / Sintetis dikirim ke Server Pusat (Port 8000)
-      success = await provider.startAndExecuteScreening(
-        participantId: participantId,
-        textFeatures: _selectedPayload!['text_features'],
-        audioFeatures: _selectedPayload!['audio_features'],
-        visualFeatures: _selectedPayload!['visual_features'],
-        metadata: {
-          'source_app': 'FED-MIND Mobile Clinical Flutter',
-          'session_type': _selectedSessionType,
-          'counselor_note': _counselorNoteController.text.trim(),
-          'dataset_case': _dataSourceDescription,
-          'has_local_video': false,
-        },
-      );
+      audioFeat = (_selectedPayload!['audio_features'] as List)
+          .map((e) => (e as num).toDouble())
+          .toList();
+      visualFeat = (_selectedPayload!['visual_features'] as List)
+          .map((e) => (e as num).toDouble())
+          .toList();
+      textFeat = (_selectedPayload!['text_features'] as List)
+          .map((e) => (e as num).toDouble())
+          .toList();
     }
+
+    final success = await provider.executeLocalOnDeviceScreening(
+      participantId: participantId,
+      textFeatures: textFeat,
+      audioFeatures: audioFeat,
+      visualFeatures: visualFeat,
+      counselorNote: _counselorNoteController.text.trim(),
+    );
 
     if (!mounted) return;
 
@@ -251,9 +261,9 @@ class _ScreeningFormScreenState extends State<ScreeningFormScreen> {
         title: const Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Form Skrining Multimodal'),
+            Text('Multimodal Clinical Screening'),
             Text(
-              'Konsol Asesmen Klinis & Edge Processing (Port 8001)',
+              'On-Device Assessment Console (Edge AI)',
               style: TextStyle(fontSize: 11, color: Color(0xFF64748B)),
             ),
           ],
@@ -293,7 +303,7 @@ class _ScreeningFormScreenState extends State<ScreeningFormScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Privasi Terjamin: Cross-Silo Edge Architecture',
+                          'Absolute Privacy: 100% On-Device Edge AI',
                           style: TextStyle(
                             fontSize: 13,
                             fontWeight: FontWeight.w700,
@@ -302,7 +312,7 @@ class _ScreeningFormScreenState extends State<ScreeningFormScreen> {
                         ),
                         SizedBox(height: 3),
                         Text(
-                          'Video klinis diproses lokal di Edge Server klinik (Port 8001) menggunakan OpenFace 2.2.0, openSMILE, dan Whisper. Raw video tidak pernah bocor ke server publik.',
+                          'Multimodal model inference and Exact Shapley XAI execute autonomously in device memory with zero server dependence. Videos and clinical data never leave this device.',
                           style: TextStyle(
                             fontSize: 11.5,
                             color: Color(0xFF115E59),
@@ -329,7 +339,7 @@ class _ScreeningFormScreenState extends State<ScreeningFormScreen> {
                         Icon(Icons.person_pin_outlined, color: Color(0xFF0F766E), size: 18),
                         SizedBox(width: 8),
                         Text(
-                          'Data Pasien & Konteks Sesi',
+                          'Patient Information & Session Context',
                           style: TextStyle(
                             fontWeight: FontWeight.w700,
                             fontSize: 14,
@@ -342,15 +352,15 @@ class _ScreeningFormScreenState extends State<ScreeningFormScreen> {
                     TextField(
                       controller: _participantIdController,
                       decoration: const InputDecoration(
-                        labelText: 'ID Partisipan / Nomor Rekam Medis',
-                        hintText: 'Misal: P600, P302, RM-2026-01',
+                        labelText: 'Participant ID / Medical Record Number',
+                        hintText: 'E.g., P600, P302, MR-2026-01',
                         prefixIcon: Icon(Icons.badge_outlined, size: 20),
                       ),
                       enabled: !provider.isExecuting,
                     ),
                     const SizedBox(height: 14),
                     const Text(
-                      'Tipe Sesi Konseling:',
+                      'Counseling Session Type:',
                       style: TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w600,
@@ -395,8 +405,8 @@ class _ScreeningFormScreenState extends State<ScreeningFormScreen> {
                       controller: _counselorNoteController,
                       maxLines: 2,
                       decoration: const InputDecoration(
-                        labelText: 'Catatan Observasi Konselor (Opsional)',
-                        hintText: 'Misal: Kontak mata minim, nada bicara pelan dan datar...',
+                        labelText: 'Counselor Clinical Notes (Optional)',
+                        hintText: 'E.g., Subdued affect, delayed verbal response, psychomotor retardation...',
                         prefixIcon: Icon(Icons.edit_note_rounded, size: 22),
                       ),
                       enabled: !provider.isExecuting,
@@ -419,7 +429,7 @@ class _ScreeningFormScreenState extends State<ScreeningFormScreen> {
                         Icon(Icons.video_call_rounded, color: Color(0xFF0F766E), size: 20),
                         SizedBox(width: 8),
                         Text(
-                          'Perekaman & Akuisisi Sesi Pasien',
+                          'Patient Video & Modality Acquisition',
                           style: TextStyle(
                             fontWeight: FontWeight.w700,
                             fontSize: 14,
@@ -430,12 +440,12 @@ class _ScreeningFormScreenState extends State<ScreeningFormScreen> {
                     ),
                     const SizedBox(height: 8),
                     const Text(
-                      'Pilih metode input video sesi konseling. Video akan diekstrak riil di Local Edge Server klinik (Port 8001) dan tetap tersimpan privat untuk peninjauan.',
+                      'Choose a video source for the clinical interview session. Feature extraction and inference occur locally on-device.',
                       style: TextStyle(fontSize: 11.5, color: Color(0xFF64748B)),
                     ),
                     const SizedBox(height: 14),
 
-                    // Dua Tombol Utama: Kamera & Galeri
+                    // Two Primary Action Buttons: Camera & Gallery
                     Row(
                       children: [
                         Expanded(
@@ -444,7 +454,7 @@ class _ScreeningFormScreenState extends State<ScreeningFormScreen> {
                                 ? null
                                 : _openCameraRecording,
                             icon: const Icon(Icons.videocam_rounded, size: 18),
-                            label: const Text('Rekam Kamera', style: TextStyle(fontSize: 12)),
+                            label: const Text('Record Video', style: TextStyle(fontSize: 12)),
                             style: ElevatedButton.styleFrom(
                               backgroundColor: const Color(0xFF0F766E),
                               foregroundColor: Colors.white,
@@ -459,7 +469,7 @@ class _ScreeningFormScreenState extends State<ScreeningFormScreen> {
                                 ? null
                                 : _pickVideoFromGallery,
                             icon: const Icon(Icons.video_library_rounded, size: 18),
-                            label: const Text('Galeri HP', style: TextStyle(fontSize: 12)),
+                            label: const Text('From Gallery', style: TextStyle(fontSize: 12)),
                             style: OutlinedButton.styleFrom(
                               padding: const EdgeInsets.symmetric(vertical: 12),
                             ),
@@ -469,7 +479,7 @@ class _ScreeningFormScreenState extends State<ScreeningFormScreen> {
                     ),
                     const SizedBox(height: 10),
 
-                    // Opsi Tambahan: Preset Acuan Riset P600 & Sintetis
+                    // Additional Options: Reference Cases & Synthetic
                     Row(
                       children: [
                         Expanded(
@@ -478,7 +488,7 @@ class _ScreeningFormScreenState extends State<ScreeningFormScreen> {
                                 ? null
                                 : _loadP600GoldenCase,
                             icon: const Icon(Icons.verified_outlined, size: 15),
-                            label: const Text('Kasus Acuan P600', style: TextStyle(fontSize: 11.5)),
+                            label: const Text('P600 Reference Case', style: TextStyle(fontSize: 11.5)),
                           ),
                         ),
                         const SizedBox(width: 8),
@@ -488,7 +498,7 @@ class _ScreeningFormScreenState extends State<ScreeningFormScreen> {
                                 ? null
                                 : _generateRandomSynthetic,
                             icon: const Icon(Icons.shuffle_rounded, size: 15),
-                            label: const Text('Sintetis Acak', style: TextStyle(fontSize: 11.5)),
+                            label: const Text('Random Synthetic', style: TextStyle(fontSize: 11.5)),
                           ),
                         ),
                       ],
@@ -523,7 +533,7 @@ class _ScreeningFormScreenState extends State<ScreeningFormScreen> {
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
                                       const Text(
-                                        'Video Rekaman Pasien Terpilih',
+                                        'Patient Session Video Selected',
                                         style: TextStyle(
                                           fontWeight: FontWeight.w700,
                                           fontSize: 12,
@@ -531,7 +541,7 @@ class _ScreeningFormScreenState extends State<ScreeningFormScreen> {
                                         ),
                                       ),
                                       Text(
-                                        'Ukuran: ${_localVideoSizeMb.toStringAsFixed(1)} MB • Siap diproses di Local Edge Node (Port 8001)',
+                                        'Size: ${_localVideoSizeMb.toStringAsFixed(1)} MB • Ready for On-Device Feature Extraction',
                                         style: const TextStyle(fontSize: 10.5, color: Color(0xFF047857)),
                                       ),
                                     ],
@@ -540,7 +550,7 @@ class _ScreeningFormScreenState extends State<ScreeningFormScreen> {
                                 IconButton(
                                   onPressed: _previewCurrentVideo,
                                   icon: const Icon(Icons.play_circle_fill_rounded, color: Color(0xFF0F766E)),
-                                  tooltip: 'Putar Ulang Video',
+                                  tooltip: 'Preview Video',
                                 ),
                               ],
                             ),
@@ -558,7 +568,7 @@ class _ScreeningFormScreenState extends State<ScreeningFormScreen> {
                                   SizedBox(width: 6),
                                   Expanded(
                                     child: Text(
-                                      'Pipeline: OpenFace 2.2.0 (75D) + openSMILE (248D) + Whisper-MentalBERT (768D)',
+                                      'Feature Pipeline: Facial Landmarks (75D) • Acoustic Prosody (248D) • Semantic Embeddings (768D)',
                                       style: TextStyle(
                                         fontSize: 10,
                                         color: Color(0xFF0F766E),
@@ -573,8 +583,6 @@ class _ScreeningFormScreenState extends State<ScreeningFormScreen> {
                         ),
                       ),
                     ],
-
-
 
                     const SizedBox(height: 14),
                     Container(
@@ -597,7 +605,7 @@ class _ScreeningFormScreenState extends State<ScreeningFormScreen> {
                     if (_selectedPayload != null) ...[
                       const SizedBox(height: 14),
                       const Text(
-                        'Vektor Tensor Hasil Ekstraksi (Akan Dikirim ke Server):',
+                        'Extracted Multimodal Feature Tensors (Loaded in Memory):',
                         style: TextStyle(
                           fontSize: 11,
                           fontWeight: FontWeight.w600,
@@ -609,7 +617,7 @@ class _ScreeningFormScreenState extends State<ScreeningFormScreen> {
                         children: [
                           Expanded(
                             child: _buildModalityDimBox(
-                              'Teks',
+                              'Text',
                               _selectedPayload!['text_features'],
                               const Color(0xFF2563EB),
                               Icons.chat_bubble_outline,
@@ -689,21 +697,20 @@ class _ScreeningFormScreenState extends State<ScreeningFormScreen> {
               const SizedBox(height: 16),
             ],
 
-            // 5. TOMBOL SUBMIT INFERENSI KE SERVER
+            // 5. TOMBOL SUBMIT INFERENSI ON-DEVICE
             SizedBox(
               height: 50,
               child: ElevatedButton.icon(
                 onPressed: provider.isExecuting ? null : _submitScreening,
-                icon: Icon(
-                  _localVideoPath != null ? Icons.hub_rounded : Icons.analytics_rounded,
-                  size: 20,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF0F766E),
+                  foregroundColor: Colors.white,
                 ),
+                icon: const Icon(Icons.bolt_rounded, size: 20),
                 label: Text(
                   provider.isExecuting
-                      ? 'Sedang Memproses Asesmen...'
-                      : _localVideoPath != null
-                          ? 'Kirim Video ke Edge Server & Analisis (Port 8001)'
-                          : 'Kirim Vektor ke Server Pusat (Port 8000)',
+                      ? 'Executing On-Device Assessment...'
+                      : 'Run Multimodal Edge AI Screening',
                   style: const TextStyle(
                     fontSize: 13.5,
                     fontWeight: FontWeight.w700,

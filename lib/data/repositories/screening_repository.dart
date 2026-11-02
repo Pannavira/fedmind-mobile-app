@@ -1,11 +1,41 @@
 import 'package:dio/dio.dart';
+import '../../core/services/local_inference_service.dart';
 import '../datasources/screening_remote_datasource.dart';
 import '../models/screening_models.dart';
 
 class ScreeningRepository {
   final ScreeningRemoteDataSource remoteDataSource;
+  final LocalInferenceService localInferenceService;
 
-  ScreeningRepository({required this.remoteDataSource});
+  ScreeningRepository({
+    required this.remoteDataSource,
+    LocalInferenceService? localInferenceService,
+  }) : localInferenceService = localInferenceService ?? LocalInferenceService();
+
+  /// Menjalankan inferensi dan Exact Shapley XAI langsung di mobile on-device (Edge Offline)
+  Future<ScreeningResponse> executeLocalScreening({
+    required String participantId,
+    required List<double> textFeatures,
+    required List<double> audioFeatures,
+    required List<double> visualFeatures,
+    String? sessionId,
+    String? counselorNote,
+    String? transcription,
+  }) async {
+    try {
+      return await localInferenceService.predict(
+        audioFeatures: audioFeatures,
+        visualFeatures: visualFeatures,
+        textFeatures: textFeatures,
+        participantId: participantId,
+        sessionId: sessionId,
+        counselorNote: counselorNote,
+        transcription: transcription,
+      );
+    } catch (e) {
+      throw 'Failed to execute local on-device inference: $e';
+    }
+  }
 
   /// Cek kesehatan backend dan status model
   Future<Map<String, dynamic>> checkHealth() async {
@@ -14,7 +44,7 @@ class ScreeningRepository {
     } on DioException catch (e) {
       throw _handleDioError(e);
     } catch (e) {
-      throw 'Terjadi kesalahan tidak terduga: $e';
+      throw 'An unexpected error occurred: $e';
     }
   }
 
@@ -25,7 +55,7 @@ class ScreeningRepository {
     } on DioException catch (e) {
       throw _handleDioError(e);
     } catch (e) {
-      throw 'Gagal terhubung ke Local Edge Server: $e';
+      throw 'Failed to connect to Local Edge Server: $e';
     }
   }
 
@@ -36,7 +66,7 @@ class ScreeningRepository {
     } on DioException catch (e) {
       throw _handleDioError(e);
     } catch (e) {
-      throw 'Terjadi kesalahan tidak terduga: $e';
+      throw 'An unexpected error occurred: $e';
     }
   }
 
@@ -53,7 +83,7 @@ class ScreeningRepository {
     } on DioException catch (e) {
       throw _handleDioError(e);
     } catch (e) {
-      throw 'Gagal membuat sesi skrining: $e';
+      throw 'Failed to create screening session: $e';
     }
   }
 
@@ -76,7 +106,7 @@ class ScreeningRepository {
     } on DioException catch (e) {
       throw _handleDioError(e);
     } catch (e) {
-      throw 'Gagal menjalankan inferensi multimodal: $e';
+      throw 'Failed to execute multimodal inference: $e';
     }
   }
 
@@ -97,7 +127,7 @@ class ScreeningRepository {
     } on DioException catch (e) {
       throw _handleDioError(e);
     } catch (e) {
-      throw 'Gagal memproses video di Local Edge Server: $e';
+      throw 'Failed to process video on Local Edge Server: $e';
     }
   }
 
@@ -108,7 +138,7 @@ class ScreeningRepository {
     } on DioException catch (e) {
       throw _handleDioError(e);
     } catch (e) {
-      throw 'Gagal mengambil detail skrining: $e';
+      throw 'Failed to retrieve screening detail: $e';
     }
   }
 
@@ -129,7 +159,7 @@ class ScreeningRepository {
     } on DioException catch (e) {
       throw _handleDioError(e);
     } catch (e) {
-      throw 'Gagal memuat riwayat skrining: $e';
+      throw 'Failed to load screening history: $e';
     }
   }
 
@@ -139,20 +169,20 @@ class ScreeningRepository {
       case DioExceptionType.connectionTimeout:
       case DioExceptionType.sendTimeout:
       case DioExceptionType.receiveTimeout:
-        return 'Koneksi ke server timeout. Proses ekstraksi video neural mungkin memerlukan waktu lebih lama.';
+        return 'Server connection timed out. Neural extraction may take longer.';
       case DioExceptionType.connectionError:
-        return 'Gagal terhubung ke server (${error.requestOptions.baseUrl}). Pastikan Uvicorn berjalan (Central: 8000, Edge: 8001).';
+        return 'Failed to connect to server (${error.requestOptions.baseUrl}).';
       case DioExceptionType.badResponse:
         final statusCode = error.response?.statusCode;
         final responseData = error.response?.data;
         if (responseData is Map && responseData.containsKey('detail')) {
           return 'Server error ($statusCode): ${responseData['detail']}';
         }
-        return 'Server merespons dengan kode error $statusCode.';
+        return 'Server responded with error status $statusCode.';
       case DioExceptionType.cancel:
-        return 'Permintaan ke server dibatalkan.';
+        return 'Request to server was canceled.';
       default:
-        return 'Terjadi gangguan jaringan: ${error.message}';
+        return 'Network error occurred: ${error.message}';
     }
   }
 }

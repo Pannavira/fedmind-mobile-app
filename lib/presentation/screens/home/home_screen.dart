@@ -100,7 +100,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     ],
                   ),
                   Text(
-                    'Asisten AI Konseling & Multimodal XAI',
+                    'Clinical Decision Support & Multimodal XAI',
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       fontSize: 10.5,
@@ -207,7 +207,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                     ),
                                     SizedBox(width: 5),
                                     Text(
-                                      'SESI KONSELING AKTIF',
+                                      'ACTIVE CLINICAL SESSION',
                                       style: TextStyle(
                                         color: Colors.white,
                                         fontSize: 10,
@@ -228,7 +228,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           ),
                           const SizedBox(height: 14),
                           const Text(
-                            'Skrining Multimodal Baru',
+                            'New Multimodal Screening',
                             style: TextStyle(
                               color: Colors.white,
                               fontSize: 20,
@@ -238,7 +238,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           ),
                           const SizedBox(height: 6),
                           const Text(
-                            'Evaluasi tingkat keparahan depresi berbasis fusi representasi Teks percakapan, Akustik suara, dan Ekspresi wajah dengan Explainable AI (Exact Shapley).',
+                            'Evaluate depression severity through fusion of conversational Text, vocal Acoustics, and facial Expressions with Explainable AI (Exact Shapley).',
                             style: TextStyle(
                               color: Color(0xFFCCFBF1),
                               fontSize: 12.5,
@@ -248,7 +248,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           const SizedBox(height: 16),
                           Row(
                             children: [
-                              _buildHeroModalityTag('Teks', Icons.chat_bubble_outline),
+                              _buildHeroModalityTag('Text', Icons.chat_bubble_outline),
                               const SizedBox(width: 8),
                               _buildHeroModalityTag('Audio', Icons.mic_none_outlined),
                               const SizedBox(width: 8),
@@ -264,7 +264,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                   borderRadius: BorderRadius.circular(10),
                                 ),
                                 child: const Text(
-                                  'Mulai Asesmen',
+                                  'Begin Assessment',
                                   style: TextStyle(
                                     color: Color(0xFF0F766E),
                                     fontSize: 12,
@@ -289,7 +289,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     child: _buildTelemetryCard(
                       icon: Icons.assignment_turned_in_outlined,
                       iconColor: const Color(0xFF0F766E),
-                      label: 'Total Skrining',
+                      label: 'Total Screenings',
                       value: '${provider.historyItems.length}',
                     ),
                   ),
@@ -298,8 +298,8 @@ class _HomeScreenState extends State<HomeScreen> {
                     child: _buildTelemetryCard(
                       icon: Icons.auto_graph_rounded,
                       iconColor: const Color(0xFF0284C7),
-                      label: 'XAI Koalisi',
-                      value: '8 Koalisi',
+                      label: 'XAI Coalitions',
+                      value: '8 Coalitions',
                     ),
                   ),
                   const SizedBox(width: 10),
@@ -307,8 +307,8 @@ class _HomeScreenState extends State<HomeScreen> {
                     child: _buildTelemetryCard(
                       icon: Icons.verified_outlined,
                       iconColor: const Color(0xFF10B981),
-                      label: 'Akurasi Baseline',
-                      value: '100% Eksak',
+                      label: 'Baseline Integrity',
+                      value: '100% Exact',
                     ),
                   ),
                 ],
@@ -328,7 +328,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       Icon(Icons.history_rounded, size: 18, color: Color(0xFF0F766E)),
                       SizedBox(width: 6),
                       Text(
-                        'Riwayat Pemeriksaan Terkini',
+                        'Recent Screening History',
                         style: TextStyle(
                           fontSize: 15,
                           fontWeight: FontWeight.w700,
@@ -347,7 +347,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       );
                     },
                     icon: const Icon(Icons.arrow_forward, size: 14),
-                    label: const Text('Lihat Semua'),
+                    label: const Text('View All'),
                   ),
                 ],
               ),
@@ -381,7 +381,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           ),
                           const SizedBox(height: 10),
                           const Text(
-                            'Belum ada skrining yang tercatat',
+                            'No screenings recorded yet',
                             style: TextStyle(
                               fontSize: 14,
                               fontWeight: FontWeight.w600,
@@ -390,7 +390,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           ),
                           const SizedBox(height: 4),
                           const Text(
-                            'Mulai sesi konseling baru untuk mencatat evaluasi pasien.',
+                            'Begin a new clinical session to record patient evaluations.',
                             style: TextStyle(
                               fontSize: 12,
                               color: Color(0xFF94A3B8),
@@ -475,7 +475,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                         ),
                                         const SizedBox(width: 4),
                                         Text(
-                                          'Dominan: ${dominantMod.toUpperCase()}',
+                                          'Dominant: ${dominantMod.toUpperCase()}',
                                           style: const TextStyle(
                                             fontSize: 11.5,
                                             fontWeight: FontWeight.w600,
@@ -519,7 +519,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           ),
                           SizedBox(width: 8),
                           Text(
-                            'Protokol Klinis & Integritas AI',
+                            'Clinical Protocols & AI Integrity',
                             style: TextStyle(
                               fontWeight: FontWeight.w700,
                               fontSize: 14,
@@ -531,23 +531,23 @@ class _HomeScreenState extends State<HomeScreen> {
                       const SizedBox(height: 14),
                       _buildProtocolTile(
                         icon: Icons.balance_outlined,
-                        title: 'Atribusi Eksak Shapley',
+                        title: 'Exact Shapley Attribution',
                         desc:
-                            'Mengurai kontribusi 3 modalitas secara adil melalui 8 koalisi laten (v000 baseline) tanpa bias aproksimasi.',
+                            'Deconstructs 3 modality contributions through 8 latent coalitions against the v000 baseline without stochastic approximation error.',
                       ),
                       const SizedBox(height: 10),
                       _buildProtocolTile(
                         icon: Icons.lock_outline_rounded,
-                        title: 'Kerahasiaan Medis Pasien',
+                        title: 'Patient Privacy & RAM Isolation',
                         desc:
-                            'Representasi tensor hanya berada di memori RAM dan dihapus segera pasca inferensi untuk menjaga privasi sesi konseling.',
+                            'Raw tensor representations reside strictly in volatile memory and are purged post-inference to safeguard counselor session privacy.',
                       ),
                       const SizedBox(height: 10),
                       _buildProtocolTile(
                         icon: Icons.checklist_rtl_rounded,
-                        title: 'Ambang Stratifikasi PHQ-8 Baku',
+                        title: 'Standard PHQ-8 Stratification',
                         desc:
-                            'Low (<8.0), Borderline (8.0–9.9), Moderate (10.0–14.9), High (>=15.0). Keputusan klinis tetap berada di tangan psikolog.',
+                            'Low (<8.0), Borderline (8.0–9.9), Moderate (10.0–14.9), High (>=15.0). Autonomous triage assists, but never replaces clinical judgment.',
                       ),
                     ],
                   ),

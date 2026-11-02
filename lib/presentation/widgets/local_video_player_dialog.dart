@@ -46,7 +46,7 @@ class _LocalVideoPlayerDialogState extends State<LocalVideoPlayerDialog> {
       final file = File(widget.videoPath);
       if (!await file.exists()) {
         setState(() {
-          _errorMessage = 'Berkas video tidak ditemukan di penyimpanan lokal HP: ${widget.videoPath}';
+          _errorMessage = 'Video file not found in local device storage: ${widget.videoPath}';
         });
         return;
       }
@@ -64,7 +64,7 @@ class _LocalVideoPlayerDialogState extends State<LocalVideoPlayerDialog> {
       _controller.play();
     } catch (e) {
       setState(() {
-        _errorMessage = 'Gagal memutar video lokal: $e';
+        _errorMessage = 'Failed to play local video: $e';
       });
     }
   }
@@ -129,7 +129,7 @@ class _LocalVideoPlayerDialogState extends State<LocalVideoPlayerDialog> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Rekaman Lokal: ${widget.participantId}',
+                          'Local Recording: ${widget.participantId}',
                           style: const TextStyle(
                             fontSize: 14,
                             fontWeight: FontWeight.w700,
@@ -137,7 +137,7 @@ class _LocalVideoPlayerDialogState extends State<LocalVideoPlayerDialog> {
                           ),
                         ),
                         const Text(
-                          'Tersimpan privat di HP konselor (Tidak diunggah)',
+                          'Stored privately on device (Never uploaded)',
                           style: TextStyle(
                             fontSize: 10.5,
                             color: Color(0xFF059669),
@@ -276,7 +276,7 @@ class _LocalVideoPlayerDialogState extends State<LocalVideoPlayerDialog> {
                         size: 18,
                       ),
                       label: Text(
-                        _isInitialized && _controller.value.isPlaying ? 'Jeda' : 'Putar',
+                        _isInitialized && _controller.value.isPlaying ? 'Pause' : 'Play',
                         style: const TextStyle(fontSize: 12),
                       ),
                     ),
@@ -285,7 +285,7 @@ class _LocalVideoPlayerDialogState extends State<LocalVideoPlayerDialog> {
                   Expanded(
                     child: ElevatedButton(
                       onPressed: () => Navigator.of(context).pop(),
-                      child: const Text('Tutup', style: TextStyle(fontSize: 12)),
+                      child: const Text('Close', style: TextStyle(fontSize: 12)),
                     ),
                   ),
                 ],

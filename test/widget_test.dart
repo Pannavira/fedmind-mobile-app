@@ -5,9 +5,19 @@ import 'package:fedmind_mobile_app/data/datasources/screening_remote_datasource.
 import 'package:fedmind_mobile_app/data/models/screening_models.dart';
 import 'package:fedmind_mobile_app/data/repositories/screening_repository.dart';
 
+import 'package:fedmind_mobile_app/core/services/local_inference_service.dart';
+
+class FakeLocalInferenceService extends LocalInferenceService {
+  @override
+  Future<void> initialize() async {}
+}
+
 class FakeScreeningRepository extends ScreeningRepository {
   FakeScreeningRepository()
-      : super(remoteDataSource: ScreeningRemoteDataSource(apiClient: ApiClient()));
+      : super(
+          remoteDataSource: ScreeningRemoteDataSource(apiClient: ApiClient()),
+          localInferenceService: FakeLocalInferenceService(),
+        );
 
   @override
   Future<Map<String, dynamic>> checkHealth() async {
@@ -33,11 +43,11 @@ class FakeScreeningRepository extends ScreeningRepository {
 void main() {
   testWidgets('FedMindApp smoke test with stub repository', (WidgetTester tester) async {
     await tester.pumpWidget(FedMindApp(repository: FakeScreeningRepository()));
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 300));
 
     expect(find.text('FED-MIND'), findsOneWidget);
     expect(find.text('Dashboard'), findsOneWidget);
-    expect(find.text('Skrining'), findsOneWidget);
-    expect(find.text('Riwayat'), findsOneWidget);
+    expect(find.text('Screening'), findsOneWidget);
+    expect(find.text('History'), findsOneWidget);
   });
 }

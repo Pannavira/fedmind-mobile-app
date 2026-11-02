@@ -38,22 +38,22 @@ class _ScreeningResultScreenState extends State<ScreeningResultScreen> {
     final dominantMod = widget.result.patientModalityAttribution?.dominantModality ?? '-';
 
     final summary = '''
-=== RINGKASAN ASESMEN KLINIS FED-MIND ===
-ID Pasien: ${widget.result.participantId}
-ID Sesi: ${widget.result.screeningId}
-Estimasi PHQ-8: $phqScore / 24.0
-Kategori Risiko: ${ClinicalConstants.getRiskLabel(riskCategory)}
-Modalitas Dominan: ${dominantMod.toUpperCase()}
-Narasi Klinis: ${widget.result.clinicalNarrative ?? '-'}
-Rekomendasi Konseling: ${ClinicalConstants.getCounselingGuidance(riskCategory)}
-Catatan Tambahan Konselor: ${_counselorActionNoteController.text.trim()}
-========================================
+=== FED-MIND CLINICAL ASSESSMENT SUMMARY ===
+Participant ID: ${widget.result.participantId}
+Session ID: ${widget.result.screeningId}
+Estimated PHQ-8: $phqScore / 24.0
+Risk Category: ${ClinicalConstants.getRiskLabel(riskCategory)}
+Dominant Modality: ${dominantMod.toUpperCase()}
+Clinical Narrative: ${widget.result.clinicalNarrative ?? '-'}
+Counseling Guidance: ${ClinicalConstants.getCounselingGuidance(riskCategory)}
+Counselor Action Notes: ${_counselorActionNoteController.text.trim()}
+============================================
 ''';
 
     Clipboard.setData(ClipboardData(text: summary));
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text('Ringkasan asesmen klinis berhasil disalin ke clipboard!'),
+        content: Text('Clinical assessment summary copied to clipboard!'),
         backgroundColor: Color(0xFF0F766E),
       ),
     );
@@ -73,9 +73,9 @@ Catatan Tambahan Konselor: ${_counselorActionNoteController.text.trim()}
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Hasil Asesmen: ${result.participantId}'),
+            Text('Assessment: ${result.participantId}'),
             const Text(
-              'Laporan Keputusan Klinis & Explainable AI',
+              'Clinical Decision Support & Explainable AI',
               style: TextStyle(fontSize: 11, color: Color(0xFF64748B)),
             ),
           ],
@@ -84,7 +84,7 @@ Catatan Tambahan Konselor: ${_counselorActionNoteController.text.trim()}
           IconButton(
             onPressed: () => _copyClinicalSummary(context),
             icon: const Icon(Icons.copy_rounded),
-            tooltip: 'Salin Ringkasan Rekam Medis',
+            tooltip: 'Copy Clinical Summary',
           ),
         ],
       ),
@@ -126,7 +126,7 @@ Catatan Tambahan Konselor: ${_counselorActionNoteController.text.trim()}
                             ),
                             const SizedBox(height: 3),
                             Text(
-                              'Sesi: ${result.screeningId.length > 8 ? result.screeningId.substring(0, 8) : result.screeningId}',
+                              'Session: ${result.screeningId.length > 8 ? result.screeningId.substring(0, 8) : result.screeningId}',
                               style: const TextStyle(
                                 fontSize: 11,
                                 color: Color(0xFF94A3B8),
@@ -168,7 +168,7 @@ Catatan Tambahan Konselor: ${_counselorActionNoteController.text.trim()}
                               ),
                             ),
                             const Text(
-                              'PHQ-8 (Skala 0–24)',
+                              'PHQ-8 (Scale 0–24)',
                               style: TextStyle(
                                 fontSize: 10.5,
                                 color: Color(0xFF64748B),
@@ -203,7 +203,7 @@ Catatan Tambahan Konselor: ${_counselorActionNoteController.text.trim()}
                     ),
                     const SizedBox(height: 16),
 
-                    // Indikator Triase Biner & Sigmoid Proxy
+                    // Binary Triage & Sigmoid Proxy Indicators
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                       decoration: BoxDecoration(
@@ -215,10 +215,10 @@ Catatan Tambahan Konselor: ${_counselorActionNoteController.text.trim()}
                         mainAxisAlignment: MainAxisAlignment.spaceAround,
                         children: [
                           _buildDetailStat(
-                            label: 'Triase Biner',
+                            label: 'Binary Triage',
                             value: prediction?.binaryPrediction == 'depression_risk'
-                                ? 'RISIKO DEPRESI'
-                                : 'NON-DEPRESI',
+                                ? 'DEPRESSION RISK'
+                                : 'NON-DEPRESSION',
                             valueColor: prediction?.binaryPrediction == 'depression_risk'
                                 ? const Color(0xFFDC2626)
                                 : const Color(0xFF16A34A),
@@ -307,7 +307,7 @@ Catatan Tambahan Konselor: ${_counselorActionNoteController.text.trim()}
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              'Rekaman Sesi Tersimpan di HP',
+                              'Session Video Stored Locally',
                               style: TextStyle(
                                 fontWeight: FontWeight.w700,
                                 fontSize: 13.5,
@@ -316,7 +316,7 @@ Catatan Tambahan Konselor: ${_counselorActionNoteController.text.trim()}
                             ),
                             SizedBox(height: 2),
                             Text(
-                              'Privat di memori HP konselor (Tidak diunggah)',
+                              'Stored privately in device storage (Never uploaded)',
                               style: TextStyle(
                                 fontSize: 11,
                                 color: Color(0xFF059669),
@@ -335,7 +335,7 @@ Catatan Tambahan Konselor: ${_counselorActionNoteController.text.trim()}
                           );
                         },
                         icon: const Icon(Icons.play_circle_fill_rounded, size: 16),
-                        label: const Text('Tonton', style: TextStyle(fontSize: 12)),
+                        label: const Text('Watch', style: TextStyle(fontSize: 12)),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: const Color(0xFF0F766E),
                           foregroundColor: Colors.white,
@@ -377,7 +377,7 @@ Catatan Tambahan Konselor: ${_counselorActionNoteController.text.trim()}
                               Icon(Icons.notes_rounded, color: Color(0xFF0F766E), size: 19),
                               SizedBox(width: 8),
                               Text(
-                                'Sintesis Narasi Klinis',
+                                'Clinical Narrative Synthesis',
                                 style: TextStyle(
                                   fontWeight: FontWeight.w700,
                                   fontSize: 14,
@@ -391,13 +391,13 @@ Catatan Tambahan Konselor: ${_counselorActionNoteController.text.trim()}
                               Clipboard.setData(ClipboardData(text: result.clinicalNarrative!));
                               ScaffoldMessenger.of(context).showSnackBar(
                                 const SnackBar(
-                                  content: Text('Narasi klinis berhasil disalin!'),
+                                  content: Text('Clinical narrative copied to clipboard!'),
                                   backgroundColor: Color(0xFF0F766E),
                                 ),
                               );
                             },
                             icon: const Icon(Icons.copy, size: 13),
-                            label: const Text('Salin Narasi', style: TextStyle(fontSize: 11)),
+                            label: const Text('Copy', style: TextStyle(fontSize: 11)),
                           ),
                         ],
                       ),
@@ -436,7 +436,7 @@ Catatan Tambahan Konselor: ${_counselorActionNoteController.text.trim()}
                         Icon(Icons.edit_note_rounded, color: Color(0xFF0F766E), size: 20),
                         SizedBox(width: 8),
                         Text(
-                          'Catatan Rencana Sesi Konselor',
+                          'Counselor Clinical Action Plan',
                           style: TextStyle(
                             fontWeight: FontWeight.w700,
                             fontSize: 14,
@@ -451,7 +451,7 @@ Catatan Tambahan Konselor: ${_counselorActionNoteController.text.trim()}
                       maxLines: 3,
                       decoration: const InputDecoration(
                         hintText:
-                            'Tulis catatan rencana intervensi konseling, tindak lanjut sesi, atau observasi kualitatif...',
+                            'Record intervention strategy, follow-up session goals, or qualitative observations...',
                       ),
                     ),
                   ],
@@ -471,7 +471,7 @@ Catatan Tambahan Konselor: ${_counselorActionNoteController.text.trim()}
                 },
                 leading: const Icon(Icons.verified_outlined, color: Color(0xFF0F766E), size: 20),
                 title: const Text(
-                  'Audit Ilmiah & Verifikasi Aksioma',
+                  'Scientific Audit & Axiom Verification',
                   style: TextStyle(
                     fontWeight: FontWeight.w700,
                     fontSize: 13,
@@ -479,7 +479,7 @@ Catatan Tambahan Konselor: ${_counselorActionNoteController.text.trim()}
                   ),
                 ),
                 subtitle: const Text(
-                  'Akurasi 8 koalisi laten dan efisiensi Shapley',
+                  '8 latent coalitions and Exact Shapley efficiency',
                   style: TextStyle(fontSize: 11, color: Color(0xFF64748B)),
                 ),
                 children: [
@@ -490,22 +490,22 @@ Catatan Tambahan Konselor: ${_counselorActionNoteController.text.trim()}
                         const Divider(color: Color(0xFFF1F5F9)),
                         const SizedBox(height: 6),
                         _buildMetaRow(
-                          'Model Aktif',
+                          'Active Model',
                           '${result.model?.name ?? "Baseline"} (${result.model?.modelId ?? "centralized"})',
                         ),
                         _buildMetaRow(
-                          'Arsitektur Model',
+                          'Model Architecture',
                           result.model?.architecture ?? 'Late-Fusion Attention',
                         ),
                         _buildMetaRow(
-                          'Metode XAI',
-                          '${result.xai?.method ?? "Exact Shapley"} (${result.xai?.numCoalitions ?? 8} koalisi)',
+                          'XAI Method',
+                          '${result.xai?.method ?? "Exact Shapley"} (${result.xai?.numCoalitions ?? 8} coalitions)',
                         ),
                         _buildMetaRow(
-                          'Aksioma Efisiensi',
+                          'Efficiency Axiom',
                           result.xai?.efficiencyAxiomVerified == true
-                              ? 'Terverifikasi (100% Eksak)'
-                              : 'Estimasi Stokastik',
+                              ? 'Verified (100% Exact)'
+                              : 'Stochastic Estimation',
                         ),
                         _buildMetaRow(
                           'Baseline E[f(X)]',
@@ -543,7 +543,7 @@ Catatan Tambahan Konselor: ${_counselorActionNoteController.text.trim()}
                   Expanded(
                     child: Text(
                       result.disclaimer ??
-                          'PEMBERITAHUAN KLINIS: Hasil instrumen FED-MIND ini merupakan Clinical Decision Support (CDS) dan BUKAN diagnosis medis/psikiatri otonom. Keputusan intervensi medis tetap menjadi wewenang dan tanggung jawab klinisi profesional.',
+                          'CLINICAL NOTICE: This FED-MIND screening result functions strictly as Clinical Decision Support (CDS) and is NOT an autonomous medical/psychiatric diagnosis. Clinical diagnostic and therapeutic decisions remain the sole responsibility of licensed mental health professionals.',
                       style: const TextStyle(
                         fontSize: 11,
                         color: Color(0xFF64748B),

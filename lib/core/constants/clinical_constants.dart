@@ -39,62 +39,62 @@ class ClinicalConstants {
   static String getRiskLabel(String? riskCategory) {
     switch (riskCategory?.toLowerCase()) {
       case 'low':
-        return 'Risiko Rendah (Non-Depression)';
+        return 'Low Risk (Non-Depression)';
       case 'borderline':
-        return 'Borderline (Pengawasan Klinis)';
+        return 'Borderline (Clinical Monitoring)';
       case 'moderate':
-        return 'Moderat (Indikasi Depresi)';
+        return 'Moderate (Depression Indicated)';
       case 'high':
-        return 'Tinggi (Depresi Berat)';
+        return 'High (Severe Depression)';
       default:
-        return 'Tidak Terdefinisi';
+        return 'Undefined';
     }
   }
 
   static String getRiskDescription(String? riskCategory) {
     switch (riskCategory?.toLowerCase()) {
       case 'low':
-        return 'Skor berada di bawah ambang batas klinis 8.0. Pasien tidak terindikasi depresi mayor.';
+        return 'Score is below the clinical threshold of 8.0. No significant depressive symptoms indicated.';
       case 'borderline':
-        return 'Skor berada pada rentang 8.0 – 9.9. Berada di zona batas yang memerlukan observasi klinis berkala.';
+        return 'Score falls in the range of 8.0 – 9.9. Borderline zone warranting regular clinical observation.';
       case 'moderate':
-        return 'Skor berada pada rentang 10.0 – 14.9. Terindikasi gejala depresi yang memerlukan asesmen lanjutan.';
+        return 'Score falls in the range of 10.0 – 14.9. Clinically significant depressive symptoms requiring further assessment.';
       case 'high':
-        return 'Skor >= 15.0. Terindikasi depresi berat dan disarankan untuk evaluasi psikiatri sesegera mungkin.';
+        return 'Score is >= 15.0. Severe depression indicated; prompt psychiatric evaluation is recommended.';
       default:
         return '-';
     }
   }
 
-  /// Rekomendasi tindakan terapeutik bagi psikolog / konselor klinis
+  /// Therapeutic intervention guidance for psychologists / clinical counselors
   static String getCounselingGuidance(String? riskCategory) {
     switch (riskCategory?.toLowerCase()) {
       case 'low':
-        return 'Fasilitasi psikoedukasi kesehatan mental promotif, eksplorasi sumber daya koping adaptif pasien, dan pertahankan rutinitas pemulihan.';
+        return 'Facilitate promotive mental health psychoeducation, explore adaptive coping strategies, and maintain wellness routines.';
       case 'borderline':
-        return 'Eksplorasi pemicu stres subklinis (pekerjaan, hubungan, kualitas tidur). Lakukan pemantauan aktif dan jadwalkan evaluasi tindak lanjut dalam 2–4 minggu.';
+        return 'Explore subclinical stressors (occupational, interpersonal, sleep patterns). Maintain active observation and schedule follow-up review in 2–4 weeks.';
       case 'moderate':
-        return 'Inisiasi protokol psikoterapi terstruktur (seperti CBT atau ACT). Evaluasi distorsi kognitif, anhedonia, dan disabilitas fungsi harian pasien.';
+        return 'Initiate structured psychotherapy protocol (CBT / ACT). Assess cognitive distortions, anhedonia, and functional daily life impairments.';
       case 'high':
-        return 'Prioritaskan stabilisasi afektif dan asesmen keselamatan krisis (risiko bunuh diri/self-harm). Segera koordinasikan rujukan ke psikiater untuk evaluasi komprehensif.';
+        return 'Prioritize affective stabilization and crisis/safety evaluation (suicide/self-harm risk). Promptly coordinate psychiatric referral for comprehensive care.';
       default:
-        return 'Lakukan observasi klinis holistik dan sesuaikan dengan riwayat afektif pasien.';
+        return 'Perform holistic clinical observation tailored to patient history.';
     }
   }
 
-  /// Judul singkat rekomendasi tindakan konseling
+  /// Concise action title for clinical counseling recommendation
   static String getCounselingActionTitle(String? riskCategory) {
     switch (riskCategory?.toLowerCase()) {
       case 'low':
-        return 'Konseling Promotif & Penguatan Resiliensi';
+        return 'Promotive Counseling & Resilience Building';
       case 'borderline':
-        return 'Observasi Klinis & Konseling Berkala';
+        return 'Clinical Observation & Periodic Review';
       case 'moderate':
-        return 'Intervensi Terapi Terstruktur (CBT/ACT)';
+        return 'Structured Psychotherapy (CBT/ACT)';
       case 'high':
-        return 'Prioritas Tinggi / Kolaborasi Psikiatri';
+        return 'High Priority / Psychiatric Collaboration';
       default:
-        return 'Observasi Klinis Umum';
+        return 'General Clinical Observation';
     }
   }
 }

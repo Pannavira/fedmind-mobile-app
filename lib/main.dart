@@ -88,12 +88,12 @@ class _MainNavigationShellState extends State<MainNavigationShell> {
             NavigationDestination(
               icon: Icon(Icons.psychology_outlined),
               selectedIcon: Icon(Icons.psychology_rounded),
-              label: 'Skrining',
+              label: 'Screening',
             ),
             NavigationDestination(
               icon: Icon(Icons.history_edu_outlined),
               selectedIcon: Icon(Icons.history_edu_rounded),
-              label: 'Riwayat',
+              label: 'History',
             ),
           ],
         ),
