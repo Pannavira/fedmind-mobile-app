@@ -85,6 +85,16 @@ void main() {
 
         expect(progressUpdates.isNotEmpty, isTrue);
         expect(features.toMetadataMap().containsKey('feature_dims'), isTrue);
+
+        // Verifikasi kelengkapan MultimodalInspectionData (Wajah, Gelombang Suara, & Transkrip)
+        final ins = features.inspectionData;
+        expect(ins.isFromRealVideo, isTrue);
+        expect(ins.visualFrames.isNotEmpty, isTrue);
+        expect(ins.audioWaveformBars.length, equals(64));
+        expect(ins.pitchContourHz.isNotEmpty, isTrue);
+        expect(ins.transcriptSegments.isNotEmpty, isTrue);
+        expect(ins.detectedKeywords.isNotEmpty, isTrue);
+        expect(ins.actionUnitScores.length, equals(5));
       },
     );
 

@@ -1,4 +1,6 @@
 import 'package:flutter/foundation.dart';
+import '../../core/services/multimodal_extractor_service.dart';
+import '../../data/models/multimodal_inspection_models.dart';
 import '../../data/models/screening_models.dart';
 import '../../data/repositories/screening_repository.dart';
 
@@ -46,6 +48,14 @@ class ScreeningProvider extends ChangeNotifier {
   ScreeningResponse? _currentScreening;
   ScreeningResponse? get currentScreening => _currentScreening;
 
+  MultimodalInspectionData? _currentInspectionData;
+  MultimodalInspectionData? get currentInspectionData => _currentInspectionData;
+
+  void setInspectionData(MultimodalInspectionData? data) {
+    _currentInspectionData = data;
+    notifyListeners();
+  }
+
   String? _errorMessage;
   String? get errorMessage => _errorMessage;
 
@@ -61,6 +71,11 @@ class ScreeningProvider extends ChangeNotifier {
 
   // Cache hasil skrining lokal di memori
   final Map<String, ScreeningResponse> _localScreeningCache = {};
+  final Map<String, MultimodalInspectionData> _localInspectionCache = {};
+
+  MultimodalInspectionData? getInspectionForScreening(String screeningId) {
+    return _localInspectionCache[screeningId] ?? _currentInspectionData;
+  }
 
   void clearError() {
     _errorMessage = null;
@@ -157,6 +172,7 @@ class ScreeningProvider extends ChangeNotifier {
     String? sessionId,
     String? counselorNote,
     String? transcription,
+    MultimodalInspectionData? inspectionData,
   }) async {
     _isExecuting = true;
     _errorMessage = null;
@@ -177,8 +193,27 @@ class ScreeningProvider extends ChangeNotifier {
         transcription: transcription,
       );
 
+      final baseInspection = inspectionData ??
+          _currentInspectionData ??
+          MultimodalExtractorService.buildInspectionFromSampleFeatures(
+            participantId: participantId,
+            visualFeatures: visualFeatures,
+            audioFeatures: audioFeatures,
+            textFeatures: textFeatures,
+            userNote: counselorNote,
+          );
+
+      final enrichedInspection = baseInspection.copyWithCalculation(
+        audioLatentNorm: repository.localInferenceService.lastAudioLatentNorm,
+        visualLatentNorm: repository.localInferenceService.lastVisualLatentNorm,
+        textLatentNorm: repository.localInferenceService.lastTextLatentNorm,
+        coalitionScores: repository.localInferenceService.lastCoalitionScores,
+      );
+
       _currentScreening = result;
+      _currentInspectionData = enrichedInspection;
       _localScreeningCache[result.screeningId] = result;
+      _localInspectionCache[result.screeningId] = enrichedInspection;
       _executionStatusMessage = 'Selesai!';
 
       // Catat di riwayat memori agar langsung muncul di tab Riwayat
@@ -229,6 +264,9 @@ class ScreeningProvider extends ChangeNotifier {
     try {
       if (_localScreeningCache.containsKey(screeningId)) {
         _currentScreening = _localScreeningCache[screeningId];
+        if (_localInspectionCache.containsKey(screeningId)) {
+          _currentInspectionData = _localInspectionCache[screeningId];
+        }
       } else if (_currentScreening?.screeningId == screeningId) {
         // Sudah ada di memory
       } else {

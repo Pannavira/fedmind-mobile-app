@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter/services.dart';
 import 'package:flutter_onnxruntime/flutter_onnxruntime.dart';
 
+import '../../data/models/multimodal_inspection_models.dart';
 import '../../data/models/screening_models.dart';
 import 'local_preprocessing_service.dart';
 
@@ -24,6 +25,18 @@ class LocalInferenceService {
   double _v000Baseline = 8.4164;
   String _modelKey = 'fl_iid';
   String _modelName = 'FedAvg FL-IID';
+
+  List<CoalitionStepScore> _lastCoalitionScores = const [];
+  List<CoalitionStepScore> get lastCoalitionScores => _lastCoalitionScores;
+
+  double _lastAudioLatentNorm = 1.0;
+  double get lastAudioLatentNorm => _lastAudioLatentNorm;
+
+  double _lastVisualLatentNorm = 1.0;
+  double get lastVisualLatentNorm => _lastVisualLatentNorm;
+
+  double _lastTextLatentNorm = 1.0;
+  double get lastTextLatentNorm => _lastTextLatentNorm;
 
   bool _isInitialized = false;
   bool get isInitialized => _isInitialized;
@@ -141,6 +154,91 @@ class LocalInferenceService {
       final v101 = scoresList[5];
       final v011 = scoresList[6];
       final v111 = scoresList[7];
+
+      double calcL2Norm(List<double> vec) {
+        if (vec.isEmpty) return 0.0;
+        final sumSq = vec.fold(0.0, (acc, x) => acc + x * x);
+        return double.parse(sqrt(sumSq).toStringAsFixed(2));
+      }
+
+      _lastAudioLatentNorm = calcL2Norm(aIList);
+      _lastVisualLatentNorm = calcL2Norm(vIList);
+      _lastTextLatentNorm = calcL2Norm(tIList);
+
+      _lastCoalitionScores = [
+        CoalitionStepScore(
+          coalitionCode: 'S0 (v₀₀₀)',
+          label: 'Rata-rata Dasar (Tanpa Data Pasien)',
+          description: 'Titik awal skor populasi sebelum sinyal Anda dimasukkan',
+          hasAudio: false,
+          hasVisual: false,
+          hasText: false,
+          predictedScore: double.parse(v000.toStringAsFixed(2)),
+        ),
+        CoalitionStepScore(
+          coalitionCode: 'S1 (v₁₀₀)',
+          label: 'Hanya Sinyal Suara',
+          description: 'Prediksi jika AI hanya mendengar gelombang & nada suara Anda',
+          hasAudio: true,
+          hasVisual: false,
+          hasText: false,
+          predictedScore: double.parse(v100.toStringAsFixed(2)),
+        ),
+        CoalitionStepScore(
+          coalitionCode: 'S2 (v₀₁₀)',
+          label: 'Hanya Ekspresi Wajah',
+          description: 'Prediksi jika AI hanya melihat ekspresi & gerak wajah Anda',
+          hasAudio: false,
+          hasVisual: true,
+          hasText: false,
+          predictedScore: double.parse(v010.toStringAsFixed(2)),
+        ),
+        CoalitionStepScore(
+          coalitionCode: 'S3 (v₀₀₁)',
+          label: 'Hanya Cerita / Teks',
+          description: 'Prediksi jika AI hanya membaca kata-kata dalam cerita Anda',
+          hasAudio: false,
+          hasVisual: false,
+          hasText: true,
+          predictedScore: double.parse(v001.toStringAsFixed(2)),
+        ),
+        CoalitionStepScore(
+          coalitionCode: 'S4 (v₁₁₀)',
+          label: 'Gabungan Suara + Wajah',
+          description: 'Interaksi intonasi vokal dan ekspresi wajah tanpa teks',
+          hasAudio: true,
+          hasVisual: true,
+          hasText: false,
+          predictedScore: double.parse(v110.toStringAsFixed(2)),
+        ),
+        CoalitionStepScore(
+          coalitionCode: 'S5 (v₁₀₁)',
+          label: 'Gabungan Suara + Cerita',
+          description: 'Interaksi nada bicara dan isi kata-kata tanpa visual wajah',
+          hasAudio: true,
+          hasVisual: false,
+          hasText: true,
+          predictedScore: double.parse(v101.toStringAsFixed(2)),
+        ),
+        CoalitionStepScore(
+          coalitionCode: 'S6 (v₀₁₁)',
+          label: 'Gabungan Wajah + Cerita',
+          description: 'Interaksi ekspresi wajah dan makna cerita tanpa suara',
+          hasAudio: false,
+          hasVisual: true,
+          hasText: true,
+          predictedScore: double.parse(v011.toStringAsFixed(2)),
+        ),
+        CoalitionStepScore(
+          coalitionCode: 'S7 (v₁₁₁)',
+          label: 'Fusi Lengkap (Suara + Wajah + Cerita)',
+          description: 'Prediksi utuh dari seluruh 3 modalitas secara bersamaan',
+          hasAudio: true,
+          hasVisual: true,
+          hasText: true,
+          predictedScore: double.parse(v111.toStringAsFixed(2)),
+        ),
+      ];
 
       // Shapley Values Axiom Formula untuk 3 pemain:
       final pA = (1 / 3) * (v100 - v000) + (1 / 6) * (v110 - v010) + (1 / 6) * (v101 - v001) + (1 / 3) * (v111 - v011);

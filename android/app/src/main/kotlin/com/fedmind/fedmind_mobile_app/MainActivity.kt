@@ -198,8 +198,13 @@ class MainActivity : FlutterActivity() {
 
                 frameFeatures.add(
                     hashMapOf(
+                        "timeSec" to (timeUs / 1000000.0),
                         "faceFound" to faceFound,
                         "confidence" to confidence,
+                        "bboxLeft" to (cropLeft.toDouble() / targetW.coerceAtLeast(1)),
+                        "bboxTop" to (cropTop.toDouble() / targetH.coerceAtLeast(1)),
+                        "bboxRight" to (cropRight.toDouble() / targetW.coerceAtLeast(1)),
+                        "bboxBottom" to (cropBottom.toDouble() / targetH.coerceAtLeast(1)),
                         "eulerX" to eulerX,
                         "eulerY" to eulerY,
                         "eulerZ" to eulerZ,

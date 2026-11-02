@@ -1,20 +1,28 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:provider/provider.dart';
 import 'package:fedmind_mobile_app/core/constants/clinical_constants.dart';
+import 'package:fedmind_mobile_app/core/services/multimodal_extractor_service.dart';
+import 'package:fedmind_mobile_app/data/models/multimodal_inspection_models.dart';
 import 'package:fedmind_mobile_app/data/models/screening_models.dart';
+import 'package:fedmind_mobile_app/presentation/providers/screening_provider.dart';
+import 'package:fedmind_mobile_app/presentation/screens/screening/multimodal_analysis_studio_screen.dart';
 import 'package:fedmind_mobile_app/presentation/widgets/local_video_player_dialog.dart';
 import 'package:fedmind_mobile_app/presentation/widgets/modality_shapley_chart.dart';
 import 'package:fedmind_mobile_app/presentation/widgets/quality_flag_alert.dart';
 import 'package:fedmind_mobile_app/presentation/widgets/risk_badge.dart';
+import 'package:fedmind_mobile_app/presentation/widgets/xai_pipeline/interactive_shapley_balance.dart';
 
 class ScreeningResultScreen extends StatefulWidget {
   final ScreeningResponse result;
   final String? localVideoPath;
+  final MultimodalInspectionData? inspectionData;
 
   const ScreeningResultScreen({
     super.key,
     required this.result,
     this.localVideoPath,
+    this.inspectionData,
   });
 
   @override
@@ -349,6 +357,17 @@ Counselor Action Notes: ${_counselorActionNoteController.text.trim()}
               const SizedBox(height: 16),
             ],
 
+            // 1B. TOMBOL BUKA STUDIO INSPEKSI MODALITAS & PROSES KALKULASI AI
+            _buildOpenStudioBanner(context, result),
+            const SizedBox(height: 16),
+
+            // 1C. TIMBANGAN KALKULASI SKOR AI (WATERFALL SHAPLEY)
+            InteractiveShapleyBalance(
+              screening: result,
+              isSimpleMode: true,
+            ),
+            const SizedBox(height: 16),
+
             // 2. EXPLAINABLE AI (XAI) CHART
             if (attribution != null)
               ModalityShapleyChart(
@@ -556,6 +575,108 @@ Counselor Action Notes: ${_counselorActionNoteController.text.trim()}
             ),
             const SizedBox(height: 24),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildOpenStudioBanner(
+    BuildContext context,
+    ScreeningResponse result,
+  ) {
+    return Container(
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFF0F766E), Color(0xFF18B2AC)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(18),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF0F766E).withValues(alpha: 0.22),
+            blurRadius: 14,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(18),
+          onTap: () {
+            final provider = context.read<ScreeningProvider>();
+            final ins = widget.inspectionData ??
+                provider.getInspectionForScreening(result.screeningId) ??
+                MultimodalExtractorService.buildInspectionFromSampleFeatures(
+                  participantId: result.participantId,
+                  visualFeatures: List.filled(75, 0.2),
+                  audioFeatures: List.filled(248, 0.2),
+                  textFeatures: List.filled(768, 0.1),
+                );
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => MultimodalAnalysisStudioScreen(
+                  result: result,
+                  inspection: ins,
+                  localVideoPath: widget.localVideoPath,
+                  isFromResultScreen: true,
+                ),
+              ),
+            );
+          },
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              children: [
+                Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.20),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(
+                    Icons.sensors_rounded,
+                    color: Colors.white,
+                    size: 24,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Buka Studio Deteksi Modalitas & Kalkulasi AI',
+                        style: TextStyle(
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.w800,
+                          color: Colors.white,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        'Lihat deteksi wajah, gelombang suara, transkrip cerita, dan proses perhitungan model AI',
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          color: Colors.white.withValues(alpha: 0.90),
+                          height: 1.35,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                const Icon(
+                  Icons.arrow_forward_ios_rounded,
+                  color: Colors.white,
+                  size: 16,
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );

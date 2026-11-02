@@ -6,10 +6,11 @@ import 'package:provider/provider.dart';
 import '../../../core/services/local_storage_service.dart';
 import '../../../core/services/multimodal_extractor_service.dart';
 import '../../../data/datasources/sample_patient_data.dart';
+import '../../../data/models/multimodal_inspection_models.dart';
 import '../../providers/screening_provider.dart';
 import '../../widgets/local_video_player_dialog.dart';
-import '../result/screening_result_screen.dart';
 import 'clinical_camera_screen.dart';
+import 'multimodal_analysis_studio_screen.dart';
 
 class ScreeningFormScreen extends StatefulWidget {
   const ScreeningFormScreen({super.key});
@@ -41,8 +42,11 @@ class _ScreeningFormScreenState extends State<ScreeningFormScreen> {
   String _dataSourceSubtitle =
       'Anda dapat langsung melihat hasil simulasi atau merekam video baru.';
 
-  // State video lokal di perangkat
+  // State video lokal & pratinjau modalitas riil di perangkat
   String? _localVideoPath;
+  ExtractedMultimodalFeatures? _extractedVideoFeatures;
+  MultimodalInspectionData? _liveInspectionPreview;
+  bool _isExtractingPreview = false;
 
   @override
   void initState() {
@@ -60,18 +64,31 @@ class _ScreeningFormScreenState extends State<ScreeningFormScreen> {
   Future<void> _loadP600GoldenCase() async {
     setState(() {
       _localVideoPath = null;
+      _extractedVideoFeatures = null;
     });
 
     final data = await SamplePatientData.loadP600Features();
 
     if (!mounted) return;
+    final pid = data['participant_id']?.toString() ?? 'P600';
+    final vis = (data['visual_features'] as List).map((e) => (e as num).toDouble()).toList();
+    final aud = (data['audio_features'] as List).map((e) => (e as num).toDouble()).toList();
+    final txt = (data['text_features'] as List).map((e) => (e as num).toDouble()).toList();
+
     setState(() {
       _selectedPayload = data;
-      _participantIdController.text =
-          data['participant_id']?.toString() ?? 'P600';
+      _participantIdController.text = pid;
       _dataSourceTitle = 'Data Contoh Standar (P600)';
       _dataSourceSubtitle =
-          'Simulasi siap digunakan untuk melihat contoh hasil pemeriksaan.';
+          'Simulasi siap digunakan untuk melihat contoh hasil & kalkulasi AI.';
+      _liveInspectionPreview =
+          MultimodalExtractorService.buildInspectionFromSampleFeatures(
+        participantId: pid,
+        visualFeatures: vis,
+        audioFeatures: aud,
+        textFeatures: txt,
+        userNote: _counselorNoteController.text.trim(),
+      );
     });
   }
 
@@ -85,12 +102,25 @@ class _ScreeningFormScreenState extends State<ScreeningFormScreen> {
       simulateAbnormalAudio: false,
     );
 
+    final vis = (data['visual_features'] as List).map((e) => (e as num).toDouble()).toList();
+    final aud = (data['audio_features'] as List).map((e) => (e as num).toDouble()).toList();
+    final txt = (data['text_features'] as List).map((e) => (e as num).toDouble()).toList();
+
     setState(() {
       _selectedPayload = data;
       _localVideoPath = null;
+      _extractedVideoFeatures = null;
       _dataSourceTitle = 'Simulasi Kondisi Acak';
       _dataSourceSubtitle =
           'Data simulasi cerita, suara, dan ekspresi wajah siap dianalisis.';
+      _liveInspectionPreview =
+          MultimodalExtractorService.buildInspectionFromSampleFeatures(
+        participantId: pid,
+        visualFeatures: vis,
+        audioFeatures: aud,
+        textFeatures: txt,
+        userNote: _counselorNoteController.text.trim(),
+      );
     });
   }
 
@@ -145,26 +175,56 @@ class _ScreeningFormScreenState extends State<ScreeningFormScreen> {
 
   Future<void> _processLocalVideo(String videoPath) async {
     final sizeMb = await LocalStorageService.getFileSizeInMb(videoPath);
+    final pid = _participantIdController.text.trim().isEmpty
+        ? 'PESERTA_01'
+        : _participantIdController.text.trim();
 
     setState(() {
       _localVideoPath = videoPath;
       _selectedPayload = null;
+      _isExtractingPreview = true;
       _dataSourceTitle =
-          'Video Rekaman Tersimpan (${sizeMb.toStringAsFixed(1)} MB)';
+          'Memindai Wajah, Suara & Transkrip Video (${sizeMb.toStringAsFixed(1)} MB)...';
       _dataSourceSubtitle =
-          'Tersimpan aman di perangkat • Siap dianalisis tanpa internet.';
+          'Mengekstrak modalitas wajah, gelombang suara & teks secara on-device...';
     });
 
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          'Video (${sizeMb.toStringAsFixed(1)} MB) berhasil dimuat. Tekan "Lihat Hasil Pemeriksaan" di bawah.',
+    try {
+      final extracted = await MultimodalExtractorService.extractFromLocalVideo(
+        videoPath: videoPath,
+        participantId: pid,
+        userNote: _counselorNoteController.text.trim(),
+      );
+
+      if (!mounted) return;
+      setState(() {
+        _extractedVideoFeatures = extracted;
+        _liveInspectionPreview = extracted.inspectionData;
+        _isExtractingPreview = false;
+        _dataSourceTitle =
+            'Video Siap Dianalisis (${sizeMb.toStringAsFixed(1)} MB)';
+        _dataSourceSubtitle = extracted.extractionSummary;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Modalitas video berhasil dipindai: ${extracted.facesDetected}/${extracted.framesAnalyzed} frame wajah & gelombang suara siap!',
+          ),
+          backgroundColor: _brandTealDark,
+          duration: const Duration(seconds: 3),
         ),
-        backgroundColor: _brandTealDark,
-        duration: const Duration(seconds: 3),
-      ),
-    );
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isExtractingPreview = false;
+        _dataSourceTitle =
+            'Video Rekaman Tersimpan (${sizeMb.toStringAsFixed(1)} MB)';
+        _dataSourceSubtitle =
+            'Tersimpan aman di perangkat • Siap dianalisis tanpa internet.';
+      });
+    }
   }
 
   Future<void> _previewCurrentVideo() async {
@@ -206,21 +266,26 @@ class _ScreeningFormScreenState extends State<ScreeningFormScreen> {
     List<double> audioFeat;
     List<double> visualFeat;
     List<double> textFeat;
+    MultimodalInspectionData? inspectionData;
 
     if (_localVideoPath != null) {
-      final extracted = await MultimodalExtractorService.extractFromLocalVideo(
-        videoPath: _localVideoPath!,
-        participantId: participantId,
-        userNote: _counselorNoteController.text.trim(),
-        onProgress: (stage, progress) {
-          provider.setExtractionProgress(stage, progress);
-        },
-      );
+      final extracted = _extractedVideoFeatures ??
+          await MultimodalExtractorService.extractFromLocalVideo(
+            videoPath: _localVideoPath!,
+            participantId: participantId,
+            userNote: _counselorNoteController.text.trim(),
+            onProgress: (stage, progress) {
+              provider.setExtractionProgress(stage, progress);
+            },
+          );
       audioFeat = extracted.audioFeatures;
       visualFeat = extracted.visualFeatures;
       textFeat = extracted.textFeatures;
+      inspectionData = extracted.inspectionData;
       if (mounted) {
         setState(() {
+          _extractedVideoFeatures = extracted;
+          _liveInspectionPreview = extracted.inspectionData;
           _dataSourceSubtitle = extracted.extractionSummary;
         });
       }
@@ -234,6 +299,13 @@ class _ScreeningFormScreenState extends State<ScreeningFormScreen> {
       textFeat = (_selectedPayload!['text_features'] as List)
           .map((e) => (e as num).toDouble())
           .toList();
+      inspectionData = MultimodalExtractorService.buildInspectionFromSampleFeatures(
+        participantId: participantId,
+        visualFeatures: visualFeat,
+        audioFeatures: audioFeat,
+        textFeatures: textFeat,
+        userNote: _counselorNoteController.text.trim(),
+      );
     }
 
     final success = await provider.executeLocalOnDeviceScreening(
@@ -242,16 +314,20 @@ class _ScreeningFormScreenState extends State<ScreeningFormScreen> {
       audioFeatures: audioFeat,
       visualFeatures: visualFeat,
       counselorNote: _counselorNoteController.text.trim(),
+      inspectionData: inspectionData,
     );
 
     if (!mounted) return;
 
-    if (success && provider.currentScreening != null) {
+    if (success &&
+        provider.currentScreening != null &&
+        provider.currentInspectionData != null) {
       Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (context) => ScreeningResultScreen(
+          builder: (context) => MultimodalAnalysisStudioScreen(
             result: provider.currentScreening!,
+            inspection: provider.currentInspectionData!,
             localVideoPath: _localVideoPath,
           ),
         ),
@@ -833,11 +909,13 @@ class _ScreeningFormScreenState extends State<ScreeningFormScreen> {
 
   Widget _buildDataReadinessBox() {
     final isVideo = _localVideoPath != null;
+    final preview = _liveInspectionPreview;
+
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: const Color(0xFFF0FDF4),
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(18),
         border: Border.all(color: const Color(0xFFBBF7D0)),
       ),
       child: Column(
@@ -851,8 +929,10 @@ class _ScreeningFormScreenState extends State<ScreeningFormScreen> {
                   color: Color(0xFF10B981),
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(
-                  Icons.check_rounded,
+                child: Icon(
+                  _isExtractingPreview
+                      ? Icons.sync_rounded
+                      : Icons.check_rounded,
                   color: Colors.white,
                   size: 14,
                 ),
@@ -894,26 +974,194 @@ class _ScreeningFormScreenState extends State<ScreeningFormScreen> {
             ],
           ),
           const SizedBox(height: 12),
+
+          if (_isExtractingPreview)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 8),
+              child: LinearProgressIndicator(
+                color: _brandTealDark,
+                backgroundColor: Color(0xFFCCFBF1),
+              ),
+            )
+          else if (preview != null) ...[
+            // --- PANEL PRATINJAU MODALITAS RIIL LANGSUNG SAAT UPLOAD VIDEO ---
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: const Color(0xFFD1FAE5)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Row(
+                        children: [
+                          Icon(
+                            Icons.sensors_rounded,
+                            size: 15,
+                            color: _brandTealDark,
+                          ),
+                          SizedBox(width: 6),
+                          Text(
+                            'Pratinjau Sinyal Modalitas Terdeteksi:',
+                            style: TextStyle(
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w800,
+                              color: _textPrimary,
+                            ),
+                          ),
+                        ],
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 7,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: _softMintBg,
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          isVideo ? 'Video Riil' : 'Mode Simulasi',
+                          style: const TextStyle(
+                            fontSize: 9.5,
+                            fontWeight: FontWeight.w800,
+                            color: _brandTealDark,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+
+                  // 1. Pratinjau Deteksi Wajah
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Icon(
+                        Icons.face_retouching_natural_rounded,
+                        size: 15,
+                        color: _brandTealDark,
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          'Wajah (${preview.faceDetectionRatePct.toStringAsFixed(0)}% Terdeteksi): ${preview.facialAffectTitle}',
+                          style: const TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: Color(0xFF334155),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+
+                  // 2. Pratinjau Gelombang Suara Mini (Audio Waveform)
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.graphic_eq_rounded,
+                        size: 15,
+                        color: Color(0xFF0284C7),
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        'Gelombang Suara (${preview.avgPitchHz.toStringAsFixed(0)} Hz • ${preview.voicedRatioPct.toStringAsFixed(0)}% Bicara):',
+                        style: const TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF334155),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Container(
+                    height: 32,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF0F172A),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: preview.audioWaveformBars.take(32).map((amp) {
+                        final isPause = amp < 0.14;
+                        return Container(
+                          width: 3.5,
+                          height: (amp * 22).clamp(3.0, 22.0),
+                          decoration: BoxDecoration(
+                            color: isPause
+                                ? const Color(0xFFF59E0B)
+                                : const Color(0xFF38BDF8),
+                            borderRadius: BorderRadius.circular(2),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+
+                  // 3. Pratinjau Transkrip Teks
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Icon(
+                        Icons.subtitles_rounded,
+                        size: 15,
+                        color: Color(0xFF7C3AED),
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          'Transkrip: "${preview.fullTranscript}"',
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 11,
+                            fontStyle: FontStyle.italic,
+                            color: Color(0xFF475569),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 10),
+          ],
+
           Row(
             children: [
               Expanded(
                 child: _buildAspectReadyChip(
-                  label: 'Cerita',
-                  icon: Icons.chat_bubble_outline_rounded,
+                  label: 'Wajah Terdeteksi',
+                  icon: Icons.sentiment_satisfied_alt_rounded,
                 ),
               ),
               const SizedBox(width: 6),
               Expanded(
                 child: _buildAspectReadyChip(
-                  label: 'Suara',
+                  label: 'Gelombang Suara',
                   icon: Icons.graphic_eq_rounded,
                 ),
               ),
               const SizedBox(width: 6),
               Expanded(
                 child: _buildAspectReadyChip(
-                  label: 'Ekspresi',
-                  icon: Icons.sentiment_satisfied_alt_rounded,
+                  label: 'Transkrip Teks',
+                  icon: Icons.chat_bubble_outline_rounded,
                 ),
               ),
             ],
@@ -1026,15 +1274,15 @@ class _ScreeningFormScreenState extends State<ScreeningFormScreen> {
             icon: Icon(
               provider.isExecuting
                   ? Icons.hourglass_top_rounded
-                  : Icons.check_circle_outline_rounded,
+                  : Icons.analytics_outlined,
               size: 20,
             ),
             label: Text(
               provider.isExecuting
-                  ? 'Sedang Menganalisis Kondisi Anda...'
-                  : 'Lihat Hasil Pemeriksaan',
+                  ? 'Mengekstrak Modalitas & Menghitung Model AI...'
+                  : 'Analisis Modalitas & Lihat Kalkulasi AI',
               style: const TextStyle(
-                fontSize: 15,
+                fontSize: 14.5,
                 fontWeight: FontWeight.w800,
                 letterSpacing: 0.2,
               ),
