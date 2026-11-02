@@ -31,6 +31,9 @@ class LocalVideoPlayerDialog extends StatefulWidget {
 }
 
 class _LocalVideoPlayerDialogState extends State<LocalVideoPlayerDialog> {
+  static const Color _brandTeal = Color(0xFF18B2AC);
+  static const Color _brandTealDark = Color(0xFF0D9488);
+
   late VideoPlayerController _controller;
   bool _isInitialized = false;
   String? _errorMessage;
@@ -46,7 +49,8 @@ class _LocalVideoPlayerDialogState extends State<LocalVideoPlayerDialog> {
       final file = File(widget.videoPath);
       if (!await file.exists()) {
         setState(() {
-          _errorMessage = 'Video file not found in local device storage: ${widget.videoPath}';
+          _errorMessage =
+              'File video tidak ditemukan pada penyimpanan perangkat: ${widget.videoPath}';
         });
         return;
       }
@@ -64,7 +68,7 @@ class _LocalVideoPlayerDialogState extends State<LocalVideoPlayerDialog> {
       _controller.play();
     } catch (e) {
       setState(() {
-        _errorMessage = 'Failed to play local video: $e';
+        _errorMessage = 'Gagal memutar video: $e';
       });
     }
   }
@@ -93,7 +97,7 @@ class _LocalVideoPlayerDialogState extends State<LocalVideoPlayerDialog> {
         constraints: const BoxConstraints(maxWidth: 420),
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: BorderRadius.circular(24),
           boxShadow: [
             BoxShadow(
               color: Colors.black.withValues(alpha: 0.25),
@@ -106,20 +110,19 @@ class _LocalVideoPlayerDialogState extends State<LocalVideoPlayerDialog> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // Header
             Padding(
               padding: const EdgeInsets.fromLTRB(18, 16, 12, 12),
               child: Row(
                 children: [
                   Container(
-                    padding: const EdgeInsets.all(7),
+                    padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF0F766E).withValues(alpha: 0.12),
+                      color: _brandTeal.withValues(alpha: 0.14),
                       shape: BoxShape.circle,
                     ),
                     child: const Icon(
                       Icons.play_circle_fill_rounded,
-                      color: Color(0xFF0F766E),
+                      color: _brandTealDark,
                       size: 20,
                     ),
                   ),
@@ -129,17 +132,17 @@ class _LocalVideoPlayerDialogState extends State<LocalVideoPlayerDialog> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Local Recording: ${widget.participantId}',
+                          'Rekaman Video: ${widget.participantId}',
                           style: const TextStyle(
                             fontSize: 14,
-                            fontWeight: FontWeight.w700,
+                            fontWeight: FontWeight.w800,
                             color: Color(0xFF0F172A),
                           ),
                         ),
                         const Text(
-                          'Stored privately on device (Never uploaded)',
+                          'Tersimpan aman di HP Anda (Tidak diunggah)',
                           style: TextStyle(
-                            fontSize: 10.5,
+                            fontSize: 11,
                             color: Color(0xFF059669),
                             fontWeight: FontWeight.w600,
                           ),
@@ -156,11 +159,10 @@ class _LocalVideoPlayerDialogState extends State<LocalVideoPlayerDialog> {
               ),
             ),
             const Divider(height: 1, color: Color(0xFFF1F5F9)),
-
-            // Video Player Area
             ClipRRect(
               child: AspectRatio(
-                aspectRatio: _isInitialized ? _controller.value.aspectRatio : 16 / 9,
+                aspectRatio:
+                    _isInitialized ? _controller.value.aspectRatio : 16 / 9,
                 child: Container(
                   color: Colors.black,
                   child: _errorMessage != null
@@ -169,22 +171,27 @@ class _LocalVideoPlayerDialogState extends State<LocalVideoPlayerDialog> {
                             padding: const EdgeInsets.all(16),
                             child: Text(
                               _errorMessage!,
-                              style: const TextStyle(color: Colors.redAccent, fontSize: 12),
+                              style: const TextStyle(
+                                color: Colors.redAccent,
+                                fontSize: 12,
+                              ),
                               textAlign: TextAlign.center,
                             ),
                           ),
                         )
                       : !_isInitialized
                           ? const Center(
-                              child: CircularProgressIndicator(color: Color(0xFF0F766E)),
+                              child: CircularProgressIndicator(
+                                color: _brandTeal,
+                              ),
                             )
                           : Stack(
                               alignment: Alignment.center,
                               children: [
                                 VideoPlayer(_controller),
-                                // Tombol Play/Pause Overlay
                                 AnimatedOpacity(
-                                  opacity: _controller.value.isPlaying ? 0.0 : 1.0,
+                                  opacity:
+                                      _controller.value.isPlaying ? 0.0 : 1.0,
                                   duration: const Duration(milliseconds: 200),
                                   child: Material(
                                     color: Colors.transparent,
@@ -199,7 +206,8 @@ class _LocalVideoPlayerDialogState extends State<LocalVideoPlayerDialog> {
                                       child: Container(
                                         padding: const EdgeInsets.all(16),
                                         decoration: BoxDecoration(
-                                          color: Colors.black.withValues(alpha: 0.5),
+                                          color: Colors.black
+                                              .withValues(alpha: 0.5),
                                           shape: BoxShape.circle,
                                         ),
                                         child: Icon(
@@ -218,8 +226,6 @@ class _LocalVideoPlayerDialogState extends State<LocalVideoPlayerDialog> {
                 ),
               ),
             ),
-
-            // Controls & Scrubbing
             if (_isInitialized) ...[
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 10, 16, 4),
@@ -229,7 +235,7 @@ class _LocalVideoPlayerDialogState extends State<LocalVideoPlayerDialog> {
                       _controller,
                       allowScrubbing: true,
                       colors: const VideoProgressColors(
-                        playedColor: Color(0xFF0F766E),
+                        playedColor: _brandTealDark,
                         bufferedColor: Color(0xFFCCFBF1),
                         backgroundColor: Color(0xFFE2E8F0),
                       ),
@@ -240,11 +246,17 @@ class _LocalVideoPlayerDialogState extends State<LocalVideoPlayerDialog> {
                       children: [
                         Text(
                           _formatDuration(_controller.value.position),
-                          style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+                          style: const TextStyle(
+                            fontSize: 11,
+                            color: Color(0xFF64748B),
+                          ),
                         ),
                         Text(
                           _formatDuration(_controller.value.duration),
-                          style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+                          style: const TextStyle(
+                            fontSize: 11,
+                            color: Color(0xFF64748B),
+                          ),
                         ),
                       ],
                     ),
@@ -252,8 +264,6 @@ class _LocalVideoPlayerDialogState extends State<LocalVideoPlayerDialog> {
                 ),
               ),
             ],
-
-            // Action Footer
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
               child: Row(
@@ -276,16 +286,25 @@ class _LocalVideoPlayerDialogState extends State<LocalVideoPlayerDialog> {
                         size: 18,
                       ),
                       label: Text(
-                        _isInitialized && _controller.value.isPlaying ? 'Pause' : 'Play',
-                        style: const TextStyle(fontSize: 12),
+                        _isInitialized && _controller.value.isPlaying
+                            ? 'Jeda'
+                            : 'Putar',
+                        style: const TextStyle(fontSize: 12.5),
                       ),
                     ),
                   ),
                   const SizedBox(width: 10),
                   Expanded(
                     child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: _brandTeal,
+                        foregroundColor: Colors.white,
+                      ),
                       onPressed: () => Navigator.of(context).pop(),
-                      child: const Text('Close', style: TextStyle(fontSize: 12)),
+                      child: const Text(
+                        'Tutup',
+                        style: TextStyle(fontSize: 12.5),
+                      ),
                     ),
                   ),
                 ],

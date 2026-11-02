@@ -16,7 +16,10 @@ class ClinicalCameraScreen extends StatefulWidget {
   State<ClinicalCameraScreen> createState() => _ClinicalCameraScreenState();
 }
 
-class _ClinicalCameraScreenState extends State<ClinicalCameraScreen> with WidgetsBindingObserver {
+class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
+    with WidgetsBindingObserver {
+  static const Color _brandTeal = Color(0xFF18B2AC);
+
   CameraController? _controller;
   List<CameraDescription> _availableCameras = [];
   bool _isCameraInitialized = false;
@@ -65,12 +68,13 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen> with Widget
         await _initCamera();
       } else {
         setState(() {
-          _errorMessage = 'Camera and microphone permissions are required to record clinical sessions.';
+          _errorMessage =
+              'Izin kamera dan mikrofon diperlukan untuk merekam sesi pemeriksaan Anda.';
         });
       }
     } catch (e) {
       setState(() {
-        _errorMessage = 'Failed to request camera/microphone permissions: $e';
+        _errorMessage = 'Gagal meminta izin kamera/mikrofon: $e';
       });
     }
   }
@@ -80,12 +84,11 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen> with Widget
       _availableCameras = await availableCameras();
       if (_availableCameras.isEmpty) {
         setState(() {
-          _errorMessage = 'No camera sensors detected on this device.';
+          _errorMessage = 'Kamera tidak ditemukan pada perangkat ini.';
         });
         return;
       }
 
-      // Prioritize front camera for direct clinical eye contact
       CameraDescription selectedCamera = _availableCameras.first;
       for (final cam in _availableCameras) {
         if (cam.lensDirection == CameraLensDirection.front) {
@@ -108,13 +111,15 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen> with Widget
       });
     } catch (e) {
       setState(() {
-        _errorMessage = 'Failed to initialize camera: $e';
+        _errorMessage = 'Gagal mengaktifkan kamera: $e';
       });
     }
   }
 
   Future<void> _startRecording() async {
-    if (_controller == null || !_controller!.value.isInitialized || _isRecording) {
+    if (_controller == null ||
+        !_controller!.value.isInitialized ||
+        _isRecording) {
       return;
     }
 
@@ -131,7 +136,6 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen> with Widget
           _secondsRecorded++;
         });
 
-        // Automatically stop if maximum duration is reached
         if (_secondsRecorded >= _maxDuration) {
           _stopRecording();
         }
@@ -140,7 +144,7 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen> with Widget
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Failed to start recording: $e'),
+          content: Text('Gagal memulai rekaman: $e'),
           backgroundColor: Colors.red,
         ),
       );
@@ -157,20 +161,18 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen> with Widget
         _isRecording = false;
       });
 
-      // Save video securely to private app storage
       final savedPath = await LocalStorageService.saveClinicalVideo(
         sourceFilePath: xFile.path,
         participantId: widget.participantId,
       );
 
       if (!mounted) return;
-      // Return saved video path to screening form
       Navigator.of(context).pop(savedPath);
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Failed to save recording: $e'),
+          content: Text('Gagal menyimpan rekaman video: $e'),
           backgroundColor: Colors.red,
         ),
       );
@@ -187,25 +189,33 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen> with Widget
   Widget build(BuildContext context) {
     if (_errorMessage != null) {
       return Scaffold(
-        appBar: AppBar(title: const Text('Clinical Session Camera')),
+        backgroundColor: const Color(0xFFF8FAFC),
+        appBar: AppBar(title: const Text('Kamera Pemeriksaan')),
         body: Center(
           child: Padding(
             padding: const EdgeInsets.all(24),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(Icons.videocam_off_outlined, size: 56, color: Color(0xFFEF4444)),
+                const Icon(
+                  Icons.videocam_off_outlined,
+                  size: 56,
+                  color: Color(0xFFEF4444),
+                ),
                 const SizedBox(height: 16),
                 Text(
                   _errorMessage!,
                   textAlign: TextAlign.center,
-                  style: const TextStyle(fontSize: 14, color: Color(0xFF334155)),
+                  style: const TextStyle(
+                    fontSize: 14,
+                    color: Color(0xFF334155),
+                  ),
                 ),
                 const SizedBox(height: 20),
                 ElevatedButton.icon(
                   onPressed: _checkPermissionsAndInit,
                   icon: const Icon(Icons.refresh),
-                  label: const Text('Retry'),
+                  label: const Text('Coba Lagi'),
                 ),
               ],
             ),
@@ -218,7 +228,7 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen> with Widget
       return const Scaffold(
         backgroundColor: Colors.black,
         body: Center(
-          child: CircularProgressIndicator(color: Color(0xFF0F766E)),
+          child: CircularProgressIndicator(color: _brandTeal),
         ),
       );
     }
@@ -228,12 +238,12 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen> with Widget
       body: Stack(
         fit: StackFit.expand,
         children: [
-          // 1. Camera Preview
+          // 1. Pratinjau Kamera
           Center(
             child: CameraPreview(_controller!),
           ),
 
-          // 2. Face Guide Overlay
+          // 2. Panduan Posisi Wajah
           IgnorePointer(
             child: Center(
               child: Container(
@@ -242,28 +252,34 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen> with Widget
                 decoration: BoxDecoration(
                   border: Border.all(
                     color: _isRecording
-                        ? const Color(0xFF10B981).withValues(alpha: 0.8)
-                        : Colors.white.withValues(alpha: 0.6),
+                        ? const Color(0xFF10B981).withValues(alpha: 0.85)
+                        : Colors.white.withValues(alpha: 0.65),
                     width: 2.5,
                   ),
-                  borderRadius: const BorderRadius.all(Radius.elliptical(250, 330)),
+                  borderRadius:
+                      const BorderRadius.all(Radius.elliptical(250, 330)),
                 ),
                 child: Align(
                   alignment: Alignment.bottomCenter,
                   child: Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
+                    padding: const EdgeInsets.only(bottom: 14),
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 5,
+                      ),
                       decoration: BoxDecoration(
                         color: Colors.black54,
-                        borderRadius: BorderRadius.circular(12),
+                        borderRadius: BorderRadius.circular(14),
                       ),
                       child: Text(
-                        _isRecording ? 'Face Position Locked' : 'Align Patient Face Here',
+                        _isRecording
+                            ? 'Posisi Wajah Sudah Pas'
+                            : 'Posisikan Wajah di Dalam Lingkaran',
                         style: const TextStyle(
                           color: Colors.white,
-                          fontSize: 10.5,
-                          fontWeight: FontWeight.w600,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
                         ),
                       ),
                     ),
@@ -273,33 +289,49 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen> with Widget
             ),
           ),
 
-          // 3. Top Bar (Guided Interview Prompter)
+          // 3. Bar Atas & Panduan Cerita
           SafeArea(
             child: Align(
               alignment: Alignment.topCenter,
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        IconButton(
-                          onPressed: () {
-                            if (_isRecording) {
-                              _stopRecording();
-                            } else {
-                              Navigator.of(context).pop();
-                            }
-                          },
-                          icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white),
+                        Material(
+                          color: Colors.black45,
+                          borderRadius: BorderRadius.circular(12),
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(12),
+                            onTap: () {
+                              if (_isRecording) {
+                                _stopRecording();
+                              } else {
+                                Navigator.of(context).pop();
+                              }
+                            },
+                            child: const Padding(
+                              padding: EdgeInsets.all(10),
+                              child: Icon(
+                                Icons.arrow_back_ios_new_rounded,
+                                color: Colors.white,
+                                size: 18,
+                              ),
+                            ),
+                          ),
                         ),
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 7,
+                          ),
                           decoration: BoxDecoration(
                             color: _isRecording
-                                ? const Color(0xFFDC2626).withValues(alpha: 0.85)
+                                ? const Color(0xFFDC2626).withValues(alpha: 0.9)
                                 : Colors.black54,
                             borderRadius: BorderRadius.circular(20),
                           ),
@@ -310,15 +342,17 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen> with Widget
                                 width: 8,
                                 height: 8,
                                 decoration: BoxDecoration(
-                                  color: _isRecording ? Colors.white : const Color(0xFF10B981),
+                                  color: _isRecording
+                                      ? Colors.white
+                                      : const Color(0xFF10B981),
                                   shape: BoxShape.circle,
                                 ),
                               ),
                               const SizedBox(width: 6),
                               Text(
                                 _isRecording
-                                    ? 'Recording: ${_formatTimer(_secondsRecorded)}'
-                                    : 'Camera Ready',
+                                    ? 'Merekam: ${_formatTimer(_secondsRecorded)}'
+                                    : 'Kamera Siap',
                                 style: const TextStyle(
                                   color: Colors.white,
                                   fontSize: 12,
@@ -328,19 +362,19 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen> with Widget
                             ],
                           ),
                         ),
-                        const SizedBox(width: 48),
+                        const SizedBox(width: 40),
                       ],
                     ),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 12),
 
-                    // Prompter Card
+                    // Kartu Panduan Cerita Santai
                     Container(
-                      padding: const EdgeInsets.all(12),
+                      padding: const EdgeInsets.all(14),
                       decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.65),
-                        borderRadius: BorderRadius.circular(14),
+                        color: Colors.black.withValues(alpha: 0.68),
+                        borderRadius: BorderRadius.circular(18),
                         border: Border.all(
-                          color: const Color(0xFF0F766E).withValues(alpha: 0.5),
+                          color: _brandTeal.withValues(alpha: 0.55),
                         ),
                       ),
                       child: const Column(
@@ -348,34 +382,40 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen> with Widget
                         children: [
                           Row(
                             children: [
-                              Icon(Icons.record_voice_over_outlined, color: Color(0xFF5EEAD4), size: 14),
+                              Icon(
+                                Icons.chat_bubble_outline_rounded,
+                                color: Color(0xFF5EEAD4),
+                                size: 15,
+                              ),
                               SizedBox(width: 6),
-                              Text(
-                                'Guided Clinical Interview Prompts (Conversational):',
-                                style: TextStyle(
-                                  color: Color(0xFF5EEAD4),
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w700,
+                              Expanded(
+                                child: Text(
+                                  'Panduan Cerita (Bicaralah dengan Santai):',
+                                  style: TextStyle(
+                                    color: Color(0xFF5EEAD4),
+                                    fontSize: 11.5,
+                                    fontWeight: FontWeight.w700,
+                                  ),
                                 ),
                               ),
                             ],
                           ),
                           SizedBox(height: 6),
                           Text(
-                            '1. How have your feelings, thoughts, and sleep patterns been over the past few days?',
+                            '1. Bagaimana perasaan, pikiran, dan kualitas tidur Anda dalam beberapa hari terakhir?',
                             style: TextStyle(
                               color: Colors.white,
                               fontSize: 11.5,
-                              height: 1.35,
+                              height: 1.4,
                             ),
                           ),
                           SizedBox(height: 4),
                           Text(
-                            '2. What has been feeling most overwhelming or draining your energy recently?',
+                            '2. Hal apa yang belakangan ini terasa paling melelahkan atau membebani pikiran Anda?',
                             style: TextStyle(
                               color: Colors.white,
                               fontSize: 11.5,
-                              height: 1.35,
+                              height: 1.4,
                             ),
                           ),
                         ],
@@ -387,17 +427,18 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen> with Widget
             ),
           ),
 
-          // 4. Bottom Controls (Shutter & Duration)
+          // 4. Tombol Rekam di Bawah
           Align(
             alignment: Alignment.bottomCenter,
             child: SafeArea(
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
                     colors: [
                       Colors.transparent,
-                      Colors.black.withValues(alpha: 0.8),
+                      Colors.black.withValues(alpha: 0.82),
                     ],
                     begin: Alignment.topCenter,
                     end: Alignment.bottomCenter,
@@ -406,27 +447,24 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen> with Widget
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceAround,
                   children: [
-                    // Duration Info
                     Column(
                       mainAxisSize: MainAxisSize.min,
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const Text(
-                          'Recommended:',
-                          style: TextStyle(color: Colors.white70, fontSize: 10),
+                          'Durasi Ideal:',
+                          style: TextStyle(color: Colors.white70, fontSize: 10.5),
                         ),
                         Text(
-                          '$_recommendedDuration sec',
+                          '$_recommendedDuration detik',
                           style: const TextStyle(
                             color: Colors.white,
-                            fontSize: 12,
+                            fontSize: 12.5,
                             fontWeight: FontWeight.w700,
                           ),
                         ),
                       ],
                     ),
-
-                    // Shutter Button
                     GestureDetector(
                       onTap: () {
                         if (_isRecording) {
@@ -436,8 +474,8 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen> with Widget
                         }
                       },
                       child: Container(
-                        width: 72,
-                        height: 72,
+                        width: 74,
+                        height: 74,
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
                           border: Border.all(color: Colors.white, width: 4),
@@ -447,32 +485,35 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen> with Widget
                         child: AnimatedContainer(
                           duration: const Duration(milliseconds: 200),
                           decoration: BoxDecoration(
-                            color: _isRecording ? const Color(0xFFEF4444) : const Color(0xFF0F766E),
-                            borderRadius: BorderRadius.circular(_isRecording ? 12 : 50),
+                            color: _isRecording
+                                ? const Color(0xFFEF4444)
+                                : _brandTeal,
+                            borderRadius:
+                                BorderRadius.circular(_isRecording ? 14 : 50),
                           ),
                           child: Icon(
-                            _isRecording ? Icons.stop_rounded : Icons.videocam_rounded,
+                            _isRecording
+                                ? Icons.stop_rounded
+                                : Icons.videocam_rounded,
                             color: Colors.white,
                             size: 32,
                           ),
                         ),
                       ),
                     ),
-
-                    // Privacy Note
                     const Column(
                       mainAxisSize: MainAxisSize.min,
                       crossAxisAlignment: CrossAxisAlignment.end,
                       children: [
                         Text(
-                          'Patient Privacy:',
-                          style: TextStyle(color: Colors.white70, fontSize: 10),
+                          'Privasi Anda:',
+                          style: TextStyle(color: Colors.white70, fontSize: 10.5),
                         ),
                         Text(
-                          '100% On-Device',
+                          '100% Offline',
                           style: TextStyle(
                             color: Color(0xFF34D399),
-                            fontSize: 12,
+                            fontSize: 12.5,
                             fontWeight: FontWeight.w700,
                           ),
                         ),

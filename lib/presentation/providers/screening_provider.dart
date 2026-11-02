@@ -33,6 +33,16 @@ class ScreeningProvider extends ChangeNotifier {
   String _executionStatusMessage = '';
   String get executionStatusMessage => _executionStatusMessage;
 
+  double? _executionProgress;
+  double? get executionProgress => _executionProgress;
+
+  void setExtractionProgress(String stage, double progress) {
+    _isExecuting = true;
+    _executionStatusMessage = stage;
+    _executionProgress = progress.clamp(0.0, 1.0);
+    notifyListeners();
+  }
+
   ScreeningResponse? _currentScreening;
   ScreeningResponse? get currentScreening => _currentScreening;
 
@@ -151,8 +161,9 @@ class ScreeningProvider extends ChangeNotifier {
     _isExecuting = true;
     _errorMessage = null;
     _currentScreening = null;
+    _executionProgress = null;
     _executionStatusMessage =
-        'Running ONNX model & Exact Shapley inference on Mobile Edge (Offline)...';
+        'Menjalankan model AI & perhitungan kontribusi (Exact Shapley) di perangkat...';
     notifyListeners();
 
     try {
@@ -168,7 +179,7 @@ class ScreeningProvider extends ChangeNotifier {
 
       _currentScreening = result;
       _localScreeningCache[result.screeningId] = result;
-      _executionStatusMessage = 'Completed!';
+      _executionStatusMessage = 'Selesai!';
 
       // Catat di riwayat memori agar langsung muncul di tab Riwayat
       _historyItems.insert(
@@ -193,6 +204,7 @@ class ScreeningProvider extends ChangeNotifier {
       return false;
     } finally {
       _isExecuting = false;
+      _executionProgress = null;
       _executionStatusMessage = '';
       notifyListeners();
     }

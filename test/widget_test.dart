@@ -59,7 +59,8 @@ void main() {
     // Verifikasi Dashboard tampil bersih tanpa navbar dan tanpa kartu teknis
     expect(find.text('Selamat Datang!'), findsOneWidget);
     expect(find.text('Layanan Utama'), findsOneWidget);
-    expect(find.text('Cek Kondisi\nMental'), findsOneWidget);
+    expect(find.text('Cek Kondisi Mental'), findsOneWidget);
+    expect(find.text('Mulai Pemeriksaan Sekarang'), findsOneWidget);
     expect(find.text('Mengenal Pemeriksaan'), findsOneWidget);
     expect(find.byType(NavigationBar), findsNothing);
     expect(find.text('Edge Mobile AI Engine Ready'), findsNothing);

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
@@ -18,28 +19,34 @@ class ScreeningFormScreen extends StatefulWidget {
 }
 
 class _ScreeningFormScreenState extends State<ScreeningFormScreen> {
+  static const Color _brandTeal = Color(0xFF18B2AC);
+  static const Color _brandTealDark = Color(0xFF0D9488);
+  static const Color _softMintBg = Color(0xFFE6F7F6);
+  static const Color _textPrimary = Color(0xFF1E293B);
+  static const Color _textSecondary = Color(0xFF64748B);
+
   final _participantIdController = TextEditingController(text: 'P600');
   final _counselorNoteController = TextEditingController();
 
-  String _selectedSessionType = 'Intake Session';
+  String _selectedSessionType = 'Pemeriksaan Awal';
   final List<String> _sessionTypes = [
-    'Intake Session',
-    'Follow-up Counseling',
-    'Referral Evaluation',
+    'Pemeriksaan Awal',
+    'Pemantauan Rutin',
+    'Konsultasi Lanjutan',
   ];
 
-  // Data Fitur & Media State
+  // State sumber data pemeriksaan
   Map<String, dynamic>? _selectedPayload;
-  String _dataSourceDescription = 'No video or sensor data selected';
+  String _dataSourceTitle = 'Contoh Data Standar Siap Digunakan';
+  String _dataSourceSubtitle =
+      'Anda dapat langsung melihat hasil simulasi atau merekam video baru.';
 
-  // Local Video State (Cross-Silo Edge Extraction)
+  // State video lokal di perangkat
   String? _localVideoPath;
-  double _localVideoSizeMb = 0.0;
 
   @override
   void initState() {
     super.initState();
-    // Default muat kasus acuan P600 untuk kenyamanan awal
     _loadP600GoldenCase();
   }
 
@@ -53,22 +60,24 @@ class _ScreeningFormScreenState extends State<ScreeningFormScreen> {
   Future<void> _loadP600GoldenCase() async {
     setState(() {
       _localVideoPath = null;
-      _localVideoSizeMb = 0.0;
     });
 
     final data = await SamplePatientData.loadP600Features();
 
+    if (!mounted) return;
     setState(() {
       _selectedPayload = data;
-      _participantIdController.text = data['participant_id']?.toString() ?? 'P600';
-      _dataSourceDescription =
-          'P600 Reference Case (Golden Case: Score ~9.69, Borderline, Visual ~56.8%)';
+      _participantIdController.text =
+          data['participant_id']?.toString() ?? 'P600';
+      _dataSourceTitle = 'Data Contoh Standar (P600)';
+      _dataSourceSubtitle =
+          'Simulasi siap digunakan untuk melihat contoh hasil pemeriksaan.';
     });
   }
 
   void _generateRandomSynthetic() {
     final pid = _participantIdController.text.trim().isEmpty
-        ? 'PATIENT_01'
+        ? 'PESERTA_01'
         : _participantIdController.text.trim();
 
     final data = SamplePatientData.generateSyntheticFeatures(
@@ -79,16 +88,15 @@ class _ScreeningFormScreenState extends State<ScreeningFormScreen> {
     setState(() {
       _selectedPayload = data;
       _localVideoPath = null;
-      _localVideoSizeMb = 0.0;
-      _dataSourceDescription =
-          'Synthetic Multimodal Features (768 Text, 248 Audio, 75 Visual)';
+      _dataSourceTitle = 'Simulasi Kondisi Acak';
+      _dataSourceSubtitle =
+          'Data simulasi cerita, suara, dan ekspresi wajah siap dianalisis.';
     });
   }
 
-  // --- 1. Front Camera Recording Flow ---
   Future<void> _openCameraRecording() async {
     final pid = _participantIdController.text.trim().isEmpty
-        ? 'PATIENT_01'
+        ? 'PESERTA_01'
         : _participantIdController.text.trim();
 
     final recordedVideoPath = await Navigator.push<String>(
@@ -103,10 +111,9 @@ class _ScreeningFormScreenState extends State<ScreeningFormScreen> {
     }
   }
 
-  // --- 2. Gallery Video Selection Flow ---
   Future<void> _pickVideoFromGallery() async {
     final pid = _participantIdController.text.trim().isEmpty
-        ? 'PATIENT_01'
+        ? 'PESERTA_01'
         : _participantIdController.text.trim();
 
     try {
@@ -118,7 +125,6 @@ class _ScreeningFormScreenState extends State<ScreeningFormScreen> {
 
       if (pickedFile == null || !mounted) return;
 
-      // Save picked video to app's private sandbox
       final savedPath = await LocalStorageService.saveClinicalVideo(
         sourceFilePath: pickedFile.path,
         participantId: pid,
@@ -129,7 +135,7 @@ class _ScreeningFormScreenState extends State<ScreeningFormScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Failed to pick video from gallery: $e'),
+          content: Text('Gagal memuat video dari galeri: $e'),
           backgroundColor: const Color(0xFFDC2626),
           duration: const Duration(seconds: 4),
         ),
@@ -137,26 +143,26 @@ class _ScreeningFormScreenState extends State<ScreeningFormScreen> {
     }
   }
 
-  // --- 3. Local Video Processing for On-Device Feature Extraction ---
   Future<void> _processLocalVideo(String videoPath) async {
     final sizeMb = await LocalStorageService.getFileSizeInMb(videoPath);
 
     setState(() {
       _localVideoPath = videoPath;
-      _localVideoSizeMb = sizeMb;
       _selectedPayload = null;
-      _dataSourceDescription =
-          'Patient Session Video (${sizeMb.toStringAsFixed(1)} MB) • Ready for On-Device Edge Extraction';
+      _dataSourceTitle =
+          'Video Rekaman Tersimpan (${sizeMb.toStringAsFixed(1)} MB)';
+      _dataSourceSubtitle =
+          'Tersimpan aman di perangkat • Siap dianalisis tanpa internet.';
     });
 
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          'Video (${sizeMb.toStringAsFixed(1)} MB) loaded successfully. Tap "Run Multimodal Edge AI Screening" below.',
+          'Video (${sizeMb.toStringAsFixed(1)} MB) berhasil dimuat. Tekan "Lihat Hasil Pemeriksaan" di bawah.',
         ),
-        backgroundColor: const Color(0xFF0F766E),
-        duration: const Duration(seconds: 4),
+        backgroundColor: _brandTealDark,
+        duration: const Duration(seconds: 3),
       ),
     );
   }
@@ -178,7 +184,7 @@ class _ScreeningFormScreenState extends State<ScreeningFormScreen> {
     if (participantId.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Participant / Medical Record ID is required!'),
+          content: Text('Mohon isi Nama Panggilan atau Kode Peserta terlebih dahulu.'),
           backgroundColor: Color(0xFFDC2626),
         ),
       );
@@ -188,27 +194,36 @@ class _ScreeningFormScreenState extends State<ScreeningFormScreen> {
     if (_localVideoPath == null && _selectedPayload == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Please record a video or load sample reference data first!'),
+          content: Text(
+            'Silakan rekam video atau pilih contoh data terlebih dahulu.',
+          ),
           backgroundColor: Color(0xFFDC2626),
         ),
       );
       return;
     }
 
-    // 100% ON-DEVICE INFERENCE (MOBILE EDGE OFFLINE)
     List<double> audioFeat;
     List<double> visualFeat;
     List<double> textFeat;
 
     if (_localVideoPath != null) {
-      // Local multimodal extraction from video
       final extracted = await MultimodalExtractorService.extractFromLocalVideo(
         videoPath: _localVideoPath!,
         participantId: participantId,
+        userNote: _counselorNoteController.text.trim(),
+        onProgress: (stage, progress) {
+          provider.setExtractionProgress(stage, progress);
+        },
       );
       audioFeat = extracted.audioFeatures;
       visualFeat = extracted.visualFeatures;
       textFeat = extracted.textFeatures;
+      if (mounted) {
+        setState(() {
+          _dataSourceSubtitle = extracted.extractionSummary;
+        });
+      }
     } else {
       audioFeat = (_selectedPayload!['audio_features'] as List)
           .map((e) => (e as num).toDouble())
@@ -256,517 +271,776 @@ class _ScreeningFormScreenState extends State<ScreeningFormScreen> {
   Widget build(BuildContext context) {
     final provider = context.watch<ScreeningProvider>();
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Multimodal Clinical Screening'),
-            Text(
-              'On-Device Assessment Console (Edge AI)',
-              style: TextStyle(fontSize: 11, color: Color(0xFF64748B)),
-            ),
-          ],
-        ),
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // 1. HEADER INFORMASI KLINIS & PRIVASI
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: const Color(0xFFF0FDFA),
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: const Color(0xFFCCFBF1)),
-              ),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF0F766E).withValues(alpha: 0.15),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
-                      Icons.shield_outlined,
-                      color: Color(0xFF0F766E),
-                      size: 20,
-                    ),
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: SystemUiOverlayStyle.light,
+      child: Scaffold(
+        backgroundColor: _brandTeal,
+        bottomNavigationBar: _buildStickyBottomBar(provider),
+        body: CustomScrollView(
+          slivers: [
+            // --- HEADER BANNER SELARAS DENGAN DASHBOARD ---
+            SliverToBoxAdapter(
+              child: SafeArea(
+                bottom: false,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 14, 20, 24),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Material(
+                            color: Colors.white.withValues(alpha: 0.18),
+                            borderRadius: BorderRadius.circular(12),
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(12),
+                              onTap: () => Navigator.of(context).pop(),
+                              child: const Padding(
+                                padding: EdgeInsets.all(10),
+                                child: Icon(
+                                  Icons.arrow_back_ios_new_rounded,
+                                  color: Colors.white,
+                                  size: 18,
+                                ),
+                              ),
+                            ),
+                          ),
+                          const Spacer(),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 6,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.20),
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: const Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  Icons.verified_user_outlined,
+                                  color: Colors.white,
+                                  size: 14,
+                                ),
+                                SizedBox(width: 5),
+                                Text(
+                                  '100% Offline & Rahasia',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 11.5,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 18),
+                      const Text(
+                        'Cek Kondisi Mental',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 24,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: -0.4,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Ikuti 2 langkah mudah berikut dengan tenang. Seluruh rekaman diproses langsung di HP Anda.',
+                        style: TextStyle(
+                          color: Colors.white.withValues(alpha: 0.92),
+                          fontSize: 13,
+                          height: 1.45,
+                        ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(width: 12),
-                  const Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Absolute Privacy: 100% On-Device Edge AI',
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w700,
-                            color: Color(0xFF0F766E),
-                          ),
-                        ),
-                        SizedBox(height: 3),
-                        Text(
-                          'Multimodal model inference and Exact Shapley XAI execute autonomously in device memory with zero server dependence. Videos and clinical data never leave this device.',
-                          style: TextStyle(
-                            fontSize: 11.5,
-                            color: Color(0xFF115E59),
-                            height: 1.4,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 16),
-
-            // 2. KARTU DATA PASIEN & SESI
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Row(
-                      children: [
-                        Icon(Icons.person_pin_outlined, color: Color(0xFF0F766E), size: 18),
-                        SizedBox(width: 8),
-                        Text(
-                          'Patient Information & Session Context',
-                          style: TextStyle(
-                            fontWeight: FontWeight.w700,
-                            fontSize: 14,
-                            color: Color(0xFF0F172A),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 14),
-                    TextField(
-                      controller: _participantIdController,
-                      decoration: const InputDecoration(
-                        labelText: 'Participant ID / Medical Record Number',
-                        hintText: 'E.g., P600, P302, MR-2026-01',
-                        prefixIcon: Icon(Icons.badge_outlined, size: 20),
-                      ),
-                      enabled: !provider.isExecuting,
-                    ),
-                    const SizedBox(height: 14),
-                    const Text(
-                      'Counseling Session Type:',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: Color(0xFF475569),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 8,
-                      children: _sessionTypes.map((type) {
-                        final isSelected = _selectedSessionType == type;
-                        return ChoiceChip(
-                          label: Text(type),
-                          selected: isSelected,
-                          onSelected: provider.isExecuting
-                              ? null
-                              : (selected) {
-                                  if (selected) {
-                                    setState(() {
-                                      _selectedSessionType = type;
-                                    });
-                                  }
-                                },
-                          selectedColor: const Color(0xFF0F766E).withValues(alpha: 0.15),
-                          labelStyle: TextStyle(
-                            color: isSelected
-                                ? const Color(0xFF0F766E)
-                                : const Color(0xFF64748B),
-                            fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
-                            fontSize: 12,
-                          ),
-                          side: BorderSide(
-                            color: isSelected
-                                ? const Color(0xFF0F766E)
-                                : const Color(0xFFCBD5E1),
-                          ),
-                        );
-                      }).toList(),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: _counselorNoteController,
-                      maxLines: 2,
-                      decoration: const InputDecoration(
-                        labelText: 'Counselor Clinical Notes (Optional)',
-                        hintText: 'E.g., Subdued affect, delayed verbal response, psychomotor retardation...',
-                        prefixIcon: Icon(Icons.edit_note_rounded, size: 22),
-                      ),
-                      enabled: !provider.isExecuting,
-                    ),
-                  ],
                 ),
               ),
             ),
-            const SizedBox(height: 16),
 
-            // 3. KARTU AKUISISI DATA SENSOR & VIDEO
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
+            // --- SHEET PUTIH MELENGKUNG ---
+            SliverFillRemaining(
+              hasScrollBody: false,
+              child: Container(
+                decoration: const BoxDecoration(
+                  color: Color(0xFFF8FAFC),
+                  borderRadius: BorderRadius.only(
+                    topLeft: Radius.circular(34),
+                    topRight: Radius.circular(34),
+                  ),
+                ),
+                padding: const EdgeInsets.fromLTRB(20, 24, 20, 28),
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    const Row(
-                      children: [
-                        Icon(Icons.video_call_rounded, color: Color(0xFF0F766E), size: 20),
-                        SizedBox(width: 8),
-                        Text(
-                          'Patient Video & Modality Acquisition',
-                          style: TextStyle(
-                            fontWeight: FontWeight.w700,
-                            fontSize: 14,
-                            color: Color(0xFF0F172A),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    const Text(
-                      'Choose a video source for the clinical interview session. Feature extraction and inference occur locally on-device.',
-                      style: TextStyle(fontSize: 11.5, color: Color(0xFF64748B)),
-                    ),
-                    const SizedBox(height: 14),
-
-                    // Two Primary Action Buttons: Camera & Gallery
-                    Row(
-                      children: [
-                        Expanded(
-                          child: ElevatedButton.icon(
-                            onPressed: provider.isExecuting
-                                ? null
-                                : _openCameraRecording,
-                            icon: const Icon(Icons.videocam_rounded, size: 18),
-                            label: const Text('Record Video', style: TextStyle(fontSize: 12)),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF0F766E),
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(vertical: 12),
+                    // LANGKAH 1: IDENTITAS & CERITA SINGKAT
+                    _buildStepCard(
+                      stepNumber: '1',
+                      title: 'Data Diri & Perasaan Saat Ini',
+                      subtitle: 'Bantu kami mengenali sesi pemeriksaan Anda',
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Nama Panggilan / Kode Peserta',
+                            style: TextStyle(
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w700,
+                              color: _textPrimary,
                             ),
                           ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            onPressed: provider.isExecuting
-                                ? null
-                                : _pickVideoFromGallery,
-                            icon: const Icon(Icons.video_library_rounded, size: 18),
-                            label: const Text('From Gallery', style: TextStyle(fontSize: 12)),
-                            style: OutlinedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(vertical: 12),
+                          const SizedBox(height: 8),
+                          TextField(
+                            controller: _participantIdController,
+                            enabled: !provider.isExecuting,
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                              color: _textPrimary,
                             ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-
-                    // Additional Options: Reference Cases & Synthetic
-                    Row(
-                      children: [
-                        Expanded(
-                          child: TextButton.icon(
-                            onPressed: provider.isExecuting
-                                ? null
-                                : _loadP600GoldenCase,
-                            icon: const Icon(Icons.verified_outlined, size: 15),
-                            label: const Text('P600 Reference Case', style: TextStyle(fontSize: 11.5)),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: TextButton.icon(
-                            onPressed: provider.isExecuting
-                                ? null
-                                : _generateRandomSynthetic,
-                            icon: const Icon(Icons.shuffle_rounded, size: 15),
-                            label: const Text('Random Synthetic', style: TextStyle(fontSize: 11.5)),
-                          ),
-                        ),
-                      ],
-                    ),
-
-                    // Indikator Video Lokal Terpilih
-                    if (_localVideoPath != null) ...[
-                      const SizedBox(height: 12),
-                      Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFF0FDF4),
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(color: const Color(0xFFBBF7D0)),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                Container(
-                                  padding: const EdgeInsets.all(8),
-                                  decoration: const BoxDecoration(
-                                    color: Color(0xFF10B981),
-                                    shape: BoxShape.circle,
-                                  ),
-                                  child: const Icon(Icons.check_rounded, color: Colors.white, size: 16),
+                            decoration: InputDecoration(
+                              hintText: 'Contoh: Budi, Sari, atau P600',
+                              prefixIcon: const Icon(
+                                Icons.person_outline_rounded,
+                                color: _brandTealDark,
+                                size: 20,
+                              ),
+                              filled: true,
+                              fillColor: const Color(0xFFF8FAFC),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(14),
+                                borderSide: const BorderSide(
+                                  color: Color(0xFFE2E8F0),
                                 ),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                              ),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(14),
+                                borderSide: const BorderSide(
+                                  color: Color(0xFFE2E8F0),
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          const Text(
+                            'Tujuan Pemeriksaan',
+                            style: TextStyle(
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w700,
+                              color: _textPrimary,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: _sessionTypes.map((type) {
+                              final isSelected = _selectedSessionType == type;
+                              return GestureDetector(
+                                onTap: provider.isExecuting
+                                    ? null
+                                    : () {
+                                        setState(() {
+                                          _selectedSessionType = type;
+                                        });
+                                      },
+                                child: AnimatedContainer(
+                                  duration: const Duration(milliseconds: 180),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 14,
+                                    vertical: 9,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: isSelected
+                                        ? _brandTeal
+                                        : const Color(0xFFF8FAFC),
+                                    borderRadius: BorderRadius.circular(20),
+                                    border: Border.all(
+                                      color: isSelected
+                                          ? _brandTeal
+                                          : const Color(0xFFE2E8F0),
+                                    ),
+                                  ),
+                                  child: Text(
+                                    type,
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w700,
+                                      color: isSelected
+                                          ? Colors.white
+                                          : _textSecondary,
+                                    ),
+                                  ),
+                                ),
+                              );
+                            }).toList(),
+                          ),
+                          const SizedBox(height: 16),
+                          const Text(
+                            'Ceritakan Perasaan atau Keluhan Anda (Opsional)',
+                            style: TextStyle(
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w700,
+                              color: _textPrimary,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          TextField(
+                            controller: _counselorNoteController,
+                            maxLines: 3,
+                            enabled: !provider.isExecuting,
+                            style: const TextStyle(
+                              fontSize: 13.5,
+                              color: _textPrimary,
+                            ),
+                            decoration: InputDecoration(
+                              hintText:
+                                  'Tulis apa yang sedang Anda rasakan, misalnya sulit tidur, mudah lelah, atau pikiran yang sedang membebani...',
+                              filled: true,
+                              fillColor: const Color(0xFFF8FAFC),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(14),
+                                borderSide: const BorderSide(
+                                  color: Color(0xFFE2E8F0),
+                                ),
+                              ),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(14),
+                                borderSide: const BorderSide(
+                                  color: Color(0xFFE2E8F0),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+
+                    // LANGKAH 2: REKAMAN EKSPRESI & SUARA
+                    _buildStepCard(
+                      stepNumber: '2',
+                      title: 'Rekaman Wajah & Suara',
+                      subtitle:
+                          'Rekam video singkat (±45 detik) sambil bercerita dengan santai',
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          // Tombol Utama Rekam Video (Full-width, menonjol)
+                          Container(
+                            decoration: BoxDecoration(
+                              gradient: const LinearGradient(
+                                colors: [Color(0xFF18B2AC), Color(0xFF0D9488)],
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                              ),
+                              borderRadius: BorderRadius.circular(20),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: _brandTeal.withValues(alpha: 0.25),
+                                  blurRadius: 16,
+                                  offset: const Offset(0, 6),
+                                ),
+                              ],
+                            ),
+                            child: Material(
+                              color: Colors.transparent,
+                              child: InkWell(
+                                borderRadius: BorderRadius.circular(20),
+                                onTap: provider.isExecuting
+                                    ? null
+                                    : _openCameraRecording,
+                                child: Padding(
+                                  padding: const EdgeInsets.all(18),
+                                  child: Row(
                                     children: [
-                                      const Text(
-                                        'Patient Session Video Selected',
-                                        style: TextStyle(
-                                          fontWeight: FontWeight.w700,
-                                          fontSize: 12,
-                                          color: Color(0xFF065F46),
+                                      Container(
+                                        width: 48,
+                                        height: 48,
+                                        decoration: BoxDecoration(
+                                          color: Colors.white.withValues(
+                                            alpha: 0.20,
+                                          ),
+                                          borderRadius:
+                                              BorderRadius.circular(14),
+                                        ),
+                                        child: const Icon(
+                                          Icons.videocam_rounded,
+                                          color: Colors.white,
+                                          size: 26,
                                         ),
                                       ),
-                                      Text(
-                                        'Size: ${_localVideoSizeMb.toStringAsFixed(1)} MB • Ready for On-Device Feature Extraction',
-                                        style: const TextStyle(fontSize: 10.5, color: Color(0xFF047857)),
+                                      const SizedBox(width: 14),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            const Text(
+                                              'Mulai Rekam Video',
+                                              style: TextStyle(
+                                                fontSize: 16,
+                                                fontWeight: FontWeight.w800,
+                                                color: Colors.white,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 2),
+                                            Text(
+                                              'Buka kamera depan & ikuti panduan cerita',
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                color: Colors.white.withValues(
+                                                  alpha: 0.9,
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      const Icon(
+                                        Icons.arrow_forward_ios_rounded,
+                                        color: Colors.white,
+                                        size: 16,
                                       ),
                                     ],
                                   ),
                                 ),
-                                IconButton(
-                                  onPressed: _previewCurrentVideo,
-                                  icon: const Icon(Icons.play_circle_fill_rounded, color: Color(0xFF0F766E)),
-                                  tooltip: 'Preview Video',
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+
+                          // Tombol Pilih dari Galeri
+                          OutlinedButton.icon(
+                            onPressed: provider.isExecuting
+                                ? null
+                                : _pickVideoFromGallery,
+                            icon: const Icon(
+                              Icons.video_library_outlined,
+                              size: 18,
+                            ),
+                            label: const Text('Pilih Video dari Galeri HP'),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: _brandTealDark,
+                              side: const BorderSide(
+                                color: Color(0xFFCCFBF1),
+                                width: 1.4,
+                              ),
+                              backgroundColor: _softMintBg.withValues(
+                                alpha: 0.45,
+                              ),
+                              padding: const EdgeInsets.symmetric(vertical: 13),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+
+                          // Status Kesiapan Data / Video
+                          _buildDataReadinessBox(),
+                          const SizedBox(height: 14),
+
+                          // Opsi Simulasi Cepat (Ramah Pengguna)
+                          Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFF8FAFC),
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(
+                                color: const Color(0xFFE2E8F0),
+                              ),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Row(
+                                  children: [
+                                    Icon(
+                                      Icons.lightbulb_outline_rounded,
+                                      size: 15,
+                                      color: _textSecondary,
+                                    ),
+                                    SizedBox(width: 6),
+                                    Expanded(
+                                      child: Text(
+                                        'Ingin mencoba tanpa merekam video?',
+                                        style: TextStyle(
+                                          fontSize: 11.5,
+                                          fontWeight: FontWeight.w700,
+                                          color: _textSecondary,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 8),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: _buildDemoPillButton(
+                                        label: 'Contoh Standar',
+                                        icon: Icons.verified_outlined,
+                                        onTap: provider.isExecuting
+                                            ? null
+                                            : _loadP600GoldenCase,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: _buildDemoPillButton(
+                                        label: 'Simulasi Acak',
+                                        icon: Icons.shuffle_rounded,
+                                        onTap: provider.isExecuting
+                                            ? null
+                                            : _generateRandomSynthetic,
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ],
                             ),
-                            const SizedBox(height: 8),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(6),
-                                border: Border.all(color: const Color(0xFFD1FAE5)),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    if (provider.isExecuting) ...[
+                      const SizedBox(height: 18),
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: _softMintBg,
+                          borderRadius: BorderRadius.circular(18),
+                          border: Border.all(color: const Color(0xFF99F6E4)),
+                        ),
+                        child: Column(
+                          children: [
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(8),
+                              child: LinearProgressIndicator(
+                                value: provider.executionProgress,
+                                minHeight: 6,
+                                color: _brandTealDark,
+                                backgroundColor: const Color(0xFFCCFBF1),
                               ),
-                              child: const Row(
-                                children: [
-                                  Icon(Icons.hub_outlined, size: 13, color: Color(0xFF0F766E)),
-                                  SizedBox(width: 6),
-                                  Expanded(
-                                    child: Text(
-                                      'Feature Pipeline: Facial Landmarks (75D) • Acoustic Prosody (248D) • Semantic Embeddings (768D)',
-                                      style: TextStyle(
-                                        fontSize: 10,
-                                        color: Color(0xFF0F766E),
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                  ),
-                                ],
+                            ),
+                            const SizedBox(height: 12),
+                            Text(
+                              provider.executionStatusMessage,
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(
+                                fontSize: 12.5,
+                                fontWeight: FontWeight.w700,
+                                color: _brandTealDark,
                               ),
                             ),
                           ],
                         ),
                       ),
                     ],
-
-                    const SizedBox(height: 14),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF8FAFC),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: const Color(0xFFE2E8F0)),
-                      ),
-                      child: Text(
-                        _dataSourceDescription,
-                        style: const TextStyle(
-                          fontSize: 11.5,
-                          color: Color(0xFF0F766E),
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-
-                    if (_selectedPayload != null) ...[
-                      const SizedBox(height: 14),
-                      const Text(
-                        'Extracted Multimodal Feature Tensors (Loaded in Memory):',
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                          color: Color(0xFF64748B),
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: _buildModalityDimBox(
-                              'Text',
-                              _selectedPayload!['text_features'],
-                              const Color(0xFF2563EB),
-                              Icons.chat_bubble_outline,
-                            ),
-                          ),
-                          const SizedBox(width: 6),
-                          Expanded(
-                            child: _buildModalityDimBox(
-                              'Audio',
-                              _selectedPayload!['audio_features'],
-                              const Color(0xFFEC4899),
-                              Icons.mic_none_outlined,
-                            ),
-                          ),
-                          const SizedBox(width: 6),
-                          Expanded(
-                            child: _buildModalityDimBox(
-                              'Visual',
-                              _selectedPayload!['visual_features'],
-                              const Color(0xFF8B5CF6),
-                              Icons.face_outlined,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
                   ],
                 ),
               ),
             ),
-            const SizedBox(height: 20),
-
-            // 4. PROGRESS INFERENSI AKTIF
-            if (provider.isExecuting) ...[
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF0FDFA),
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: const Color(0xFF99F6E4)),
-                ),
-                child: Column(
-                  children: [
-                    const LinearProgressIndicator(
-                      color: Color(0xFF0F766E),
-                      backgroundColor: Color(0xFFCCFBF1),
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const SizedBox(
-                          width: 14,
-                          height: 14,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Color(0xFF0F766E),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            provider.executionStatusMessage,
-                            style: const TextStyle(
-                              fontSize: 12.5,
-                              fontWeight: FontWeight.w700,
-                              color: Color(0xFF115E59),
-                            ),
-                            textAlign: TextAlign.center,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 16),
-            ],
-
-            // 5. TOMBOL SUBMIT INFERENSI ON-DEVICE
-            SizedBox(
-              height: 50,
-              child: ElevatedButton.icon(
-                onPressed: provider.isExecuting ? null : _submitScreening,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF0F766E),
-                  foregroundColor: Colors.white,
-                ),
-                icon: const Icon(Icons.bolt_rounded, size: 20),
-                label: Text(
-                  provider.isExecuting
-                      ? 'Executing On-Device Assessment...'
-                      : 'Run Multimodal Edge AI Screening',
-                  style: const TextStyle(
-                    fontSize: 13.5,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 0.3,
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(height: 48),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildModalityDimBox(
-    String name,
-    dynamic featureList,
-    Color color,
-    IconData icon,
-  ) {
-    final length = (featureList is List) ? featureList.length : '?';
+  Widget _buildStepCard({
+    required String stepNumber,
+    required String title,
+    required String subtitle,
+    required Widget child,
+  }) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: const Color(0xFFF8FAFC),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFFE2E8F0)),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: const Color(0xFFF1F5F9), width: 1.2),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x0A0F172A),
+            blurRadius: 18,
+            offset: Offset(0, 6),
+          ),
+        ],
       ),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
-            mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(icon, size: 12, color: color),
-              const SizedBox(width: 4),
-              Text(
-                name,
-                style: const TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w700,
-                  color: Color(0xFF1E293B),
+              Container(
+                width: 32,
+                height: 32,
+                decoration: const BoxDecoration(
+                  color: _softMintBg,
+                  shape: BoxShape.circle,
+                ),
+                alignment: Alignment.center,
+                child: Text(
+                  stepNumber,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w800,
+                    color: _brandTealDark,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                        color: _textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: _textSecondary,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 2),
-          Text(
-            '1 x $length',
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-              color: color,
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 16),
+            child: Divider(height: 1, color: Color(0xFFF1F5F9)),
+          ),
+          child,
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDataReadinessBox() {
+    final isVideo = _localVideoPath != null;
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF0FDF4),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFBBF7D0)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: const BoxDecoration(
+                  color: Color(0xFF10B981),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.check_rounded,
+                  color: Colors.white,
+                  size: 14,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _dataSourceTitle,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFF065F46),
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      _dataSourceSubtitle,
+                      style: const TextStyle(
+                        fontSize: 11.5,
+                        color: Color(0xFF047857),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (isVideo)
+                IconButton(
+                  onPressed: _previewCurrentVideo,
+                  icon: const Icon(
+                    Icons.play_circle_fill_rounded,
+                    color: _brandTealDark,
+                    size: 28,
+                  ),
+                  tooltip: 'Putar Video',
+                ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: _buildAspectReadyChip(
+                  label: 'Cerita',
+                  icon: Icons.chat_bubble_outline_rounded,
+                ),
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: _buildAspectReadyChip(
+                  label: 'Suara',
+                  icon: Icons.graphic_eq_rounded,
+                ),
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: _buildAspectReadyChip(
+                  label: 'Ekspresi',
+                  icon: Icons.sentiment_satisfied_alt_rounded,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAspectReadyChip({
+    required String label,
+    required IconData icon,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 7, horizontal: 6),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFFD1FAE5)),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(icon, size: 13, color: _brandTealDark),
+          const SizedBox(width: 4),
+          Flexible(
+            child: Text(
+              label,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                color: _textPrimary,
+              ),
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildDemoPillButton({
+    required String label,
+    required IconData icon,
+    required VoidCallback? onTap,
+  }) {
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(10),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 10),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: const Color(0xFFE2E8F0)),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, size: 14, color: _brandTealDark),
+              const SizedBox(width: 5),
+              Flexible(
+                child: Text(
+                  label,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w700,
+                    color: _brandTealDark,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStickyBottomBar(ScreeningProvider provider) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        boxShadow: [
+          BoxShadow(
+            color: Color(0x120F172A),
+            blurRadius: 16,
+            offset: Offset(0, -4),
+          ),
+        ],
+      ),
+      child: SafeArea(
+        top: false,
+        child: SizedBox(
+          height: 54,
+          width: double.infinity,
+          child: ElevatedButton.icon(
+            onPressed: provider.isExecuting ? null : _submitScreening,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: _brandTeal,
+              foregroundColor: Colors.white,
+              elevation: 0,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(18),
+              ),
+            ),
+            icon: Icon(
+              provider.isExecuting
+                  ? Icons.hourglass_top_rounded
+                  : Icons.check_circle_outline_rounded,
+              size: 20,
+            ),
+            label: Text(
+              provider.isExecuting
+                  ? 'Sedang Menganalisis Kondisi Anda...'
+                  : 'Lihat Hasil Pemeriksaan',
+              style: const TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 0.2,
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }

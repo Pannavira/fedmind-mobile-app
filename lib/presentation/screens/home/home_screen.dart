@@ -376,7 +376,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                       const SizedBox(height: 28),
 
-                      // 2. KATEGORI LAYANAN UTAMA (GAYA KARTU VISUAL BESAR)
+                      // 2. LAYANAN UTAMA (FULL-WIDTH MOBILE-FIRST CTA)
                       const Text(
                         'Layanan Utama',
                         style: TextStyle(
@@ -387,57 +387,29 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                       ),
                       const SizedBox(height: 14),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: _buildCategoryCard(
-                              title: 'Cek Kondisi\nMental',
-                              subtitle: 'Mulai sesi baru',
-                              badgeText: 'Mulai',
-                              icon: Icons.favorite_rounded,
-                              bgGradient: const [
-                                Color(0xFF18B2AC),
-                                Color(0xFF0D9488),
-                              ],
-                              accentColor: Colors.white,
-                              isPrimary: true,
-                              onTap: () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (context) =>
-                                        const ScreeningFormScreen(),
-                                  ),
-                                );
-                              },
+                      _buildPrimaryStartCard(
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) =>
+                                  const ScreeningFormScreen(),
                             ),
-                          ),
-                          const SizedBox(width: 14),
-                          Expanded(
-                            child: _buildCategoryCard(
-                              title: 'Riwayat\nPemeriksaan',
-                              subtitle:
-                                  '${provider.historyItems.length} Sesi tersimpan',
-                              badgeText: 'Lihat',
-                              icon: Icons.insert_chart_outlined_rounded,
-                              bgGradient: const [
-                                Color(0xFFE6F7F6),
-                                Color(0xFFD1F2EF),
-                              ],
-                              accentColor: _brandTealDark,
-                              isPrimary: false,
-                              onTap: () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (context) =>
-                                        const ScreeningHistoryScreen(),
-                                  ),
-                                );
-                              },
+                          );
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                      _buildHistoryShortcutTile(
+                        totalSessions: provider.historyItems.length,
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) =>
+                                  const ScreeningHistoryScreen(),
                             ),
-                          ),
-                        ],
+                          );
+                        },
                       ),
                       const SizedBox(height: 28),
 
@@ -712,120 +684,158 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildCategoryCard({
-    required String title,
-    required String subtitle,
-    required String badgeText,
-    required IconData icon,
-    required List<Color> bgGradient,
-    required Color accentColor,
-    required bool isPrimary,
-    required VoidCallback onTap,
-  }) {
+  Widget _buildPrimaryStartCard({required VoidCallback onTap}) {
     return Container(
-      height: 185,
+      width: double.infinity,
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: bgGradient,
+        gradient: const LinearGradient(
+          colors: [Color(0xFF18B2AC), Color(0xFF0D9488)],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
-        borderRadius: BorderRadius.circular(24),
+        borderRadius: BorderRadius.circular(26),
         boxShadow: [
           BoxShadow(
-            color: isPrimary
-                ? _brandTeal.withValues(alpha: 0.28)
-                : const Color(0x0A0F172A),
-            blurRadius: 18,
-            offset: const Offset(0, 8),
+            color: _brandTeal.withValues(alpha: 0.30),
+            blurRadius: 22,
+            offset: const Offset(0, 10),
           ),
         ],
       ),
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          borderRadius: BorderRadius.circular(24),
+          borderRadius: BorderRadius.circular(26),
           onTap: onTap,
           child: Stack(
             children: [
-              // Dekorasi lingkaran lembut di sudut kanan bawah (gaya kartu referensi)
               Positioned(
-                right: -18,
-                bottom: -18,
+                right: -28,
+                top: -28,
                 child: Container(
-                  width: 96,
-                  height: 96,
+                  width: 130,
+                  height: 130,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: isPrimary
-                        ? Colors.white.withValues(alpha: 0.14)
-                        : _brandTeal.withValues(alpha: 0.10),
+                    color: Colors.white.withValues(alpha: 0.12),
                   ),
                 ),
               ),
               Positioned(
-                right: 14,
-                bottom: 14,
-                child: Icon(
-                  icon,
-                  size: 42,
-                  color: isPrimary
-                      ? Colors.white.withValues(alpha: 0.28)
-                      : _brandTeal.withValues(alpha: 0.25),
+                right: 18,
+                top: 22,
+                child: Container(
+                  width: 56,
+                  height: 56,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: Colors.white.withValues(alpha: 0.18),
+                  ),
+                  child: const Icon(
+                    Icons.favorite_rounded,
+                    color: Colors.white,
+                    size: 28,
+                  ),
                 ),
               ),
               Padding(
-                padding: const EdgeInsets.all(18),
+                padding: const EdgeInsets.all(22),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      title,
-                      style: TextStyle(
-                        fontSize: 17,
-                        fontWeight: FontWeight.w800,
-                        color: isPrimary ? Colors.white : _textPrimary,
-                        height: 1.2,
-                        letterSpacing: -0.2,
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 5,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.20),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.verified_user_outlined,
+                            size: 13,
+                            color: Colors.white,
+                          ),
+                          SizedBox(width: 5),
+                          Text(
+                            'Privasi Terjaga • 100% Offline',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    const Padding(
+                      padding: EdgeInsets.only(right: 64),
+                      child: Text(
+                        'Cek Kondisi Mental',
+                        style: TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.w800,
+                          color: Colors.white,
+                          letterSpacing: -0.4,
+                          height: 1.2,
+                        ),
                       ),
                     ),
                     const SizedBox(height: 6),
                     Text(
-                      subtitle,
+                      'Kenali kondisi perasaan dan emosimu melalui cerita, intonasi suara, serta ekspresi wajah secara nyaman.',
                       style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
-                        color: isPrimary
-                            ? Colors.white.withValues(alpha: 0.88)
-                            : _textSecondary,
+                        fontSize: 13,
+                        color: Colors.white.withValues(alpha: 0.92),
+                        height: 1.45,
                       ),
                     ),
-                    const Spacer(),
+                    const SizedBox(height: 18),
                     Container(
+                      width: double.infinity,
                       padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 6,
+                        horizontal: 18,
+                        vertical: 14,
                       ),
                       decoration: BoxDecoration(
-                        color: isPrimary ? Colors.white : _brandTeal,
-                        borderRadius: BorderRadius.circular(20),
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(18),
+                        boxShadow: const [
+                          BoxShadow(
+                            color: Color(0x140F172A),
+                            blurRadius: 10,
+                            offset: Offset(0, 4),
+                          ),
+                        ],
                       ),
                       child: Row(
-                        mainAxisSize: MainAxisSize.min,
+                        mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Text(
-                            badgeText,
+                          const Text(
+                            'Mulai Pemeriksaan Sekarang',
                             style: TextStyle(
-                              fontSize: 11.5,
-                              fontWeight: FontWeight.w700,
-                              color: isPrimary ? _brandTealDark : Colors.white,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w800,
+                              color: _brandTealDark,
                             ),
                           ),
-                          const SizedBox(width: 4),
-                          Icon(
-                            Icons.arrow_forward_rounded,
-                            size: 13,
-                            color: isPrimary ? _brandTealDark : Colors.white,
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.all(4),
+                            decoration: const BoxDecoration(
+                              color: _softMintBg,
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(
+                              Icons.arrow_forward_rounded,
+                              size: 16,
+                              color: _brandTealDark,
+                            ),
                           ),
                         ],
                       ),
@@ -834,6 +844,107 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHistoryShortcutTile({
+    required int totalSessions,
+    required VoidCallback onTap,
+  }) {
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: _softMintBg,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: const Color(0xFFCCFBF1),
+          width: 1.2,
+        ),
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(20),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 15),
+            child: Row(
+              children: [
+                Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: const Icon(
+                    Icons.insert_chart_outlined_rounded,
+                    color: _brandTealDark,
+                    size: 22,
+                  ),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Riwayat Pemeriksaan',
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w800,
+                          color: _textPrimary,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        totalSessions == 0
+                            ? 'Pantau perkembangan hasil pemeriksaan Anda'
+                            : '$totalSessions sesi pemeriksaan tersimpan di perangkat',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: _textSecondary,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 7,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        'Buka',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: _brandTealDark,
+                        ),
+                      ),
+                      SizedBox(width: 4),
+                      Icon(
+                        Icons.arrow_forward_ios_rounded,
+                        size: 11,
+                        color: _brandTealDark,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
