@@ -1,10 +1,10 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fedmind_mobile_app/main.dart';
 import 'package:fedmind_mobile_app/core/network/api_client.dart';
 import 'package:fedmind_mobile_app/data/datasources/screening_remote_datasource.dart';
 import 'package:fedmind_mobile_app/data/models/screening_models.dart';
 import 'package:fedmind_mobile_app/data/repositories/screening_repository.dart';
-
 import 'package:fedmind_mobile_app/core/services/local_inference_service.dart';
 
 class FakeLocalInferenceService extends LocalInferenceService {
@@ -41,13 +41,27 @@ class FakeScreeningRepository extends ScreeningRepository {
 }
 
 void main() {
-  testWidgets('FedMindApp smoke test with stub repository', (WidgetTester tester) async {
+  testWidgets('FedMindApp smoke test with stub repository and disclaimer popup',
+      (WidgetTester tester) async {
     await tester.pumpWidget(FedMindApp(repository: FakeScreeningRepository()));
-    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pumpAndSettle();
 
-    expect(find.text('FED-MIND'), findsOneWidget);
-    expect(find.text('Dashboard'), findsOneWidget);
-    expect(find.text('Screening'), findsOneWidget);
-    expect(find.text('History'), findsOneWidget);
+    // Verifikasi Pop-up Peringatan Klinis muncul saat awal aplikasi dibuka
+    expect(find.text('Pemberitahuan Penting'), findsOneWidget);
+    expect(find.text('Bukan Diagnosa Medis Mutlak'), findsOneWidget);
+    expect(find.text('100% Berjalan Offline & Data Aman'), findsOneWidget);
+    expect(find.text('Saya Mengerti & Lanjutkan'), findsOneWidget);
+
+    // Tekan tombol "Saya Mengerti & Lanjutkan" untuk menutup dialog
+    await tester.tap(find.text('Saya Mengerti & Lanjutkan'));
+    await tester.pumpAndSettle();
+
+    // Verifikasi Dashboard tampil bersih tanpa navbar dan tanpa kartu teknis
+    expect(find.text('Selamat Datang!'), findsOneWidget);
+    expect(find.text('Layanan Utama'), findsOneWidget);
+    expect(find.text('Cek Kondisi\nMental'), findsOneWidget);
+    expect(find.text('Mengenal Pemeriksaan'), findsOneWidget);
+    expect(find.byType(NavigationBar), findsNothing);
+    expect(find.text('Edge Mobile AI Engine Ready'), findsNothing);
   });
 }
