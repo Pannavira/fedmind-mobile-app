@@ -1,16 +1,21 @@
 import 'package:dio/dio.dart';
 import '../../core/services/local_inference_service.dart';
+import '../datasources/screening_local_datasource.dart';
 import '../datasources/screening_remote_datasource.dart';
+import '../models/multimodal_inspection_models.dart';
 import '../models/screening_models.dart';
 
 class ScreeningRepository {
   final ScreeningRemoteDataSource remoteDataSource;
   final LocalInferenceService localInferenceService;
+  final ScreeningLocalDataSource localDataSource;
 
   ScreeningRepository({
     required this.remoteDataSource,
     LocalInferenceService? localInferenceService,
-  }) : localInferenceService = localInferenceService ?? LocalInferenceService();
+    ScreeningLocalDataSource? localDataSource,
+  })  : localInferenceService = localInferenceService ?? LocalInferenceService(),
+        localDataSource = localDataSource ?? ScreeningLocalDataSource();
 
   /// Menjalankan inferensi dan Exact Shapley XAI langsung di mobile on-device (Edge Offline)
   Future<ScreeningResponse> executeLocalScreening({
@@ -160,6 +165,100 @@ class ScreeningRepository {
       throw _handleDioError(e);
     } catch (e) {
       throw 'Failed to load screening history: $e';
+    }
+  }
+
+  // --- SQLite Local Persistence Methods ---
+
+  /// Simpan hasil skrining dan data inspeksi ke SQLite lokal
+  Future<void> saveLocalScreeningRecord({
+    required ScreeningResponse screening,
+    MultimodalInspectionData? inspectionData,
+    String? videoPath,
+  }) async {
+    try {
+      await localDataSource.insertOrUpdateScreening(
+        screening: screening,
+        inspectionData: inspectionData,
+        videoPath: videoPath,
+      );
+    } catch (e) {
+      throw 'Failed to save screening to local SQLite: $e';
+    }
+  }
+
+  /// Ambil riwayat skrining lokal dari SQLite
+  Future<List<ScreeningSummaryItem>> getLocalScreeningHistory({
+    int skip = 0,
+    int limit = 50,
+    String? participantId,
+    String? riskCategory,
+  }) async {
+    try {
+      return await localDataSource.getScreeningHistory(
+        skip: skip,
+        limit: limit,
+        participantId: participantId,
+        riskCategory: riskCategory,
+      );
+    } catch (e) {
+      throw 'Failed to load local screening history: $e';
+    }
+  }
+
+  /// Ambil detail skrining dari SQLite
+  Future<ScreeningResponse?> getLocalScreeningDetail(String screeningId) async {
+    try {
+      return await localDataSource.getScreeningDetail(screeningId);
+    } catch (e) {
+      throw 'Failed to load local screening detail: $e';
+    }
+  }
+
+  /// Ambil data inspeksi multimodal dari SQLite
+  Future<MultimodalInspectionData?> getLocalInspectionData(
+    String screeningId,
+  ) async {
+    try {
+      return await localDataSource.getInspectionData(screeningId);
+    } catch (e) {
+      throw 'Failed to load local inspection data: $e';
+    }
+  }
+
+  /// Ambil path video lokal dari SQLite
+  Future<String?> getLocalVideoPath(String screeningId) async {
+    try {
+      return await localDataSource.getVideoPath(screeningId);
+    } catch (e) {
+      throw 'Failed to load local video path: $e';
+    }
+  }
+
+  /// Ambil total data skrining tersimpan di SQLite
+  Future<int> getLocalScreeningTotalCount() async {
+    try {
+      return await localDataSource.getTotalCount();
+    } catch (e) {
+      return 0;
+    }
+  }
+
+  /// Hapus satu data skrining lokal
+  Future<bool> deleteLocalScreening(String screeningId) async {
+    try {
+      return await localDataSource.deleteScreening(screeningId);
+    } catch (e) {
+      throw 'Failed to delete local screening record: $e';
+    }
+  }
+
+  /// Hapus seluruh riwayat skrining lokal
+  Future<void> clearLocalScreenings() async {
+    try {
+      await localDataSource.clearAll();
+    } catch (e) {
+      throw 'Failed to clear local screening history: $e';
     }
   }
 

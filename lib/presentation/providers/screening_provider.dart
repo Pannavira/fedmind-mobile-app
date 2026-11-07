@@ -150,8 +150,18 @@ class ScreeningProvider extends ChangeNotifier {
       _currentScreening = result;
       _executionStatusMessage = 'Completed!';
 
+      // Simpan ke SQLite
+      try {
+        await repository.saveLocalScreeningRecord(
+          screening: result,
+          videoPath: videoPath,
+        );
+      } catch (e) {
+        debugPrint('[SCREENING_PROVIDER] Warning: Failed to persist edge screening to SQLite: $e');
+      }
+
       // Refresh riwayat skrining
-      fetchHistory();
+      await fetchHistory();
       return true;
     } catch (e) {
       _errorMessage = e.toString();
@@ -216,7 +226,19 @@ class ScreeningProvider extends ChangeNotifier {
       _localInspectionCache[result.screeningId] = enrichedInspection;
       _executionStatusMessage = 'Selesai!';
 
+      // Simpan ke SQLite secara persisten
+      try {
+        await repository.saveLocalScreeningRecord(
+          screening: result,
+          inspectionData: enrichedInspection,
+          videoPath: inspectionData?.videoPath,
+        );
+      } catch (e) {
+        debugPrint('[SCREENING_PROVIDER] Warning: Failed to persist screening to SQLite: $e');
+      }
+
       // Catat di riwayat memori agar langsung muncul di tab Riwayat
+      _historyItems.removeWhere((item) => item.screeningId == result.screeningId);
       _historyItems.insert(
         0,
         ScreeningSummaryItem(
@@ -245,17 +267,29 @@ class ScreeningProvider extends ChangeNotifier {
     }
   }
 
-  /// Memuat riwayat skrining (On-Device local history)
+  /// Memuat riwayat skrining dari SQLite Local Storage
   Future<void> fetchHistory({int skip = 0, int limit = 30}) async {
     _isLoadingHistory = true;
     notifyListeners();
 
-    // Dalam mode On-Device murni, riwayat dikelola dari cache/penyimpanan lokal
-    _isLoadingHistory = false;
-    notifyListeners();
+    try {
+      final items = await repository.getLocalScreeningHistory(
+        skip: skip,
+        limit: limit,
+      );
+      _historyItems
+        ..clear()
+        ..addAll(items);
+      _totalHistory = await repository.getLocalScreeningTotalCount();
+    } catch (e) {
+      debugPrint('[SCREENING_PROVIDER] Error fetching local history: $e');
+    } finally {
+      _isLoadingHistory = false;
+      notifyListeners();
+    }
   }
 
-  /// Memuat detail skrining berdasarkan ID
+  /// Memuat detail skrining berdasarkan ID (Memory cache atau SQLite Database)
   Future<void> loadScreeningDetail(String screeningId) async {
     _isExecuting = true;
     _errorMessage = null;
@@ -267,16 +301,54 @@ class ScreeningProvider extends ChangeNotifier {
         if (_localInspectionCache.containsKey(screeningId)) {
           _currentInspectionData = _localInspectionCache[screeningId];
         }
-      } else if (_currentScreening?.screeningId == screeningId) {
-        // Sudah ada di memory
       } else {
-        throw 'Screening detail not found in local storage.';
+        // Ambil dari SQLite
+        final savedScreening =
+            await repository.getLocalScreeningDetail(screeningId);
+        if (savedScreening != null) {
+          _currentScreening = savedScreening;
+          _localScreeningCache[screeningId] = savedScreening;
+
+          final savedInspection =
+              await repository.getLocalInspectionData(screeningId);
+          if (savedInspection != null) {
+            _currentInspectionData = savedInspection;
+            _localInspectionCache[screeningId] = savedInspection;
+          }
+        } else if (_currentScreening?.screeningId == screeningId) {
+          // Sudah ada di memory
+        } else {
+          throw 'Screening detail not found in local storage.';
+        }
       }
     } catch (e) {
       _errorMessage = e.toString();
     } finally {
       _isExecuting = false;
       notifyListeners();
+    }
+  }
+
+  /// Menghapus riwayat skrining dari SQLite dan memori
+  Future<bool> deleteScreeningRecord(String screeningId) async {
+    try {
+      final success = await repository.deleteLocalScreening(screeningId);
+      if (success) {
+        _historyItems.removeWhere((item) => item.screeningId == screeningId);
+        _localScreeningCache.remove(screeningId);
+        _localInspectionCache.remove(screeningId);
+        if (_currentScreening?.screeningId == screeningId) {
+          _currentScreening = null;
+          _currentInspectionData = null;
+        }
+        _totalHistory = _historyItems.length;
+        notifyListeners();
+      }
+      return success;
+    } catch (e) {
+      _errorMessage = 'Gagal menghapus riwayat: $e';
+      notifyListeners();
+      return false;
     }
   }
 }

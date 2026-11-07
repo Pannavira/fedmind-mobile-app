@@ -38,6 +38,21 @@ class FakeScreeningRepository extends ScreeningRepository {
   }) async {
     return ScreeningListResponse(total: 0, screenings: []);
   }
+
+  @override
+  Future<List<ScreeningSummaryItem>> getLocalScreeningHistory({
+    int skip = 0,
+    int limit = 50,
+    String? participantId,
+    String? riskCategory,
+  }) async {
+    return [];
+  }
+
+  @override
+  Future<int> getLocalScreeningTotalCount() async {
+    return 0;
+  }
 }
 
 void main() {

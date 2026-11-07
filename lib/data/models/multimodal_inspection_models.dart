@@ -36,6 +36,46 @@ class VisualFrameInspection {
     required this.motionEnergy,
     required this.expressionLabel,
   });
+
+  Map<String, dynamic> toJson() => {
+    'frameIndex': frameIndex,
+    'timeSec': timeSec,
+    'faceFound': faceFound,
+    'confidence': confidence,
+    'bboxLeft': bboxLeft,
+    'bboxTop': bboxTop,
+    'bboxRight': bboxRight,
+    'bboxBottom': bboxBottom,
+    'eulerX': eulerX,
+    'eulerY': eulerY,
+    'eulerZ': eulerZ,
+    'browTension': browTension,
+    'eyeOpenness': eyeOpenness,
+    'smileIntensity': smileIntensity,
+    'lipDepressor': lipDepressor,
+    'motionEnergy': motionEnergy,
+    'expressionLabel': expressionLabel,
+  };
+
+  factory VisualFrameInspection.fromJson(Map<String, dynamic> json) => VisualFrameInspection(
+    frameIndex: json['frameIndex'] as int? ?? 0,
+    timeSec: (json['timeSec'] as num?)?.toDouble() ?? 0.0,
+    faceFound: json['faceFound'] as bool? ?? false,
+    confidence: (json['confidence'] as num?)?.toDouble() ?? 0.0,
+    bboxLeft: (json['bboxLeft'] as num?)?.toDouble() ?? 0.0,
+    bboxTop: (json['bboxTop'] as num?)?.toDouble() ?? 0.0,
+    bboxRight: (json['bboxRight'] as num?)?.toDouble() ?? 0.0,
+    bboxBottom: (json['bboxBottom'] as num?)?.toDouble() ?? 0.0,
+    eulerX: (json['eulerX'] as num?)?.toDouble() ?? 0.0,
+    eulerY: (json['eulerY'] as num?)?.toDouble() ?? 0.0,
+    eulerZ: (json['eulerZ'] as num?)?.toDouble() ?? 0.0,
+    browTension: (json['browTension'] as num?)?.toDouble() ?? 0.0,
+    eyeOpenness: (json['eyeOpenness'] as num?)?.toDouble() ?? 0.0,
+    smileIntensity: (json['smileIntensity'] as num?)?.toDouble() ?? 0.0,
+    lipDepressor: (json['lipDepressor'] as num?)?.toDouble() ?? 0.0,
+    motionEnergy: (json['motionEnergy'] as num?)?.toDouble() ?? 0.0,
+    expressionLabel: json['expressionLabel'] as String? ?? 'Neutral',
+  );
 }
 
 class TranscriptSegmentItem {
@@ -50,6 +90,23 @@ class TranscriptSegmentItem {
     this.detectedKeywords = const [],
     this.prosodyNote = '',
   });
+
+  Map<String, dynamic> toJson() => {
+    'timeRangeLabel': timeRangeLabel,
+    'text': text,
+    'detectedKeywords': detectedKeywords,
+    'prosodyNote': prosodyNote,
+  };
+
+  factory TranscriptSegmentItem.fromJson(Map<String, dynamic> json) => TranscriptSegmentItem(
+    timeRangeLabel: json['timeRangeLabel'] as String? ?? '',
+    text: json['text'] as String? ?? '',
+    detectedKeywords: (json['detectedKeywords'] as List<dynamic>?)
+            ?.map((e) => e.toString())
+            .toList() ??
+        const [],
+    prosodyNote: json['prosodyNote'] as String? ?? '',
+  );
 }
 
 class CoalitionStepScore {
@@ -70,6 +127,26 @@ class CoalitionStepScore {
     required this.hasText,
     required this.predictedScore,
   });
+
+  Map<String, dynamic> toJson() => {
+    'coalitionCode': coalitionCode,
+    'label': label,
+    'description': description,
+    'hasAudio': hasAudio,
+    'hasVisual': hasVisual,
+    'hasText': hasText,
+    'predictedScore': predictedScore,
+  };
+
+  factory CoalitionStepScore.fromJson(Map<String, dynamic> json) => CoalitionStepScore(
+    coalitionCode: json['coalitionCode'] as String? ?? '',
+    label: json['label'] as String? ?? '',
+    description: json['description'] as String? ?? '',
+    hasAudio: json['hasAudio'] as bool? ?? false,
+    hasVisual: json['hasVisual'] as bool? ?? false,
+    hasText: json['hasText'] as bool? ?? false,
+    predictedScore: (json['predictedScore'] as num?)?.toDouble() ?? 0.0,
+  );
 }
 
 class MultimodalInspectionData {
@@ -214,4 +291,120 @@ class MultimodalInspectionData {
       coalitionScores: coalitionScores ?? this.coalitionScores,
     );
   }
+
+  Map<String, dynamic> toJson() => {
+    'participantId': participantId,
+    'videoPath': videoPath,
+    'isFromRealVideo': isFromRealVideo,
+    'videoDurationSec': videoDurationSec,
+    'framesAnalyzed': framesAnalyzed,
+    'facesDetected': facesDetected,
+    'faceDetectionRatePct': faceDetectionRatePct,
+    'avgFaceConfidence': avgFaceConfidence,
+    'avgHeadPitchDeg': avgHeadPitchDeg,
+    'avgHeadYawDeg': avgHeadYawDeg,
+    'facialAffectTitle': facialAffectTitle,
+    'facialAffectDescription': facialAffectDescription,
+    'actionUnitScores': actionUnitScores,
+    'visualFrames': visualFrames.map((e) => e.toJson()).toList(),
+    'audioSampleRate': audioSampleRate,
+    'totalAudioSamples': totalAudioSamples,
+    'audioWaveformBars': audioWaveformBars,
+    'pitchContourHz': pitchContourHz,
+    'avgPitchHz': avgPitchHz,
+    'pitchStdHz': pitchStdHz,
+    'voicedRatioPct': voicedRatioPct,
+    'pauseRatioPct': pauseRatioPct,
+    'jitterPct': jitterPct,
+    'shimmerPct': shimmerPct,
+    'vocalProsodyTitle': vocalProsodyTitle,
+    'vocalProsodyDescription': vocalProsodyDescription,
+    'fullTranscript': fullTranscript,
+    'transcriptSegments': transcriptSegments.map((e) => e.toJson()).toList(),
+    'detectedKeywords': detectedKeywords,
+    'emotionalValence': emotionalValence,
+    'selfPronounCount': selfPronounCount,
+    'linguisticTitle': linguisticTitle,
+    'linguisticDescription': linguisticDescription,
+    'sampleVisualVector': sampleVisualVector,
+    'sampleAudioVector': sampleAudioVector,
+    'sampleTextVector': sampleTextVector,
+    'audioLatentNorm': audioLatentNorm,
+    'visualLatentNorm': visualLatentNorm,
+    'textLatentNorm': textLatentNorm,
+    'coalitionScores': coalitionScores.map((e) => e.toJson()).toList(),
+  };
+
+  factory MultimodalInspectionData.fromJson(Map<String, dynamic> json) => MultimodalInspectionData(
+    participantId: json['participantId'] as String? ?? '',
+    videoPath: json['videoPath'] as String?,
+    isFromRealVideo: json['isFromRealVideo'] as bool? ?? false,
+    videoDurationSec: (json['videoDurationSec'] as num?)?.toDouble() ?? 0.0,
+    framesAnalyzed: json['framesAnalyzed'] as int? ?? 0,
+    facesDetected: json['facesDetected'] as int? ?? 0,
+    faceDetectionRatePct: (json['faceDetectionRatePct'] as num?)?.toDouble() ?? 0.0,
+    avgFaceConfidence: (json['avgFaceConfidence'] as num?)?.toDouble() ?? 0.0,
+    avgHeadPitchDeg: (json['avgHeadPitchDeg'] as num?)?.toDouble() ?? 0.0,
+    avgHeadYawDeg: (json['avgHeadYawDeg'] as num?)?.toDouble() ?? 0.0,
+    facialAffectTitle: json['facialAffectTitle'] as String? ?? '',
+    facialAffectDescription: json['facialAffectDescription'] as String? ?? '',
+    actionUnitScores: (json['actionUnitScores'] as Map<String, dynamic>?)?.map(
+          (k, v) => MapEntry(k, (v as num).toDouble()),
+        ) ??
+        const {},
+    visualFrames: (json['visualFrames'] as List<dynamic>?)
+            ?.map((e) => VisualFrameInspection.fromJson(e as Map<String, dynamic>))
+            .toList() ??
+        const [],
+    audioSampleRate: json['audioSampleRate'] as int? ?? 16000,
+    totalAudioSamples: json['totalAudioSamples'] as int? ?? 0,
+    audioWaveformBars: (json['audioWaveformBars'] as List<dynamic>?)
+            ?.map((e) => (e as num).toDouble())
+            .toList() ??
+        const [],
+    pitchContourHz: (json['pitchContourHz'] as List<dynamic>?)
+            ?.map((e) => (e as num).toDouble())
+            .toList() ??
+        const [],
+    avgPitchHz: (json['avgPitchHz'] as num?)?.toDouble() ?? 0.0,
+    pitchStdHz: (json['pitchStdHz'] as num?)?.toDouble() ?? 0.0,
+    voicedRatioPct: (json['voicedRatioPct'] as num?)?.toDouble() ?? 0.0,
+    pauseRatioPct: (json['pauseRatioPct'] as num?)?.toDouble() ?? 0.0,
+    jitterPct: (json['jitterPct'] as num?)?.toDouble() ?? 0.0,
+    shimmerPct: (json['shimmerPct'] as num?)?.toDouble() ?? 0.0,
+    vocalProsodyTitle: json['vocalProsodyTitle'] as String? ?? '',
+    vocalProsodyDescription: json['vocalProsodyDescription'] as String? ?? '',
+    fullTranscript: json['fullTranscript'] as String? ?? '',
+    transcriptSegments: (json['transcriptSegments'] as List<dynamic>?)
+            ?.map((e) => TranscriptSegmentItem.fromJson(e as Map<String, dynamic>))
+            .toList() ??
+        const [],
+    detectedKeywords: (json['detectedKeywords'] as List<dynamic>?)
+            ?.map((e) => e.toString())
+            .toList() ??
+        const [],
+    emotionalValence: (json['emotionalValence'] as num?)?.toDouble() ?? 0.0,
+    selfPronounCount: json['selfPronounCount'] as int? ?? 0,
+    linguisticTitle: json['linguisticTitle'] as String? ?? '',
+    linguisticDescription: json['linguisticDescription'] as String? ?? '',
+    sampleVisualVector: (json['sampleVisualVector'] as List<dynamic>?)
+            ?.map((e) => (e as num).toDouble())
+            .toList() ??
+        const [],
+    sampleAudioVector: (json['sampleAudioVector'] as List<dynamic>?)
+            ?.map((e) => (e as num).toDouble())
+            .toList() ??
+        const [],
+    sampleTextVector: (json['sampleTextVector'] as List<dynamic>?)
+            ?.map((e) => (e as num).toDouble())
+            .toList() ??
+        const [],
+    audioLatentNorm: (json['audioLatentNorm'] as num?)?.toDouble() ?? 1.0,
+    visualLatentNorm: (json['visualLatentNorm'] as num?)?.toDouble() ?? 1.0,
+    textLatentNorm: (json['textLatentNorm'] as num?)?.toDouble() ?? 1.0,
+    coalitionScores: (json['coalitionScores'] as List<dynamic>?)
+            ?.map((e) => CoalitionStepScore.fromJson(e as Map<String, dynamic>))
+            .toList() ??
+        const [],
+  );
 }
