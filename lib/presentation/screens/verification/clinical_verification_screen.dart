@@ -6,21 +6,24 @@ import 'package:fedmind_mobile_app/core/constants/clinical_constants.dart';
 import 'package:fedmind_mobile_app/data/models/multimodal_inspection_models.dart';
 import 'package:fedmind_mobile_app/data/models/screening_models.dart';
 import 'package:fedmind_mobile_app/presentation/providers/screening_provider.dart';
+import 'package:fedmind_mobile_app/presentation/screens/main_navigation_screen.dart';
+import 'package:fedmind_mobile_app/presentation/widgets/clinical_bottom_nav_bar.dart';
 import 'package:fedmind_mobile_app/presentation/widgets/risk_badge.dart';
 
 /// Layar terpisah khusus verifikasi konselor / klinisi (Human-in-the-Loop)
-/// Memisahkan proses audit klinis, evaluasi ground-truth, dan pencatatan SOAP
-/// dari tampilan hasil murni model skrining.
+/// Dirancang sederhana, intuitif, ramah pengguna, dan dilengkapi navigasi bawah terintegrasi.
 class ClinicalVerificationScreen extends StatefulWidget {
   final ScreeningResponse screening;
   final MultimodalInspectionData? inspectionData;
   final String? localVideoPath;
+  final int initialNavIndex;
 
   const ClinicalVerificationScreen({
     super.key,
     required this.screening,
     this.inspectionData,
     this.localVideoPath,
+    this.initialNavIndex = 3,
   });
 
   @override
@@ -37,6 +40,7 @@ class _ClinicalVerificationScreenState
   static const Color _textSecondary = Color(0xFF64748B);
   static const Color _textMuted = Color(0xFF94A3B8);
 
+  late int _currentNavIndex;
   late String _concordanceStatus; // valid, overestimated, underestimated, artifact
   late double _groundTruthPhq8;
   late bool _visualPlausible;
@@ -53,6 +57,8 @@ class _ClinicalVerificationScreenState
   @override
   void initState() {
     super.initState();
+    _currentNavIndex = widget.initialNavIndex.clamp(0, 4);
+
     final ver = widget.screening.clinicalVerification;
     final modelScore = widget.screening.prediction?.phq8Score ?? 0.0;
     final riskCat = widget.screening.prediction?.riskCategory ?? 'low';
@@ -82,7 +88,7 @@ class _ClinicalVerificationScreenState
       text: (ver?.soapObjective.isNotEmpty == true)
           ? ver!.soapObjective
           : 'Estimasi AI PHQ-8: ${modelScore.toStringAsFixed(1)}/24.0 (${ClinicalConstants.getRiskLabel(riskCat)}). '
-              'Modalitas dominan: ${ClinicalConstants.getModalityClinicalName(domMod)}.',
+              'Modalitas pengamatan dominan: ${ClinicalConstants.getModalityClinicalName(domMod)}.',
     );
 
     _soapAssessmentCtrl = TextEditingController(
@@ -117,6 +123,21 @@ class _ClinicalVerificationScreenState
     return 'low';
   }
 
+  String _getRiskDescriptionShort(String riskCat) {
+    switch (riskCat.toLowerCase()) {
+      case 'low':
+        return 'Risiko Rendah / Minimal (0–7)';
+      case 'borderline':
+        return 'Batas Ringan (8–9)';
+      case 'moderate':
+        return 'Gejala Sedang (10–14)';
+      case 'high':
+        return 'Gejala Berat (15–24)';
+      default:
+        return 'Risiko Rendah (0–7)';
+    }
+  }
+
   String _formatDate(String isoString) {
     try {
       final dt = DateTime.parse(isoString).toLocal();
@@ -124,6 +145,23 @@ class _ClinicalVerificationScreenState
     } catch (_) {
       return isoString;
     }
+  }
+
+  void _syncWithAiScore() {
+    final syncedScore = _modelPhq8.roundToDouble().clamp(0.0, 24.0);
+    setState(() {
+      _groundTruthPhq8 = syncedScore;
+      _concordanceStatus = 'valid';
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'Skor ahli diselaraskan dengan hasil AI (${syncedScore.toInt()}/24)',
+        ),
+        duration: const Duration(seconds: 2),
+        backgroundColor: _brandTealDark,
+      ),
+    );
   }
 
   Future<void> _saveVerification() async {
@@ -186,35 +224,35 @@ class _ClinicalVerificationScreenState
     final sign = _deviationDelta >= 0 ? '+' : '';
 
     final soapResume = '''
-=== RESUME KLINIS FORMAT SOAP & AUDIT MODEL CDSS ===
-ID Klien / RM     : ${widget.screening.participantId}
+=== RINGKASAN VERIFIKASI KLINIS (FORMAT SOAP) ===
+ID Pasien / RM    : ${widget.screening.participantId}
 ID Sesi           : ${widget.screening.screeningId}
 Waktu Pemeriksaan : ${_formatDate(widget.screening.createdAt ?? '')}
 
-[KOMPARASI DIAGNOSTIK & VERIFIKASI MODEL]
-• Estimasi Model AI : ${_modelPhq8.toStringAsFixed(1)} / 24.0 (${ClinicalConstants.getRiskLabel(riskCategory)})
-• Skor PHQ-8 Aktual : ${_groundTruthPhq8.toStringAsFixed(0)} / 24.0 (${ClinicalConstants.getRiskLabel(_groundTruthRiskCategory)})
-• Deviasi (Δ)       : $sign${_deviationDelta.toStringAsFixed(1)} poin PHQ-8
-• Tingkat Kesesuaian: ${ClinicalConstants.getConcordanceLabel(_concordanceStatus)}
-• Dominan Modalitas : ${ClinicalConstants.getModalityClinicalName(domMod)}
+[PERBANDINGAN HASIL]
+• Estimasi Model AI  : ${_modelPhq8.toStringAsFixed(1)} / 24.0 (${ClinicalConstants.getRiskLabel(riskCategory)})
+• Skor Penilaian Ahli: ${_groundTruthPhq8.toStringAsFixed(0)} / 24.0 (${ClinicalConstants.getRiskLabel(_groundTruthRiskCategory)})
+• Selisih (Δ)        : $sign${_deviationDelta.toStringAsFixed(1)} poin PHQ-8
+• Kesesuaian Hasil   : ${ClinicalConstants.getConcordanceLabel(_concordanceStatus)}
+• Pengamatan Dominan : ${ClinicalConstants.getModalityClinicalName(domMod)}
 
-[AUDIT VALIDITAS MODALITAS]
-• Visual (Action Units) : ${_visualPlausible ? 'Valid' : 'Anomali/Artefak'}
-• Akustik (Audio)       : ${_audioPlausible ? 'Valid' : 'Anomali/Artefak'}
-• Linguistik (Teks)     : ${_textPlausible ? 'Valid' : 'Anomali/Artefak'}
+[KUALITAS REKAMAN SESI]
+• Pengamatan Wajah  : ${_visualPlausible ? 'Jelas & Memadai' : 'Kurang Jelas / Terhalang'}
+• Kualitas Suara    : ${_audioPlausible ? 'Jernih & Terdengar' : 'Kurang Jelas / Bising'}
+• Respon Percakapan : ${_textPlausible ? 'Memadai & Relevan' : 'Terlalu Sedikit Informasi'}
 
-[CATATAN KLINIS STANDAR SOAP]
-S (Subjective) : ${_soapSubjectiveCtrl.text.trim()}
-O (Objective)  : ${_soapObjectiveCtrl.text.trim()}
-A (Assessment) : ${_soapAssessmentCtrl.text.trim()}
-P (Plan)       : ${_soapPlanCtrl.text.trim()}
-====================================================
+[CATATAN KONSELING (SOAP)]
+S (Keluhan Pasien)  : ${_soapSubjectiveCtrl.text.trim()}
+O (Temuan & AI)     : ${_soapObjectiveCtrl.text.trim()}
+A (Kesimpulan Ahli) : ${_soapAssessmentCtrl.text.trim()}
+P (Rencana Lanjutan): ${_soapPlanCtrl.text.trim()}
+=================================================
 ''';
 
     Clipboard.setData(ClipboardData(text: soapResume));
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text('Resume klinis SOAP berhasil disalin ke Clipboard.'),
+        content: Text('Ringkasan verifikasi berhasil disalin ke Clipboard.'),
         backgroundColor: _brandTealDark,
       ),
     );
@@ -226,7 +264,9 @@ P (Plan)       : ${_soapPlanCtrl.text.trim()}
     final prediction = screening.prediction;
     final riskCategory = prediction?.riskCategory ?? 'low';
     final riskColor = ClinicalConstants.getRiskColor(riskCategory);
+    final gtRiskColor = ClinicalConstants.getRiskColor(_groundTruthRiskCategory);
     final isSim = screening.isSimulation;
+    final provider = context.watch<ScreeningProvider>();
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
@@ -234,20 +274,26 @@ P (Plan)       : ${_soapPlanCtrl.text.trim()}
         backgroundColor: Colors.white,
         elevation: 0,
         surfaceTintColor: Colors.transparent,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_ios_new_rounded,
+              size: 20, color: _textPrimary),
+          onPressed: () => Navigator.pop(context),
+          tooltip: 'Kembali',
+        ),
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'Verifikasi Konselor: ${screening.participantId}',
-              style: const TextStyle(
+            const Text(
+              'Verifikasi Ahli',
+              style: TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.w800,
                 color: _textPrimary,
               ),
             ),
-            const Text(
-              'Lembar Validasi & Catatan Klinis Mandiri',
-              style: TextStyle(
+            Text(
+              'ID: ${screening.participantId} • ${_formatDate(screening.createdAt ?? "")}',
+              style: const TextStyle(
                 fontSize: 11.5,
                 color: _textSecondary,
                 fontWeight: FontWeight.w500,
@@ -263,143 +309,51 @@ P (Plan)       : ${_soapPlanCtrl.text.trim()}
           IconButton(
             onPressed: () => _copySoapResumeToClipboard(context),
             icon: const Icon(Icons.copy_all_rounded, color: _textSecondary),
-            tooltip: 'Salin Format SOAP',
+            tooltip: 'Salin Ringkasan Verifikasi',
           ),
         ],
       ),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(18, 18, 18, 36),
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // Banner Status Referensi Model AI
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(18),
-                border: Border.all(color: const Color(0xFFE2E8F0)),
-                boxShadow: const [
-                  BoxShadow(
-                    color: Color(0x060F172A),
-                    blurRadius: 12,
-                    offset: Offset(0, 3),
-                  ),
-                ],
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Row(
-                        children: [
-                          Icon(
-                            Icons.psychology_outlined,
-                            size: 18,
-                            color: _brandTealDark,
-                          ),
-                          SizedBox(width: 8),
-                          Text(
-                            'Referensi Hasil Estimasi AI',
-                            style: TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w700,
-                              color: _textPrimary,
-                            ),
-                          ),
-                        ],
-                      ),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 3,
-                        ),
-                        decoration: BoxDecoration(
-                          color: _isVerified
-                              ? const Color(0xFFECFDF5)
-                              : const Color(0xFFFFFBEB),
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(
-                            color: _isVerified
-                                ? const Color(0xFFA7F3D0)
-                                : const Color(0xFFFDE68A),
-                          ),
-                        ),
-                        child: Text(
-                          _isVerified ? 'Sudah Diverifikasi' : 'Belum Diverifikasi',
-                          style: TextStyle(
-                            fontSize: 10.5,
-                            fontWeight: FontWeight.w700,
-                            color: _isVerified
-                                ? const Color(0xFF059669)
-                                : const Color(0xFFD97706),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      Text(
-                        _modelPhq8.toStringAsFixed(1),
-                        style: TextStyle(
-                          fontSize: 28,
-                          fontWeight: FontWeight.w900,
-                          color: riskColor,
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                      const Text(
-                        '/ 24.0',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: _textSecondary,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      RiskBadge(riskCategory: riskCategory),
-                    ],
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    'Waktu Sesi: ${_formatDate(screening.createdAt ?? "")}',
-                    style: const TextStyle(fontSize: 11, color: _textMuted),
-                  ),
-                ],
-              ),
+            // 1. CARD PERBANDINGAN SKOR (AI vs AHLI)
+            _buildComparisonCard(
+              screening: screening,
+              riskCategory: riskCategory,
+              riskColor: riskColor,
+              gtRiskColor: gtRiskColor,
             ),
-            const SizedBox(height: 18),
+            const SizedBox(height: 16),
 
-            // FORM VERIFIKASI KLINIS
+            // 2. CARD FORM EVALUASI & PENILAIAN AHLI
             Container(
               decoration: BoxDecoration(
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: const Color(0xFFF1F5F9), width: 1.2),
+                border: Border.all(color: const Color(0xFFE2E8F0), width: 1.2),
                 boxShadow: const [
                   BoxShadow(
-                    color: Color(0x0A0F172A),
+                    color: Color(0x080F172A),
                     blurRadius: 16,
                     offset: Offset(0, 4),
                   ),
                 ],
               ),
-              padding: const EdgeInsets.all(20),
+              padding: const EdgeInsets.all(18),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Row(
                     children: [
-                      Icon(Icons.verified_outlined, color: _brandTeal, size: 20),
+                      Icon(Icons.rate_review_outlined,
+                          color: _brandTealDark, size: 20),
                       SizedBox(width: 8),
                       Text(
-                        'Evaluasi Ahli Klinis',
+                        'Evaluasi Hasil Pemeriksaan',
                         style: TextStyle(
-                          fontSize: 16,
+                          fontSize: 15.5,
                           fontWeight: FontWeight.w800,
                           color: _textPrimary,
                         ),
@@ -408,58 +362,64 @@ P (Plan)       : ${_soapPlanCtrl.text.trim()}
                   ),
                   const SizedBox(height: 4),
                   const Text(
-                    'Tentukan kesesuaian hasil model dengan wawancara dan observasi klinis langsung Anda.',
+                    'Tentukan kesesuaian estimasi AI dengan hasil observasi langsung Anda:',
                     style: TextStyle(fontSize: 12, color: _textSecondary),
                   ),
-                  const SizedBox(height: 18),
+                  const SizedBox(height: 16),
 
-                  // A. Kesesuaian Prediksi Model (Concordance Pills)
+                  // A. Penilaian Kesesuaian AI
                   const Text(
-                    '1. Kesesuaian Prediksi Model:',
+                    '1. Apakah hasil analisis AI sesuai?',
                     style: TextStyle(
-                      fontSize: 12.5,
+                      fontSize: 13,
                       fontWeight: FontWeight.w700,
                       color: _textPrimary,
                     ),
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 10),
                   Wrap(
                     spacing: 8,
                     runSpacing: 8,
                     children: [
                       _buildConcordancePill(
                         keyName: 'valid',
-                        label: 'Sesuai / Valid',
+                        icon: Icons.check_circle_outline_rounded,
+                        label: 'Sesuai / Cocok',
                         color: const Color(0xFF10B981),
                       ),
                       _buildConcordancePill(
                         keyName: 'overestimated',
-                        label: 'Terlalu Tinggi',
+                        icon: Icons.trending_up_rounded,
+                        label: 'Hasil Terlalu Tinggi',
                         color: const Color(0xFFF59E0B),
                       ),
                       _buildConcordancePill(
                         keyName: 'underestimated',
-                        label: 'Terlalu Rendah',
+                        icon: Icons.trending_down_rounded,
+                        label: 'Hasil Terlalu Rendah',
                         color: const Color(0xFFF97316),
                       ),
                       _buildConcordancePill(
                         keyName: 'artifact',
-                        label: 'Anomali Sensor',
+                        icon: Icons.report_problem_outlined,
+                        label: 'Kualitas Rekaman Kurang',
                         color: const Color(0xFFEF4444),
                       ),
                     ],
                   ),
                   const SizedBox(height: 20),
+                  const Divider(height: 1, color: Color(0xFFF1F5F9)),
+                  const SizedBox(height: 16),
 
-                  // B. Input Skor PHQ-8 Aktual
+                  // B. Input Skor PHQ-8 Aktual Konselor
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       const Flexible(
                         child: Text(
-                          '2. Skor PHQ-8 Aktual (Asesmen Riil):',
+                          '2. Skor Penilaian Ahli (PHQ-8):',
                           style: TextStyle(
-                            fontSize: 12.5,
+                            fontSize: 13,
                             fontWeight: FontWeight.w700,
                             color: _textPrimary,
                           ),
@@ -475,9 +435,9 @@ P (Plan)       : ${_soapPlanCtrl.text.trim()}
                           borderRadius: BorderRadius.circular(10),
                         ),
                         child: Text(
-                          '${_groundTruthPhq8.toStringAsFixed(0)} / 24  (${_deviationDelta >= 0 ? '+' : ''}${_deviationDelta.toStringAsFixed(1)} Δ)',
+                          '${_groundTruthPhq8.toStringAsFixed(0)} / 24',
                           style: const TextStyle(
-                            fontSize: 12,
+                            fontSize: 13,
                             fontWeight: FontWeight.w800,
                             color: _brandTealDark,
                           ),
@@ -485,13 +445,23 @@ P (Plan)       : ${_soapPlanCtrl.text.trim()}
                       ),
                     ],
                   ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Kategori: ${_getRiskDescriptionShort(_groundTruthRiskCategory)}',
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w600,
+                      color: gtRiskColor,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
                   SliderTheme(
                     data: SliderTheme.of(context).copyWith(
                       activeTrackColor: _brandTeal,
                       inactiveTrackColor: const Color(0xFFE2E8F0),
                       thumbColor: _brandTealDark,
                       overlayColor: _brandTeal.withValues(alpha: 0.15),
-                      trackHeight: 4,
+                      trackHeight: 5,
                     ),
                     child: Slider(
                       value: _groundTruthPhq8,
@@ -503,182 +473,586 @@ P (Plan)       : ${_soapPlanCtrl.text.trim()}
                       },
                     ),
                   ),
+                  // Panduan Kategori Skor
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF8FAFC),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: const Color(0xFFE2E8F0)),
+                    ),
+                    child: const Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text('0–7: Minimal',
+                            style: TextStyle(
+                                fontSize: 10.5, color: _textSecondary)),
+                        Text('8–9: Ringan',
+                            style: TextStyle(
+                                fontSize: 10.5, color: _textSecondary)),
+                        Text('10–14: Sedang',
+                            style: TextStyle(
+                                fontSize: 10.5, color: _textSecondary)),
+                        Text('15–24: Berat',
+                            style: TextStyle(
+                                fontSize: 10.5, color: _textSecondary)),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  const Divider(height: 1, color: Color(0xFFF1F5F9)),
                   const SizedBox(height: 16),
 
-                  // C. Validitas Modalitas Sensor
+                  // C. Kualitas Pengamatan Sesi
                   const Text(
-                    '3. Validitas Sensor saat Observasi:',
+                    '3. Kualitas Pengamatan Sesi:',
                     style: TextStyle(
-                      fontSize: 12.5,
+                      fontSize: 13,
                       fontWeight: FontWeight.w700,
                       color: _textPrimary,
                     ),
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 4),
+                  const Text(
+                    'Tandai parameter rekaman yang memenuhi standar pemeriksaan:',
+                    style: TextStyle(fontSize: 11.5, color: _textSecondary),
+                  ),
+                  const SizedBox(height: 10),
                   Wrap(
                     spacing: 8,
                     runSpacing: 8,
                     children: [
                       _buildPlausibilityToggle(
-                        label: 'Visual (Wajah)',
+                        icon: Icons.face_rounded,
+                        label: 'Wajah & Mimik Jelas',
                         value: _visualPlausible,
                         onChanged: (v) => setState(() => _visualPlausible = v),
                       ),
                       _buildPlausibilityToggle(
-                        label: 'Akustik (Suara)',
+                        icon: Icons.mic_rounded,
+                        label: 'Suara Terdengar Jernih',
                         value: _audioPlausible,
                         onChanged: (v) => setState(() => _audioPlausible = v),
                       ),
                       _buildPlausibilityToggle(
-                        label: 'Linguistik (Teks)',
+                        icon: Icons.chat_bubble_outline_rounded,
+                        label: 'Percakapan Memadai',
                         value: _textPlausible,
                         onChanged: (v) => setState(() => _textPlausible = v),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 22),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
 
-                  // D. Catatan SOAP Terstruktur
-                  const Text(
-                    '4. Catatan Klinis Standar (SOAP):',
-                    style: TextStyle(
-                      fontSize: 12.5,
-                      fontWeight: FontWeight.w700,
-                      color: _textPrimary,
-                    ),
+            // 3. CARD CATATAN KONSELING (FORMAT SOAP RAMAH PENGGUNA)
+            Container(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: const Color(0xFFE2E8F0), width: 1.2),
+                boxShadow: const [
+                  BoxShadow(
+                    color: Color(0x080F172A),
+                    blurRadius: 16,
+                    offset: Offset(0, 4),
                   ),
-                  const SizedBox(height: 10),
-                  _buildSoapInput(
-                    badge: 'S',
-                    label: 'Subjective (Keluhan Klien)',
-                    controller: _soapSubjectiveCtrl,
-                  ),
-                  const SizedBox(height: 10),
-                  _buildSoapInput(
-                    badge: 'O',
-                    label: 'Objective (Observasi & AI)',
-                    controller: _soapObjectiveCtrl,
-                  ),
-                  const SizedBox(height: 10),
-                  _buildSoapInput(
-                    badge: 'A',
-                    label: 'Assessment (Analisis Konselor)',
-                    controller: _soapAssessmentCtrl,
-                  ),
-                  const SizedBox(height: 10),
-                  _buildSoapInput(
-                    badge: 'P',
-                    label: 'Plan (Rencana Tindak Lanjut)',
-                    controller: _soapPlanCtrl,
-                  ),
-                  const SizedBox(height: 22),
-
-                  // Tombol Simpan
-                  if (isSim)
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.symmetric(
-                        vertical: 14,
-                        horizontal: 16,
-                      ),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF1F5F9),
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(color: const Color(0xFFE2E8F0)),
-                      ),
-                      child: const Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
+                ],
+              ),
+              padding: const EdgeInsets.all(18),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Row(
                         children: [
-                          Icon(
-                            Icons.science_outlined,
-                            size: 18,
-                            color: _textSecondary,
-                          ),
+                          Icon(Icons.edit_note_rounded,
+                              color: _brandTealDark, size: 22),
                           SizedBox(width: 8),
                           Text(
-                            'Sesi Simulasi • Verifikasi Hanya Disimpan Lokal',
+                            'Catatan Konseling',
                             style: TextStyle(
-                              fontSize: 12.5,
-                              fontWeight: FontWeight.w700,
-                              color: _textSecondary,
+                              fontSize: 15.5,
+                              fontWeight: FontWeight.w800,
+                              color: _textPrimary,
                             ),
                           ),
                         ],
                       ),
-                    )
-                  else
-                    SizedBox(
-                      width: double.infinity,
-                      height: 50,
-                      child: ElevatedButton.icon(
-                        onPressed: _isSaving ? null : _saveVerification,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: _brandTeal,
-                          foregroundColor: Colors.white,
-                          elevation: 0,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(14),
-                          ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: _softMintBg,
+                          borderRadius: BorderRadius.circular(8),
                         ),
-                        icon: Icon(
-                          _isVerified
-                              ? Icons.check_circle_outline_rounded
-                              : Icons.save_outlined,
-                          size: 18,
-                        ),
-                        label: Text(
-                          _isSaving
-                              ? 'Menyimpan...'
-                              : (_isVerified
-                                  ? 'Perbarui Verifikasi Rekam Medis'
-                                  : 'Simpan Verifikasi ke Rekam Medis'),
-                          style: const TextStyle(
-                            fontSize: 13.5,
+                        child: const Text(
+                          'Standar SOAP',
+                          style: TextStyle(
+                            fontSize: 10.5,
                             fontWeight: FontWeight.w700,
+                            color: _brandTealDark,
                           ),
                         ),
                       ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  const Text(
+                    'Draf otomatis telah disiapkan dari hasil skrining. Anda dapat menyesuaikannya bila diperlukan:',
+                    style: TextStyle(fontSize: 12, color: _textSecondary),
+                  ),
+                  const SizedBox(height: 16),
+
+                  _buildSoapInputCard(
+                    badge: 'S',
+                    badgeColor: const Color(0xFF0284C7),
+                    title: 'Keluhan Pasien (Subjective)',
+                    subtitle:
+                        'Keluhan suasana hati, kualitas tidur, dan kelelahan yang disampaikan klien.',
+                    controller: _soapSubjectiveCtrl,
+                  ),
+                  const SizedBox(height: 12),
+                  _buildSoapInputCard(
+                    badge: 'O',
+                    badgeColor: const Color(0xFF0D9488),
+                    title: 'Temuan Pengamatan (Objective)',
+                    subtitle:
+                        'Hasil observasi fisik, mimik wajah, intonasi suara, dan estimasi AI.',
+                    controller: _soapObjectiveCtrl,
+                  ),
+                  const SizedBox(height: 12),
+                  _buildSoapInputCard(
+                    badge: 'A',
+                    badgeColor: const Color(0xFF7C3AED),
+                    title: 'Kesimpulan Ahli (Assessment)',
+                    subtitle:
+                        'Analisis dan diagnosis kerja berdasarkan hasil evaluasi konselor.',
+                    controller: _soapAssessmentCtrl,
+                  ),
+                  const SizedBox(height: 12),
+                  _buildSoapInputCard(
+                    badge: 'P',
+                    badgeColor: const Color(0xFFD97706),
+                    title: 'Saran & Tindak Lanjut (Plan)',
+                    subtitle:
+                        'Rencana sesi konseling berkala, rekomendasi aktivitas, atau rujukan spesialis.',
+                    controller: _soapPlanCtrl,
+                  ),
+                  const SizedBox(height: 14),
+
+                  // Tombol Salin Ringkasan
+                  OutlinedButton.icon(
+                    onPressed: () => _copySoapResumeToClipboard(context),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: _brandTealDark,
+                      side: const BorderSide(color: Color(0xFFCCFBF1)),
+                      backgroundColor: const Color(0xFFF0FDFA),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      padding: const EdgeInsets.symmetric(
+                          vertical: 11, horizontal: 14),
                     ),
+                    icon: const Icon(Icons.content_copy_rounded, size: 16),
+                    label: const Text(
+                      'Salin Ringkasan untuk Laporan / Rujukan',
+                      style:
+                          TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+                    ),
+                  ),
                 ],
               ),
             ),
+            const SizedBox(height: 20),
+
+            // 4. TOMBOL SIMPAN KE REKAM MEDIS
+            if (isSim)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(
+                  vertical: 14,
+                  horizontal: 16,
+                ),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF1F5F9),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                ),
+                child: const Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      Icons.science_outlined,
+                      size: 18,
+                      color: _textSecondary,
+                    ),
+                    SizedBox(width: 8),
+                    Text(
+                      'Sesi Simulasi • Verifikasi Disimpan di Memori Lokal',
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w700,
+                        color: _textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              )
+            else
+              SizedBox(
+                width: double.infinity,
+                height: 52,
+                child: ElevatedButton.icon(
+                  onPressed: _isSaving ? null : _saveVerification,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: _brandTealDark,
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                  ),
+                  icon: Icon(
+                    _isVerified
+                        ? Icons.check_circle_outline_rounded
+                        : Icons.save_outlined,
+                    size: 20,
+                  ),
+                  label: Text(
+                    _isSaving
+                        ? 'Menyimpan Verifikasi...'
+                        : (_isVerified
+                            ? 'Perbarui Verifikasi Rekam Medis'
+                            : 'Simpan Verifikasi ke Rekam Medis'),
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              ),
+            const SizedBox(height: 12),
           ],
         ),
+      ),
+      bottomNavigationBar: ClinicalBottomNavBar(
+        currentIndex: _currentNavIndex,
+        onTap: (index) {
+          Navigator.of(context).pushAndRemoveUntil(
+            MaterialPageRoute(
+              builder: (context) => MainNavigationScreen(initialIndex: index),
+            ),
+            (route) => false,
+          );
+        },
+        pendingReviewCount: provider.pendingVerificationCount,
       ),
     );
   }
 
+  /// Card Komparasi Hasil AI vs Evaluasi Konselor
+  Widget _buildComparisonCard({
+    required ScreeningResponse screening,
+    required String riskCategory,
+    required Color riskColor,
+    required Color gtRiskColor,
+  }) {
+    final sign = _deviationDelta >= 0 ? '+' : '';
+    final isConcordant = _deviationDelta.abs() <= 1.0;
+
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFFE2E8F0), width: 1.2),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x080F172A),
+            blurRadius: 16,
+            offset: Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Expanded(
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.balance_rounded,
+                      size: 19,
+                      color: _brandTealDark,
+                    ),
+                    SizedBox(width: 8),
+                    Flexible(
+                      child: Text(
+                        'Perbandingan Skor',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w800,
+                          color: _textPrimary,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 8,
+                  vertical: 3.5,
+                ),
+                decoration: BoxDecoration(
+                  color: _isVerified
+                      ? const Color(0xFFECFDF5)
+                      : const Color(0xFFFFFBEB),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: _isVerified
+                        ? const Color(0xFFA7F3D0)
+                        : const Color(0xFFFDE68A),
+                  ),
+                ),
+                child: Text(
+                  _isVerified ? 'Sudah Diverifikasi' : 'Belum Diverifikasi',
+                  style: TextStyle(
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w700,
+                    color: _isVerified
+                        ? const Color(0xFF059669)
+                        : const Color(0xFFD97706),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+
+          // Dua Card Komparasi Berdampingan
+          Row(
+            children: [
+              // Kolom AI
+              Expanded(
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF8FAFC),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: const Color(0xFFE2E8F0)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Hasil Analisis AI',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: _textSecondary,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.baseline,
+                        textBaseline: TextBaseline.alphabetic,
+                        children: [
+                          Text(
+                            _modelPhq8.toStringAsFixed(1),
+                            style: TextStyle(
+                              fontSize: 22,
+                              fontWeight: FontWeight.w900,
+                              color: riskColor,
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          const Text(
+                            '/ 24',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: _textMuted,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      RiskBadge(riskCategory: riskCategory),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+
+              // Kolom Penilaian Konselor
+              Expanded(
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: _softMintBg.withValues(alpha: 0.5),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: const Color(0xFFA7F3D0)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Evaluasi Anda (Ahli)',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: _brandTealDark,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.baseline,
+                        textBaseline: TextBaseline.alphabetic,
+                        children: [
+                          Text(
+                            _groundTruthPhq8.toStringAsFixed(0),
+                            style: TextStyle(
+                              fontSize: 22,
+                              fontWeight: FontWeight.w900,
+                              color: gtRiskColor,
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          const Text(
+                            '/ 24',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: _textMuted,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      RiskBadge(riskCategory: _groundTruthRiskCategory),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+
+          // Baris Status Selisih & Tombol Cepat Samakan
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(
+                child: Row(
+                  children: [
+                    Icon(
+                      isConcordant
+                          ? Icons.check_circle_rounded
+                          : Icons.info_outline_rounded,
+                      size: 15,
+                      color: isConcordant
+                          ? const Color(0xFF10B981)
+                          : const Color(0xFFF59E0B),
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        'Selisih: $sign${_deviationDelta.toStringAsFixed(1)} poin (${isConcordant ? 'Selaras' : 'Disesuaikan'})',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: isConcordant
+                              ? const Color(0xFF059669)
+                              : const Color(0xFFB45309),
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              InkWell(
+                onTap: _syncWithAiScore,
+                borderRadius: BorderRadius.circular(8),
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: const Color(0xFF0D9488)),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.bolt_rounded, size: 14, color: _brandTealDark),
+                      SizedBox(width: 3),
+                      Text(
+                        'Samakan Skor',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: _brandTealDark,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Chip Pilihan Kesesuaian AI
   Widget _buildConcordancePill({
     required String keyName,
+    required IconData icon,
     required String label,
     required Color color,
   }) {
     final isSelected = _concordanceStatus == keyName;
     return InkWell(
-      borderRadius: BorderRadius.circular(20),
+      borderRadius: BorderRadius.circular(14),
       onTap: () => setState(() => _concordanceStatus = keyName),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
-          color: isSelected ? color.withValues(alpha: 0.12) : const Color(0xFFF8FAFC),
-          borderRadius: BorderRadius.circular(20),
+          color: isSelected
+              ? color.withValues(alpha: 0.12)
+              : const Color(0xFFF8FAFC),
+          borderRadius: BorderRadius.circular(14),
           border: Border.all(
             color: isSelected ? color : const Color(0xFFE2E8F0),
-            width: isSelected ? 1.5 : 1.0,
+            width: isSelected ? 1.6 : 1.0,
           ),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Container(
-              width: 8,
-              height: 8,
-              decoration: BoxDecoration(
-                color: isSelected ? color : const Color(0xFFCBD5E1),
-                shape: BoxShape.circle,
-              ),
+            Icon(
+              icon,
+              size: 15,
+              color: isSelected ? color : _textMuted,
             ),
-            const SizedBox(width: 8),
+            const SizedBox(width: 6),
             Text(
               label,
               style: TextStyle(
@@ -693,7 +1067,9 @@ P (Plan)       : ${_soapPlanCtrl.text.trim()}
     );
   }
 
+  /// Toggle Kondisi Rekaman Sesi
   Widget _buildPlausibilityToggle({
+    required IconData icon,
     required String label,
     required bool value,
     required ValueChanged<bool> onChanged,
@@ -701,29 +1077,39 @@ P (Plan)       : ${_soapPlanCtrl.text.trim()}
     return InkWell(
       borderRadius: BorderRadius.circular(12),
       onTap: () => onChanged(!value),
-      child: Container(
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
         padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
         decoration: BoxDecoration(
           color: value ? _softMintBg : const Color(0xFFF8FAFC),
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
             color: value ? _brandTeal : const Color(0xFFE2E8F0),
+            width: value ? 1.4 : 1.0,
           ),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(
-              value ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
-              size: 14,
+              value
+                  ? Icons.check_circle_rounded
+                  : Icons.radio_button_unchecked_rounded,
+              size: 15,
               color: value ? _brandTealDark : _textMuted,
             ),
             const SizedBox(width: 6),
+            Icon(
+              icon,
+              size: 14,
+              color: value ? _brandTealDark : _textSecondary,
+            ),
+            const SizedBox(width: 5),
             Text(
               label,
               style: TextStyle(
-                fontSize: 11.5,
-                fontWeight: FontWeight.w700,
+                fontSize: 12,
+                fontWeight: value ? FontWeight.w700 : FontWeight.w600,
                 color: value ? _brandTealDark : _textSecondary,
               ),
             ),
@@ -733,9 +1119,12 @@ P (Plan)       : ${_soapPlanCtrl.text.trim()}
     );
   }
 
-  Widget _buildSoapInput({
+  /// Input Card Format SOAP yang Ramah Pengguna
+  Widget _buildSoapInputCard({
     required String badge,
-    required String label,
+    required Color badgeColor,
+    required String title,
+    required String subtitle,
     required TextEditingController controller,
   }) {
     return Container(
@@ -744,49 +1133,75 @@ P (Plan)       : ${_soapPlanCtrl.text.trim()}
         borderRadius: BorderRadius.circular(14),
         border: Border.all(color: const Color(0xFFE2E8F0)),
       ),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      padding: const EdgeInsets.all(12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
               Container(
-                width: 20,
-                height: 20,
+                width: 22,
+                height: 22,
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
-                  color: _brandTeal,
+                  color: badgeColor,
                   borderRadius: BorderRadius.circular(6),
                 ),
                 child: Text(
                   badge,
                   style: const TextStyle(
                     color: Colors.white,
-                    fontSize: 11,
+                    fontSize: 11.5,
                     fontWeight: FontWeight.w800,
                   ),
                 ),
               ),
               const SizedBox(width: 8),
-              Text(
-                label,
-                style: const TextStyle(
-                  fontSize: 11.5,
-                  fontWeight: FontWeight.w700,
-                  color: _textPrimary,
+              Expanded(
+                child: Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w700,
+                    color: _textPrimary,
+                  ),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 4),
-          TextField(
-            controller: controller,
-            maxLines: 2,
-            style: const TextStyle(fontSize: 12.5, color: _textPrimary, height: 1.35),
-            decoration: const InputDecoration(
-              isDense: true,
-              border: InputBorder.none,
-              contentPadding: EdgeInsets.symmetric(vertical: 4),
+          const SizedBox(height: 3),
+          Padding(
+            padding: const EdgeInsets.only(left: 30),
+            child: Text(
+              subtitle,
+              style: const TextStyle(
+                fontSize: 11,
+                color: _textMuted,
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: const Color(0xFFE2E8F0)),
+            ),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            child: TextField(
+              controller: controller,
+              minLines: 3,
+              maxLines: 7,
+              style: const TextStyle(
+                fontSize: 13,
+                color: _textPrimary,
+                height: 1.45,
+              ),
+              decoration: const InputDecoration(
+                isDense: true,
+                border: InputBorder.none,
+                contentPadding: EdgeInsets.symmetric(vertical: 6),
+              ),
             ),
           ),
         ],
@@ -794,4 +1209,3 @@ P (Plan)       : ${_soapPlanCtrl.text.trim()}
     );
   }
 }
-

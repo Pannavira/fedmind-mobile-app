@@ -155,6 +155,7 @@ Waktu Sesi        : ${_formatDate(_currentResult.createdAt ?? '')}
           screening: _currentResult,
           inspectionData: widget.inspectionData,
           localVideoPath: widget.localVideoPath,
+          initialNavIndex: _currentNavIndex,
         ),
       ),
     );

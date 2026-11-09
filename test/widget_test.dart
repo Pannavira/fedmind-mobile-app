@@ -170,14 +170,15 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Evaluasi Ahli Klinis'), findsOneWidget);
-    expect(find.text('Sesuai / Valid'), findsOneWidget);
-    expect(find.text('Terlalu Tinggi'), findsOneWidget);
-    expect(find.text('Terlalu Rendah'), findsOneWidget);
-    expect(find.text('Anomali Sensor'), findsOneWidget);
-    expect(find.text('Visual (Wajah)'), findsOneWidget);
-    expect(find.text('Akustik (Suara)'), findsOneWidget);
-    expect(find.text('Linguistik (Teks)'), findsOneWidget);
+    expect(find.text('Evaluasi Hasil Pemeriksaan'), findsOneWidget);
+    expect(find.text('Sesuai / Cocok'), findsOneWidget);
+    expect(find.text('Hasil Terlalu Tinggi'), findsOneWidget);
+    expect(find.text('Hasil Terlalu Rendah'), findsOneWidget);
+    expect(find.text('Kualitas Rekaman Kurang'), findsOneWidget);
+    expect(find.text('Wajah & Mimik Jelas'), findsOneWidget);
+    expect(find.text('Suara Terdengar Jernih'), findsOneWidget);
+    expect(find.text('Percakapan Memadai'), findsOneWidget);
+    expect(find.byType(ClinicalBottomNavBar), findsOneWidget);
     expect(
       find.text('Simpan Verifikasi ke Rekam Medis'),
       findsOneWidget,

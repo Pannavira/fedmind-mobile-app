@@ -102,6 +102,7 @@ class _ScreeningHistoryScreenState extends State<ScreeningHistoryScreen> {
           builder: (context) => ClinicalVerificationScreen(
             screening: provider.currentScreening!,
             inspectionData: provider.currentInspectionData,
+            initialNavIndex: 3,
           ),
         ),
       );
