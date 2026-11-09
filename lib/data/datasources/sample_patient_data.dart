@@ -14,6 +14,17 @@ class SamplePatientData {
     }
   }
 
+  /// Memuat fitur asli Participant P716 dari E-DAIC (Kasus Depresi Berat: Ground Truth PHQ-8 15.0, Prediksi ONNX 19.00, Teks Dominan)
+  static Future<Map<String, dynamic>> loadSevereDepressionFeatures() async {
+    try {
+      final jsonStr = await rootBundle.loadString('assets/samples/p716_features.json');
+      return json.decode(jsonStr) as Map<String, dynamic>;
+    } catch (e) {
+      // Fallback synthetic jika file asset gagal dibaca
+      return generateSyntheticFeatures(participantId: 'P716_FALLBACK');
+    }
+  }
+
   /// Generator fitur sintetis acak untuk pengujian variasi input
   static Map<String, dynamic> generateSyntheticFeatures({
     required String participantId,

@@ -1151,7 +1151,7 @@ class MultimodalExtractorService {
     );
   }
 
-  /// Membangun data inspeksi untuk mode Contoh Data (P600 Golden Case / Simulasi)
+  /// Membangun data inspeksi untuk mode Contoh Data (P600 Golden Case / P716 Depresi Berat / Simulasi)
   static MultimodalInspectionData buildInspectionFromSampleFeatures({
     required String participantId,
     required List<double> visualFeatures,
@@ -1160,6 +1160,9 @@ class MultimodalExtractorService {
     String? userNote,
     String? clientTranscript,
   }) {
+    final bool isSevereEdaic =
+        participantId.toUpperCase().contains('716') ||
+        participantId.toUpperCase().contains('SEVERE');
     const double durationSec = 42.0;
     const int numFrames = 16;
 
@@ -1168,20 +1171,32 @@ class MultimodalExtractorService {
     for (int i = 0; i < numFrames; i++) {
       final v0 = visualFeatures.isNotEmpty ? visualFeatures[i % visualFeatures.length] : 0.1;
       final v1 = visualFeatures.length > 5 ? visualFeatures[(i + 5) % visualFeatures.length] : 0.2;
-      final eX = -5.5 + (v0 * 6.0).clamp(-8.0, 8.0);
+      final eX = isSevereEdaic
+          ? -14.2 + (v0 * 4.0).clamp(-5.0, 5.0)
+          : -5.5 + (v0 * 6.0).clamp(-8.0, 8.0);
       final eY = (v1 * 5.0).clamp(-10.0, 10.0);
-      final brow = (0.52 + (v0.abs() * 0.25)).clamp(0.15, 0.92);
-      final eye = (0.68 - (v1.abs() * 0.18)).clamp(0.25, 0.95);
-      final smile = (0.30 + (v0 * 0.15)).clamp(0.10, 0.85);
-      final depressor = (0.48 + (v1.abs() * 0.22)).clamp(0.15, 0.90);
-      final motion = (0.32 + ((v0 - v1).abs() * 0.2)).clamp(0.10, 0.88);
+      final brow = isSevereEdaic
+          ? (0.68 + (v0.abs() * 0.22)).clamp(0.45, 0.95)
+          : (0.52 + (v0.abs() * 0.25)).clamp(0.15, 0.92);
+      final eye = isSevereEdaic
+          ? (0.44 - (v1.abs() * 0.12)).clamp(0.22, 0.65)
+          : (0.68 - (v1.abs() * 0.18)).clamp(0.25, 0.95);
+      final smile = isSevereEdaic
+          ? (0.16 + (v0.abs() * 0.10)).clamp(0.08, 0.35)
+          : (0.30 + (v0 * 0.15)).clamp(0.10, 0.85);
+      final depressor = isSevereEdaic
+          ? (0.74 + (v1.abs() * 0.18)).clamp(0.55, 0.95)
+          : (0.48 + (v1.abs() * 0.22)).clamp(0.15, 0.90);
+      final motion = isSevereEdaic
+          ? (0.19 + ((v0 - v1).abs() * 0.10)).clamp(0.10, 0.38)
+          : (0.32 + ((v0 - v1).abs() * 0.2)).clamp(0.10, 0.88);
 
       frames.add(
         VisualFrameInspection(
           frameIndex: i,
           timeSec: double.parse(((durationSec * i) / numFrames).toStringAsFixed(1)),
           faceFound: true,
-          confidence: 0.94,
+          confidence: isSevereEdaic ? 0.97 : 0.94,
           bboxLeft: 0.23,
           bboxTop: 0.16,
           bboxRight: 0.77,
@@ -1194,9 +1209,13 @@ class MultimodalExtractorService {
           smileIntensity: double.parse(smile.toStringAsFixed(2)),
           lipDepressor: double.parse(depressor.toStringAsFixed(2)),
           motionEnergy: double.parse(motion.toStringAsFixed(2)),
-          expressionLabel: i % 3 == 1
-              ? 'Wajah Terdeteksi • Pandangan Sedikit Menunduk & Afek Tenang'
-              : 'Wajah Terdeteksi Jelas • Ekspresi Wajah Terukur Stabil',
+          expressionLabel: isSevereEdaic
+              ? (i % 2 == 0
+                    ? 'Afek Depresif • Aktivasi AU04/AU15 & Tatapan Menunduk (-14.2°)'
+                    : 'Retardasi Motorik Wajah • Ekspresi Datar & Ketegangan Dahi')
+              : (i % 3 == 1
+                    ? 'Wajah Terdeteksi • Pandangan Sedikit Menunduk & Afek Tenang'
+                    : 'Wajah Terdeteksi Jelas • Ekspresi Wajah Terukur Stabil'),
         ),
       );
     }
@@ -1204,6 +1223,13 @@ class MultimodalExtractorService {
     // Bangun 64 bar gelombang suara dari vektor fitur audio
     final waveformBars = List<double>.generate(64, (b) {
       final aVal = audioFeatures.isNotEmpty ? audioFeatures[b % audioFeatures.length] : 0.2;
+      if (isSevereEdaic) {
+        if (b % 7 == 0 || b % 7 == 1 || b % 7 == 2) {
+          return 0.07; // Jeda hening memanjang khas retardasi psikomotor vokal
+        }
+        final wave = 0.24 + 0.14 * sin(b * 0.28) + (aVal.abs() * 0.12);
+        return double.parse(wave.clamp(0.07, 0.62).toStringAsFixed(3));
+      }
       final wave = 0.38 + 0.28 * sin(b * 0.35) + (aVal.abs() * 0.18);
       if (b % 11 == 0 || b % 11 == 1) {
         return 0.08; // Jeda napas/hening
@@ -1212,17 +1238,27 @@ class MultimodalExtractorService {
     });
 
     final pitchContour = List<double>.generate(24, (i) {
+      if (isSevereEdaic) {
+        return double.parse((112.4 + sin(i * 0.4) * 5.8).toStringAsFixed(1));
+      }
       return double.parse((136.0 + sin(i * 0.5) * 14.0).toStringAsFixed(1));
     });
+
+    final String sampleAffectTitle = isSevereEdaic
+        ? 'Afek Wajah Depresif (Aktivasi AU04/AU15 Tinggi & Gaze Aversion)'
+        : 'Wajah Terdeteksi Jelas & Kontak Mata Terjaga';
+    final String sampleAffectDesc = isSevereEdaic
+        ? 'Data OpenFace 2.1.0 E-DAIC (29.091 frame, akurasi 99,4%) menunjukkan aktivasi kuat Corrugator Supercilii (AU04 p90=0.97) dan Lip Corner Depressor (AU15 puncak 5.0/5.0), disertai kecenderungan menunduk (pitch kepala -14.2° & gaze vertikal +0.40 rad).'
+        : 'Seluruh 16 segmen frame mendeteksi wajah dengan jelas. Kontak mata klien terjaga baik, teramati senyuman wajar dan sedikit ketegangan pada dahi saat berkonsentrasi.';
 
     final transcriptData = _buildTranscriptAndLinguistics(
       userNote: userNote,
       clientTranscript: clientTranscript,
       durationSec: durationSec,
       waveformBars: waveformBars,
-      pauseRatio: 0.32,
-      avgPitchHz: 136.5,
-      affectTitle: 'Ekspresi Cenderung Tenang & Terkontrol',
+      pauseRatio: isSevereEdaic ? 0.46 : 0.32,
+      avgPitchHz: isSevereEdaic ? 112.4 : 136.5,
+      affectTitle: sampleAffectTitle,
     );
 
     return MultimodalInspectionData(
@@ -1232,34 +1268,44 @@ class MultimodalExtractorService {
       videoDurationSec: durationSec,
       framesAnalyzed: numFrames,
       facesDetected: numFrames,
-      faceDetectionRatePct: 100.0,
-      avgFaceConfidence: 94.2,
-      avgHeadPitchDeg: -4.8,
-      avgHeadYawDeg: 1.6,
-      facialAffectTitle: 'Wajah Terdeteksi Jelas & Kontak Mata Terjaga',
-      facialAffectDescription:
-          'Seluruh 16 segmen frame mendeteksi wajah dengan jelas. Kontak mata klien terjaga baik, teramati senyuman wajar dan sedikit ketegangan pada dahi saat berkonsentrasi.',
-      actionUnitScores: const {
-        'AU04 Brow Lowerer (Corrugator Supercilii)': 0.54,
-        'AU05 Upper Lid Raiser (Eye Aperture)': 0.68,
-        'AU12 Lip Corner Puller (Zygomaticus / Smile)': 0.31,
-        'AU15 Lip Corner Depressor (Depressive Affect)': 0.49,
-        'Optical Flow / Facial Motor Dynamics': 0.38,
-      },
+      faceDetectionRatePct: isSevereEdaic ? 99.4 : 100.0,
+      avgFaceConfidence: isSevereEdaic ? 97.4 : 94.2,
+      avgHeadPitchDeg: isSevereEdaic ? -14.2 : -4.8,
+      avgHeadYawDeg: isSevereEdaic ? 6.4 : 1.6,
+      facialAffectTitle: sampleAffectTitle,
+      facialAffectDescription: sampleAffectDesc,
+      actionUnitScores: isSevereEdaic
+          ? const {
+              'AU04 Brow Lowerer (Corrugator Supercilii)': 0.78,
+              'AU05 Upper Lid Raiser (Eye Aperture)': 0.42,
+              'AU12 Lip Corner Puller (Zygomaticus / Smile)': 0.22,
+              'AU15 Lip Corner Depressor (Depressive Affect)': 0.84,
+              'Optical Flow / Facial Motor Dynamics': 0.24,
+            }
+          : const {
+              'AU04 Brow Lowerer (Corrugator Supercilii)': 0.54,
+              'AU05 Upper Lid Raiser (Eye Aperture)': 0.68,
+              'AU12 Lip Corner Puller (Zygomaticus / Smile)': 0.31,
+              'AU15 Lip Corner Depressor (Depressive Affect)': 0.49,
+              'Optical Flow / Facial Motor Dynamics': 0.38,
+            },
       visualFrames: frames,
       audioSampleRate: 8000,
       totalAudioSamples: 336000,
       audioWaveformBars: waveformBars,
       pitchContourHz: pitchContour,
-      avgPitchHz: 136.5,
-      pitchStdHz: 10.4,
-      voicedRatioPct: 68.0,
-      pauseRatioPct: 32.0,
-      jitterPct: 1.42,
-      shimmerPct: 5.80,
-      vocalProsodyTitle: 'Intonasi Terukur Stabil dengan Beberapa Jeda Reflektif',
-      vocalProsodyDescription:
-          'Frekuensi dasar suara berada di rata-rata 136.5 Hz dengan proporsi bicara aktif 68% dan jeda hening 32% saat merangkai kalimat.',
+      avgPitchHz: isSevereEdaic ? 112.4 : 136.5,
+      pitchStdHz: isSevereEdaic ? 5.8 : 10.4,
+      voicedRatioPct: isSevereEdaic ? 54.0 : 68.0,
+      pauseRatioPct: isSevereEdaic ? 46.0 : 32.0,
+      jitterPct: isSevereEdaic ? 2.70 : 1.42,
+      shimmerPct: isSevereEdaic ? 8.45 : 5.80,
+      vocalProsodyTitle: isSevereEdaic
+          ? 'Prosodi Hipofonik & Intonasi Monoton dengan Jeda Memanjang'
+          : 'Intonasi Terukur Stabil dengan Beberapa Jeda Reflektif',
+      vocalProsodyDescription: isSevereEdaic
+          ? 'Ekstraksi OpenSMILE eGeMAPS (96.965 frame akustik) mencatat intensitas suara rendah (Loudness=0.044) dengan frekuensi dasar rata-rata 112.4 Hz (±5.8 Hz) dan jeda hening 46% saat mengungkapkan beban emosional.'
+          : 'Frekuensi dasar suara berada di rata-rata 136.5 Hz dengan proporsi bicara aktif 68% dan jeda hening 32% saat merangkai kalimat.',
       fullTranscript: transcriptData.fullTranscript,
       transcriptSegments: transcriptData.segments,
       detectedKeywords: transcriptData.keywords,
@@ -1368,9 +1414,43 @@ class MultimodalExtractorService {
       'kondisi': 'Refleksi Diri',
       'rutinitas': 'Aktivitas Harian',
       'tubuh': 'Somatik / Fisik',
+      // Leksikon klinis Bahasa Inggris (E-DAIC Corpus)
+      'depression': 'Afek Depresif',
+      'depressed': 'Afek Depresif',
+      'bottom': 'Keputusasaan (Rock Bottom)',
+      'sleeping': 'Gangguan Tidur',
+      'sleep': 'Gangguan Tidur',
+      'dreams': 'Mimpi Buruk / Distres',
+      'irritable': 'Iritabilitas / Tegang',
+      'edge': 'Ketegangan Emosi',
+      'hate': 'Distres Emosional',
+      'isolation': 'Isolasi Sosial',
+      'anybody': 'Penarikan Diri',
+      'nobody': 'Penarikan Diri',
+      'wish': 'Ruminasi Masa Lalu',
+      'bad': 'Afek Negatif',
+      'nothing': 'Anhedonia / Hampa',
+      'tired': 'Energi & Kelelahan',
+      'exhausted': 'Energi & Kelelahan',
+      'hopeless': 'Keputusasaan',
+      'good': 'Afek Positif',
+      'excited': 'Afek Positif',
+      'comfortable': 'Regulasi Diri',
+      'relaxed': 'Regulasi Diri',
     };
 
     const selfPronouns = {'saya', 'aku', 'diriku', 'ku', 'i', 'me', 'my', 'myself'};
+    const positiveKeywords = {
+      'tenang',
+      'berusaha',
+      'baik',
+      'semangat',
+      'syukur',
+      'good',
+      'excited',
+      'comfortable',
+      'relaxed',
+    };
 
     final detectedKeywords = <String>[];
     int pronounCount = 0;
@@ -1384,7 +1464,7 @@ class MultimodalExtractorService {
         if (!detectedKeywords.contains(formatted)) {
           detectedKeywords.add(formatted);
         }
-        if (w == 'tenang' || w == 'berusaha' || w == 'baik' || w == 'semangat' || w == 'syukur') {
+        if (positiveKeywords.contains(w)) {
           posHits++;
         } else {
           negHits++;

@@ -24,7 +24,7 @@ class _SimulationScreenState extends State<SimulationScreen> {
   static const Color _textSecondary = Color(0xFF64748B);
   static const Color _cardBorder = Color(0xFFE2E8F0);
 
-  String _selectedCase = 'P600'; // 'P600', 'SYNTH', 'ARTIFACT'
+  String _selectedCase = 'P600'; // 'P600', 'P716', 'SYNTH', 'ARTIFACT'
   String _participantId = 'P600';
   Map<String, dynamic>? _selectedPayload;
   MultimodalInspectionData? _inspectionPreview;
@@ -65,8 +65,46 @@ class _SimulationScreenState extends State<SimulationScreen> {
       _selectedCase = 'P600';
       _participantId = 'P600';
       _selectedPayload = data;
+      _noteController.text =
+          'Sesi simulasi benchmark evaluasi model ONNX dan konkordansi XAI (Golden Case P600).';
       _transcriptController.text =
           'I feel exhausted lately and have trouble focusing on daily routines.';
+      _inspectionPreview =
+          MultimodalExtractorService.buildInspectionFromSampleFeatures(
+        participantId: _participantId,
+        visualFeatures: vis,
+        audioFeatures: aud,
+        textFeatures: txt,
+        userNote: _noteController.text.trim(),
+        clientTranscript: _transcriptController.text.trim(),
+      );
+    });
+  }
+
+  Future<void> _loadP716SevereCase() async {
+    final data = await SamplePatientData.loadSevereDepressionFeatures();
+    if (!mounted) return;
+
+    final vis = (data['visual_features'] as List)
+        .map((e) => (e as num).toDouble())
+        .toList();
+    final aud = (data['audio_features'] as List)
+        .map((e) => (e as num).toDouble())
+        .toList();
+    final txt = (data['text_features'] as List)
+        .map((e) => (e as num).toDouble())
+        .toList();
+
+    final excerpt = (data['transcript_excerpt'] as String?) ??
+        'UPS down depression. I hit rock bottom and I have problems sleeping, bad dreams, bad mood depression, irritable on edge, isolation not really talking with anybody.';
+
+    setState(() {
+      _selectedCase = 'P716';
+      _participantId = 'P716';
+      _selectedPayload = data;
+      _noteController.text =
+          'Kasus Depresi Berat E-DAIC (716_P - Official Test Split): Ground Truth PHQ-8 = 15.0 (Depressed=3, Sleep=3, Tired=2, Failure=2, Concentration=2) • Prediksi ONNX = 19.00/24.0 (Severe Depression).';
+      _transcriptController.text = excerpt;
       _inspectionPreview =
           MultimodalExtractorService.buildInspectionFromSampleFeatures(
         participantId: _participantId,
@@ -100,6 +138,9 @@ class _SimulationScreenState extends State<SimulationScreen> {
       _selectedCase = simulateNoise ? 'ARTIFACT' : 'SYNTH';
       _participantId = pid;
       _selectedPayload = data;
+      _noteController.text = simulateNoise
+          ? 'Simulasi uji ketahanan model terhadap degradasi sinyal mikrofon (SNR rendah).'
+          : 'Simulasi pasien sintetis terkalibrasi untuk pengujian variasi input tanpa depresi.';
       _transcriptController.text = simulateNoise
           ? '[Audio terdegradasi / SNR rendah] Kondisi lingkungan bising saat sesi konseling.'
           : 'Saya merasa baik-baik saja hari ini, aktivitas berjalan normal.';
@@ -306,6 +347,19 @@ class _SimulationScreenState extends State<SimulationScreen> {
                         ),
                         const SizedBox(height: 10),
                         _buildScenarioTile(
+                          id: 'P716',
+                          title: 'Kasus Depresi Berat E-DAIC (P716)',
+                          subtitle:
+                              'Ground Truth PHQ-8: 15.0 • Prediksi ONNX: 19.00/24.0 (Severe). Dominan Teks (71.3%) & Visual FACS (27.3%).',
+                          isSelected: _selectedCase == 'P716',
+                          badge: 'Depresi Berat',
+                          accentColor: const Color(0xFFDC2626),
+                          onTap: provider.isExecuting
+                              ? null
+                              : _loadP716SevereCase,
+                        ),
+                        const SizedBox(height: 10),
+                        _buildScenarioTile(
                           id: 'SYNTH',
                           title: 'Pasien Sintetis Terkalibrasi',
                           subtitle:
@@ -345,7 +399,9 @@ class _SimulationScreenState extends State<SimulationScreen> {
                             _buildFeatureMetric(
                               label: 'Visual (FACS)',
                               dim: '75 Dimensi',
-                              status: 'AUs Siap',
+                              status: _selectedCase == 'P716'
+                                  ? 'AU04/AU15 Tinggi'
+                                  : 'AUs Siap',
                               icon: Icons.face_rounded,
                               color: const Color(0xFF0284C7),
                             ),
@@ -355,7 +411,9 @@ class _SimulationScreenState extends State<SimulationScreen> {
                               dim: '248 Dimensi',
                               status: _selectedCase == 'ARTIFACT'
                                   ? 'Low SNR'
-                                  : 'COVAREP Siap',
+                                  : (_selectedCase == 'P716'
+                                        ? 'Hipofonik/Monoton'
+                                        : 'COVAREP Siap'),
                               icon: Icons.graphic_eq_rounded,
                               color: _selectedCase == 'ARTIFACT'
                                   ? const Color(0xFFEF4444)
@@ -365,7 +423,9 @@ class _SimulationScreenState extends State<SimulationScreen> {
                             _buildFeatureMetric(
                               label: 'Teks (MentalBERT)',
                               dim: '768 Dimensi',
-                              status: 'Semantik Siap',
+                              status: _selectedCase == 'P716'
+                                  ? 'Afek Depresif'
+                                  : 'Semantik Siap',
                               icon: Icons.text_fields_rounded,
                               color: const Color(0xFF8B5CF6),
                             ),
@@ -376,27 +436,51 @@ class _SimulationScreenState extends State<SimulationScreen> {
                           width: double.infinity,
                           padding: const EdgeInsets.all(12),
                           decoration: BoxDecoration(
-                            color: const Color(0xFFF0FDFA),
+                            color: _selectedCase == 'P716'
+                                ? const Color(0xFFFEF2F2)
+                                : const Color(0xFFF0FDFA),
                             borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: const Color(0xFFCCFBF1)),
+                            border: Border.all(
+                              color: _selectedCase == 'P716'
+                                  ? const Color(0xFFFECACA)
+                                  : const Color(0xFFCCFBF1),
+                            ),
                           ),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                'Kasus Aktif: $_participantId',
-                                style: const TextStyle(
+                                _selectedCase == 'P716'
+                                    ? 'Kasus Aktif: $_participantId (E-DAIC 716_P • Severe Depression)'
+                                    : 'Kasus Aktif: $_participantId',
+                                style: TextStyle(
                                   fontSize: 12,
                                   fontWeight: FontWeight.w800,
-                                  color: _brandTealDark,
+                                  color: _selectedCase == 'P716'
+                                      ? const Color(0xFFB91C1C)
+                                      : _brandTealDark,
                                 ),
                               ),
+                              if (_selectedCase == 'P716') ...[
+                                const SizedBox(height: 4),
+                                const Text(
+                                  'Profil Klinis E-DAIC: Laki-laki (37 thn) • Ground Truth PHQ-8 = 15.0 (Depressed: 3/3, Sleep: 3/3, Tired: 2/3, Failure: 2/3, Concentration: 2/3) • Prediksi ONNX = 19.00/24.0',
+                                  style: TextStyle(
+                                    fontSize: 10.5,
+                                    fontWeight: FontWeight.w600,
+                                    color: Color(0xFF991B1B),
+                                    height: 1.35,
+                                  ),
+                                ),
+                              ],
                               const SizedBox(height: 4),
                               Text(
                                 'Transkrip Verbatim: "${_transcriptController.text}"',
-                                style: const TextStyle(
+                                style: TextStyle(
                                   fontSize: 11,
-                                  color: Color(0xFF134E4A),
+                                  color: _selectedCase == 'P716'
+                                      ? const Color(0xFF7F1D1D)
+                                      : const Color(0xFF134E4A),
                                   fontStyle: FontStyle.italic,
                                 ),
                               ),
@@ -617,17 +701,26 @@ class _SimulationScreenState extends State<SimulationScreen> {
     required bool isSelected,
     required String badge,
     required VoidCallback? onTap,
+    Color? accentColor,
   }) {
+    final activeColor = accentColor ?? _brandTeal;
+    final activeTextColor = accentColor != null
+        ? const Color(0xFFB91C1C)
+        : _brandTealDark;
+    final activeBgColor = accentColor != null
+        ? const Color(0xFFFEF2F2)
+        : const Color(0xFFF0FDFA);
+
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: onTap,
       child: Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFFF0FDFA) : const Color(0xFFF8FAFC),
+          color: isSelected ? activeBgColor : const Color(0xFFF8FAFC),
           borderRadius: BorderRadius.circular(14),
           border: Border.all(
-            color: isSelected ? _brandTeal : const Color(0xFFE2E8F0),
+            color: isSelected ? activeColor : const Color(0xFFE2E8F0),
             width: isSelected ? 1.6 : 1.0,
           ),
         ),
@@ -641,10 +734,10 @@ class _SimulationScreenState extends State<SimulationScreen> {
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 border: Border.all(
-                  color: isSelected ? _brandTeal : const Color(0xFF94A3B8),
+                  color: isSelected ? activeColor : const Color(0xFF94A3B8),
                   width: 2,
                 ),
-                color: isSelected ? _brandTeal : Colors.transparent,
+                color: isSelected ? activeColor : Colors.transparent,
               ),
               child: isSelected
                   ? const Icon(Icons.check, size: 12, color: Colors.white)
@@ -665,7 +758,7 @@ class _SimulationScreenState extends State<SimulationScreen> {
                           style: TextStyle(
                             fontSize: 13,
                             fontWeight: FontWeight.w800,
-                            color: isSelected ? _brandTealDark : _slateDark,
+                            color: isSelected ? activeTextColor : _slateDark,
                           ),
                         ),
                       ),
@@ -677,8 +770,10 @@ class _SimulationScreenState extends State<SimulationScreen> {
                         ),
                         decoration: BoxDecoration(
                           color: isSelected
-                              ? _brandTeal.withValues(alpha: 0.15)
-                              : const Color(0xFFE2E8F0),
+                              ? activeColor.withValues(alpha: 0.15)
+                              : (accentColor != null
+                                    ? accentColor.withValues(alpha: 0.10)
+                                    : const Color(0xFFE2E8F0)),
                           borderRadius: BorderRadius.circular(6),
                         ),
                         child: Text(
@@ -686,7 +781,9 @@ class _SimulationScreenState extends State<SimulationScreen> {
                           style: TextStyle(
                             fontSize: 9.5,
                             fontWeight: FontWeight.w700,
-                            color: isSelected ? _brandTealDark : _textSecondary,
+                            color: isSelected
+                                ? activeTextColor
+                                : (accentColor ?? _textSecondary),
                           ),
                         ),
                       ),
