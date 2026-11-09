@@ -76,6 +76,26 @@ class ScreeningLocalDataSource {
     String? videoPath,
   }) async {
     final db = await database;
+
+    // Jika inspectionData atau videoPath tidak diberikan saat update, pertahankan nilai yang sudah ada di DB
+    String? effectiveInspectionJson =
+        inspectionData != null ? jsonEncode(inspectionData.toJson()) : null;
+    String? effectiveVideoPath = videoPath;
+
+    if (effectiveInspectionJson == null || effectiveVideoPath == null) {
+      final existing = await db.query(
+        tableName,
+        columns: ['inspection_json', 'video_path'],
+        where: 'screening_id = ?',
+        whereArgs: [screening.screeningId],
+        limit: 1,
+      );
+      if (existing.isNotEmpty) {
+        effectiveInspectionJson ??= existing.first['inspection_json'] as String?;
+        effectiveVideoPath ??= existing.first['video_path'] as String?;
+      }
+    }
+
     final row = <String, dynamic>{
       'screening_id': screening.screeningId,
       'participant_id': screening.participantId,
@@ -87,10 +107,9 @@ class ScreeningLocalDataSource {
       'binary_prediction': screening.prediction?.binaryPrediction,
       'dominant_modality':
           screening.patientModalityAttribution?.dominantModality ?? 'visual',
-      'video_path': videoPath,
+      'video_path': effectiveVideoPath,
       'full_result_json': jsonEncode(screening.toJson()),
-      'inspection_json':
-          inspectionData != null ? jsonEncode(inspectionData.toJson()) : null,
+      'inspection_json': effectiveInspectionJson,
     };
 
     await db.insert(
@@ -98,6 +117,19 @@ class ScreeningLocalDataSource {
       row,
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
+  }
+
+  /// Menyimpan verifikasi klinis konselor (Concordance, Ground Truth PHQ-8, Audit Modalitas, & Catatan SOAP)
+  Future<ScreeningResponse?> saveClinicalVerification({
+    required String screeningId,
+    required ClinicalVerificationData verification,
+  }) async {
+    final existing = await getScreeningDetail(screeningId);
+    if (existing == null) return null;
+
+    final updated = existing.copyWithVerification(verification);
+    await insertOrUpdateScreening(screening: updated);
+    return updated;
   }
 
   /// Mengambil daftar riwayat (summary) dengan pagination dan filter
@@ -144,6 +176,7 @@ class ScreeningLocalDataSource {
         'dominant_modality',
         'created_at',
         'completed_at',
+        'full_result_json',
       ],
       where: whereClause,
       whereArgs: whereArgs,
@@ -153,6 +186,19 @@ class ScreeningLocalDataSource {
     );
 
     return maps.map((row) {
+      ClinicalVerificationData? verification;
+      final fullJsonStr = row['full_result_json'] as String?;
+      if (fullJsonStr != null && fullJsonStr.isNotEmpty) {
+        try {
+          final decoded = jsonDecode(fullJsonStr) as Map<String, dynamic>;
+          if (decoded['clinical_verification'] != null) {
+            verification = ClinicalVerificationData.fromJson(
+              decoded['clinical_verification'] as Map<String, dynamic>,
+            );
+          }
+        } catch (_) {}
+      }
+
       return ScreeningSummaryItem(
         screeningId: row['screening_id'] as String,
         participantId: row['participant_id'] as String,
@@ -163,6 +209,9 @@ class ScreeningLocalDataSource {
         dominantModality: row['dominant_modality'] as String?,
         createdAt: row['created_at'] as String,
         completedAt: row['completed_at'] as String?,
+        isVerified: verification?.isVerified ?? false,
+        concordanceStatus: verification?.concordanceStatus,
+        groundTruthPhq8: verification?.groundTruthPhq8,
       );
     }).toList();
   }
@@ -255,4 +304,3 @@ class ScreeningLocalDataSource {
     }
   }
 }
-

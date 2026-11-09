@@ -227,6 +227,65 @@ class XAIMetadata {
   Map<String, dynamic> toJson() => _$XAIMetadataToJson(this);
 }
 
+// --- 2B. Clinical Verification & Ground Truth Auditing Schema ---
+
+@JsonSerializable()
+class ClinicalVerificationData {
+  @JsonKey(name: 'is_verified')
+  final bool? _isVerified;
+  bool get isVerified => _isVerified ?? true;
+  @JsonKey(name: 'concordance_status')
+  final String concordanceStatus; // 'concordant' | 'overestimated' | 'underestimated' | 'artifact'
+  @JsonKey(name: 'ground_truth_phq8')
+  final double groundTruthPhq8;
+  @JsonKey(name: 'deviation_delta')
+  final double deviationDelta; // Predicted - GroundTruth
+  @JsonKey(name: 'visual_plausible')
+  final bool? _visualPlausible;
+  bool get visualPlausible => _visualPlausible ?? true;
+  @JsonKey(name: 'audio_plausible')
+  final bool? _audioPlausible;
+  bool get audioPlausible => _audioPlausible ?? true;
+  @JsonKey(name: 'text_plausible')
+  final bool? _textPlausible;
+  bool get textPlausible => _textPlausible ?? true;
+  @JsonKey(name: 'soap_subjective')
+  final String soapSubjective;
+  @JsonKey(name: 'soap_objective')
+  final String soapObjective;
+  @JsonKey(name: 'soap_assessment')
+  final String soapAssessment;
+  @JsonKey(name: 'soap_plan')
+  final String soapPlan;
+  @JsonKey(name: 'verified_by')
+  final String verifiedBy;
+  @JsonKey(name: 'verified_at')
+  final String verifiedAt;
+
+  const ClinicalVerificationData({
+    bool? isVerified = true,
+    required this.concordanceStatus,
+    required this.groundTruthPhq8,
+    required this.deviationDelta,
+    bool? visualPlausible = true,
+    bool? audioPlausible = true,
+    bool? textPlausible = true,
+    this.soapSubjective = '',
+    this.soapObjective = '',
+    this.soapAssessment = '',
+    this.soapPlan = '',
+    this.verifiedBy = 'Psikolog Klinis / Konselor',
+    required this.verifiedAt,
+  })  : _isVerified = isVerified ?? true,
+        _visualPlausible = visualPlausible ?? true,
+        _audioPlausible = audioPlausible ?? true,
+        _textPlausible = textPlausible ?? true;
+
+  factory ClinicalVerificationData.fromJson(Map<String, dynamic> json) =>
+      _$ClinicalVerificationDataFromJson(json);
+  Map<String, dynamic> toJson() => _$ClinicalVerificationDataToJson(this);
+}
+
 // --- 3. Main Response & History Schemas ---
 
 @JsonSerializable()
@@ -252,6 +311,15 @@ class ScreeningResponse {
   final String? createdAt;
   @JsonKey(name: 'completed_at')
   final String? completedAt;
+  @JsonKey(name: 'clinical_verification')
+  final ClinicalVerificationData? clinicalVerification;
+  @JsonKey(name: 'session_type')
+  final String? sessionType;
+  @JsonKey(name: 'initial_counselor_note')
+  final String? initialCounselorNote;
+
+  /// Penanda apakah sesi ini merupakan simulasi pengujian model (bukan pasien nyata)
+  bool get isSimulation => sessionType?.toLowerCase() == 'simulation';
 
   ScreeningResponse({
     required this.screeningId,
@@ -267,7 +335,35 @@ class ScreeningResponse {
     this.disclaimer,
     this.createdAt,
     this.completedAt,
+    this.clinicalVerification,
+    this.sessionType,
+    this.initialCounselorNote,
   });
+
+  ScreeningResponse copyWithVerification(
+    ClinicalVerificationData verification, {
+    String? sessionType,
+    String? initialCounselorNote,
+  }) {
+    return ScreeningResponse(
+      screeningId: screeningId,
+      participantId: participantId,
+      status: status,
+      prediction: prediction,
+      patientModalityAttribution: patientModalityAttribution,
+      globalReference: globalReference,
+      qualityFlags: qualityFlags,
+      clinicalNarrative: clinicalNarrative,
+      model: model,
+      xai: xai,
+      disclaimer: disclaimer,
+      createdAt: createdAt,
+      completedAt: completedAt,
+      clinicalVerification: verification,
+      sessionType: sessionType ?? this.sessionType,
+      initialCounselorNote: initialCounselorNote ?? this.initialCounselorNote,
+    );
+  }
 
   factory ScreeningResponse.fromJson(Map<String, dynamic> json) =>
       _$ScreeningResponseFromJson(json);
@@ -293,6 +389,13 @@ class ScreeningSummaryItem {
   final String createdAt;
   @JsonKey(name: 'completed_at')
   final String? completedAt;
+  @JsonKey(name: 'is_verified')
+  final bool? _isVerified;
+  bool get isVerified => _isVerified ?? false;
+  @JsonKey(name: 'concordance_status')
+  final String? concordanceStatus;
+  @JsonKey(name: 'ground_truth_phq8')
+  final double? groundTruthPhq8;
 
   ScreeningSummaryItem({
     required this.screeningId,
@@ -304,7 +407,31 @@ class ScreeningSummaryItem {
     this.dominantModality,
     required this.createdAt,
     this.completedAt,
-  });
+    bool? isVerified = false,
+    this.concordanceStatus,
+    this.groundTruthPhq8,
+  }) : _isVerified = isVerified ?? false;
+
+  ScreeningSummaryItem copyWithVerification({
+    required bool isVerified,
+    String? concordanceStatus,
+    double? groundTruthPhq8,
+  }) {
+    return ScreeningSummaryItem(
+      screeningId: screeningId,
+      participantId: participantId,
+      status: status,
+      phq8Score: phq8Score,
+      riskCategory: riskCategory,
+      binaryPrediction: binaryPrediction,
+      dominantModality: dominantModality,
+      createdAt: createdAt,
+      completedAt: completedAt,
+      isVerified: isVerified,
+      concordanceStatus: concordanceStatus,
+      groundTruthPhq8: groundTruthPhq8,
+    );
+  }
 
   factory ScreeningSummaryItem.fromJson(Map<String, dynamic> json) =>
       _$ScreeningSummaryItemFromJson(json);

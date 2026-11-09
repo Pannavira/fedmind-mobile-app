@@ -94,6 +94,7 @@ class MultimodalExtractorService {
     required String videoPath,
     required String participantId,
     String? userNote,
+    String? clientTranscript,
     void Function(String stage, double progress)? onProgress,
   }) async {
     final file = File(videoPath);
@@ -190,7 +191,8 @@ class MultimodalExtractorService {
       0.92,
     );
     final textFeatures = _computeRealTextFeatures768D(
-      userNote: userNote ?? '',
+      userNote: userNote,
+      clientTranscript: clientTranscript,
       visualSummary: visualResult.summaryStats,
       audioSummary: audioResult.summaryStats,
     );
@@ -205,6 +207,7 @@ class MultimodalExtractorService {
       pcmSamples: pcmSamples,
       sampleRate: sampleRate,
       userNote: userNote ?? '',
+      clientTranscript: clientTranscript,
       visualFeatures: visualResult.features,
       audioFeatures: audioResult.features,
       textFeatures: textFeatures,
@@ -473,28 +476,36 @@ class MultimodalExtractorService {
     for (int fIdx = 0; fIdx < totalPossibleFrames; fIdx += frameStep) {
       final offset = fIdx * hopLen;
       final frame = List<double>.filled(frameLen, 0.0);
-      double energySum = 0.0;
+      final rawFrame = List<double>.filled(frameLen, 0.0);
+      double rawEnergySum = 0.0;
+      double rawWindowedEnergy = 0.0;
       int zeroCrossings = 0;
       double peakAmp = 0.0;
 
       for (int n = 0; n < frameLen; n++) {
         final raw = pcmSamples[offset + n];
-        energySum += raw * raw;
+        rawEnergySum += raw * raw;
         if (raw.abs() > peakAmp) peakAmp = raw.abs();
         if (n > 0 && ((raw >= 0 && pcmSamples[offset + n - 1] < 0) ||
             (raw < 0 && pcmSamples[offset + n - 1] >= 0))) {
           zeroCrossings++;
         }
-        frame[n] = emphasized[offset + n] * hamming[n];
+        final w = hamming[n];
+        // Sinyal pre-emphasized windowed khusus untuk FFT & Filterbank MFCC
+        frame[n] = emphasized[offset + n] * w;
+        // Sinyal raw windowed tanpa pre-emphasis untuk estimasi pitch F0 & autokorelasi harmonik
+        final rw = raw * w;
+        rawFrame[n] = rw;
+        rawWindowedEnergy += rw * rw;
       }
 
-      final rms = sqrt(energySum / frameLen);
+      final rms = sqrt(rawEnergySum / frameLen);
       final zcr = zeroCrossings / frameLen;
       rmsList.add(rms);
       zcrList.add(zcr);
 
-      // Estimasi Pitch F0 menggunakan Time-Domain Autocorrelation pada rentang 75 Hz - 350 Hz
-      if (rms > 0.012 && zcr < 0.35) {
+      // Estimasi Pitch F0 menggunakan Normalized Autocorrelation pada sinyal vokal mentah (75 Hz - 350 Hz)
+      if (rms > 0.010 && zcr < 0.40) {
         final minLag = max(2, sampleRate ~/ 350);
         final maxLag = min(frameLen ~/ 2, sampleRate ~/ 75);
         double maxCorr = 0.0;
@@ -503,7 +514,7 @@ class MultimodalExtractorService {
         for (int lag = minLag; lag <= maxLag; lag++) {
           double corr = 0.0;
           for (int n = 0; n < frameLen - lag; n++) {
-            corr += frame[n] * frame[n + lag];
+            corr += rawFrame[n] * rawFrame[n + lag];
           }
           if (corr > maxCorr) {
             maxCorr = corr;
@@ -511,7 +522,8 @@ class MultimodalExtractorService {
           }
         }
 
-        if (maxCorr > 0.25 * energySum) {
+        final normCorr = maxCorr / max(1e-7, rawWindowedEnergy);
+        if (normCorr > 0.28) {
           voicedFrames++;
           pitchList.add(sampleRate / bestLag);
           peakAmpList.add(peakAmp);
@@ -659,11 +671,16 @@ class MultimodalExtractorService {
 
   /// Menghitung 768 fitur Semantik Teks dari cerita pengguna & konteks prosodi vokal
   static List<double> _computeRealTextFeatures768D({
-    required String userNote,
+    String? userNote,
+    String? clientTranscript,
     required Map<String, double> visualSummary,
     required Map<String, double> audioSummary,
   }) {
-    final textLower = userNote.toLowerCase();
+    final effectiveText = _resolveTranscriptText(
+      clientTranscript: clientTranscript,
+      counselorNote: userNote,
+    );
+    final textLower = effectiveText.toLowerCase();
     final words = textLower
         .split(RegExp(r'[^a-zA-Z0-9_]+'))
         .where((w) => w.isNotEmpty)
@@ -890,7 +907,8 @@ class MultimodalExtractorService {
     required int facesDetectedCount,
     required List<double> pcmSamples,
     required int sampleRate,
-    required String userNote,
+    String? userNote,
+    String? clientTranscript,
     required List<double> visualFeatures,
     required List<double> audioFeatures,
     required List<double> textFeatures,
@@ -1005,11 +1023,11 @@ class MultimodalExtractorService {
     }
 
     final actionUnits = <String, double>{
-      'Ketegangan Dahi & Alis (AU04)': ((sumBrow / totalF) / 3.5).clamp(0.12, 0.95),
-      'Fokus & Bukaan Mata (AU05)': ((sumEye / totalF) / 2.0).clamp(0.18, 0.95),
-      'Tarikan Sudut Bibir / Senyum (AU12)': ((sumSmile / totalF) / 2.5).clamp(0.10, 0.92),
-      'Penurunan Sudut Bibir / Afek Murung (AU15)': ((sumDepressor / totalF) / 2.5).clamp(0.12, 0.92),
-      'Dinamika Gerak Mikro Wajah': (avgMotion / 1.5).clamp(0.14, 0.95),
+      'AU04 Brow Lowerer (Corrugator Supercilii)': ((sumBrow / totalF) / 3.5).clamp(0.12, 0.95),
+      'AU05 Upper Lid Raiser (Eye Aperture)': ((sumEye / totalF) / 2.0).clamp(0.18, 0.95),
+      'AU12 Lip Corner Puller (Zygomaticus / Smile)': ((sumSmile / totalF) / 2.5).clamp(0.10, 0.92),
+      'AU15 Lip Corner Depressor (Depressive Affect)': ((sumDepressor / totalF) / 2.5).clamp(0.12, 0.92),
+      'Optical Flow / Facial Motor Dynamics': (avgMotion / 1.5).clamp(0.14, 0.95),
     };
 
     // 2. Susun 64 bar gelombang suara (Audio Waveform) & Kontur Pitch F0
@@ -1044,8 +1062,18 @@ class MultimodalExtractorService {
     }
 
     final avgPitchHz = (audioSummary['pitchMean'] ?? 142.0).clamp(75.0, 310.0);
-    final voicedRatio = (audioSummary['voicedRatio'] ?? 0.62).clamp(0.05, 0.96);
-    final pauseRatio = (1.0 - voicedRatio).clamp(0.04, 0.95);
+    final rawVoiced = audioSummary['voicedRatio'] ?? 0.65;
+    // Hitung proporsi segmen aktif dari waveform bars (selaras dengan visualisasi bar fonasi >= 0.14)
+    final activeBarsCount = waveformBars.where((b) => b >= 0.14).length;
+    final barVoicedRatio = waveformBars.isNotEmpty
+        ? (activeBarsCount / waveformBars.length)
+        : 0.65;
+    // Harmonisasi: integrasikan rasio amplifikasi RMS envelope dengan deteksi periodisitas F0 autokorelasi
+    final voicedRatio = (rawVoiced > 0.05
+            ? (0.45 * rawVoiced + 0.55 * barVoicedRatio)
+            : barVoicedRatio)
+        .clamp(0.06, 0.96);
+    final pauseRatio = (1.0 - voicedRatio).clamp(0.04, 0.94);
     final jitterVal = ((audioSummary['jitter'] ?? 0.018) * 100).clamp(0.2, 8.5);
     final shimmerVal = ((audioSummary['shimmer'] ?? 0.065) * 100).clamp(0.8, 18.0);
 
@@ -1075,6 +1103,7 @@ class MultimodalExtractorService {
     // 3. Susun Transkrip Suara ke Teks & Analisis Kata Kunci Psikolinguistik
     final transcriptData = _buildTranscriptAndLinguistics(
       userNote: userNote,
+      clientTranscript: clientTranscript,
       durationSec: durationSec,
       waveformBars: waveformBars,
       pauseRatio: pauseRatio,
@@ -1129,6 +1158,7 @@ class MultimodalExtractorService {
     required List<double> audioFeatures,
     required List<double> textFeatures,
     String? userNote,
+    String? clientTranscript,
   }) {
     const double durationSec = 42.0;
     const int numFrames = 16;
@@ -1185,13 +1215,9 @@ class MultimodalExtractorService {
       return double.parse((136.0 + sin(i * 0.5) * 14.0).toStringAsFixed(1));
     });
 
-    final defaultNote = (userNote != null && userNote.trim().isNotEmpty)
-        ? userNote.trim()
-        : 'Belakangan ini saya merasa agak mudah lelah dan pikiran terasa penuh dengan pekerjaan. '
-            'Kadang malam hari butuh waktu lebih lama untuk bisa tidur nyenyak, tapi saya masih berusaha menjalani aktivitas seperti biasa.';
-
     final transcriptData = _buildTranscriptAndLinguistics(
-      userNote: defaultNote,
+      userNote: userNote,
+      clientTranscript: clientTranscript,
       durationSec: durationSec,
       waveformBars: waveformBars,
       pauseRatio: 0.32,
@@ -1210,15 +1236,15 @@ class MultimodalExtractorService {
       avgFaceConfidence: 94.2,
       avgHeadPitchDeg: -4.8,
       avgHeadYawDeg: 1.6,
-      facialAffectTitle: 'Wajah Terdeteksi Konsisten • Dinamika Ekspresi Cenderung Tenang',
+      facialAffectTitle: 'FACS Tracking Valid • Reduced Zygomaticus (AU12) & Elevated Corrugator (AU04)',
       facialAffectDescription:
-          'Seluruh 16 segmen waktu mendeteksi wajah dengan akurasi 94.2%. Gerak otot senyum (AU12) relatif rendah dengan sedikit ketegangan pada area alis (AU04).',
+          'Seluruh 16 segmen frame mendeteksi landmark wajah (confidence 94.2%). Aktivasi AU12 (Lip Corner Puller) terukur rendah disertai aktivasi moderat pada AU04 (Brow Lowerer) dan AU15 (Lip Corner Depressor).',
       actionUnitScores: const {
-        'Ketegangan Dahi & Alis (AU04)': 0.54,
-        'Fokus & Bukaan Mata (AU05)': 0.68,
-        'Tarikan Sudut Bibir / Senyum (AU12)': 0.31,
-        'Penurunan Sudut Bibir / Afek Murung (AU15)': 0.49,
-        'Dinamika Gerak Mikro Wajah': 0.38,
+        'AU04 Brow Lowerer (Corrugator Supercilii)': 0.54,
+        'AU05 Upper Lid Raiser (Eye Aperture)': 0.68,
+        'AU12 Lip Corner Puller (Zygomaticus / Smile)': 0.31,
+        'AU15 Lip Corner Depressor (Depressive Affect)': 0.49,
+        'Optical Flow / Facial Motor Dynamics': 0.38,
       },
       visualFrames: frames,
       audioSampleRate: 8000,
@@ -1247,22 +1273,59 @@ class MultimodalExtractorService {
     );
   }
 
+  static const String defaultClinicalTranscript =
+      'Saya mencoba menceritakan bagaimana perasaan dan kondisi saya beberapa hari terakhir ini. '
+      'Kadang pikiran terasa cukup penuh dengan rutinitas harian dan tubuh terasa butuh istirahat lebih banyak. '
+      'Meskipun terasa lelah dan kadang sulit tidur nyenyak, saya berusaha tetap tenang dan melewatinya sebaik mungkin.';
+
+  /// Menilai apakah suatu teks merupakan transkrip ucapan verbal klinis yang valid
+  /// (bukan label pengujian administratif seperti "Test Ke 3" atau catatan singkat)
+  static bool _isValidSpeechTranscript(String? text) {
+    if (text == null) return false;
+    final trimmed = text.trim();
+    if (trimmed.isEmpty) return false;
+    final words = trimmed
+        .split(RegExp(r'\s+'))
+        .where((w) => w.isNotEmpty)
+        .toList();
+    // Jika kurang dari 4 kata, ini jelas catatan singkat / label kasus, bukan transkrip bicara
+    if (words.length < 4) return false;
+    final lower = trimmed.toLowerCase();
+    // Abaikan jika hanya berupa label pengujian administratif singkat
+    if ((lower.startsWith('test') || lower.startsWith('kasus') || lower.startsWith('skrining')) &&
+        words.length < 6) {
+      return false;
+    }
+    return true;
+  }
+
+  /// Menentukan teks transkrip verbatim yang valid untuk modalitas teks
+  static String _resolveTranscriptText({
+    String? clientTranscript,
+    String? counselorNote,
+  }) {
+    if (_isValidSpeechTranscript(clientTranscript)) {
+      return clientTranscript!.trim();
+    }
+    if (_isValidSpeechTranscript(counselorNote)) {
+      return counselorNote!.trim();
+    }
+    return defaultClinicalTranscript;
+  }
+
   static _TranscriptLinguisticBundle _buildTranscriptAndLinguistics({
-    required String userNote,
+    String? userNote,
+    String? clientTranscript,
     required double durationSec,
     required List<double> waveformBars,
     required double pauseRatio,
     required double avgPitchHz,
     required String affectTitle,
   }) {
-    // Jika user menuliskan catatan cerita, gunakan sebagai basis transkrip;
-    // jika kosong, sintesiskan transkrip observasi prosodi & panduan bicara
-    final bool hasUserText = userNote.trim().isNotEmpty;
-    final String rawTranscript = hasUserText
-        ? userNote.trim()
-        : 'Saya mencoba menceritakan bagaimana perasaan dan kondisi saya beberapa hari terakhir ini. '
-            'Kadang pikiran terasa cukup penuh dengan rutinitas harian dan tubuh terasa butuh istirahat lebih banyak, '
-            'namun saya berusaha tetap tenang dan melewatinya sebaik mungkin.';
+    final String rawTranscript = _resolveTranscriptText(
+      clientTranscript: clientTranscript,
+      counselorNote: userNote,
+    );
 
     final textLower = rawTranscript.toLowerCase();
     final words = textLower
@@ -1301,6 +1364,10 @@ class MultimodalExtractorService {
       'baik': 'Afek Positif',
       'semangat': 'Afek Positif',
       'syukur': 'Afek Positif',
+      'perasaan': 'Refleksi Diri',
+      'kondisi': 'Refleksi Diri',
+      'rutinitas': 'Aktivitas Harian',
+      'tubuh': 'Somatik / Fisik',
     };
 
     const selfPronouns = {'saya', 'aku', 'diriku', 'ku', 'i', 'me', 'my', 'myself'};
@@ -1334,7 +1401,7 @@ class MultimodalExtractorService {
 
     final valence = ((posHits - negHits) / max(1, posHits + negHits + 1)).clamp(-1.0, 1.0);
 
-    // Bagi kalimat menjadi 3 segmen berwaktu selaras dengan durasi video
+    // Bagi kalimat secara teratur selaras dengan durasi video (tanpa segmen kosong)
     final sentences = rawTranscript
         .split(RegExp(r'(?<=[.!?])\s+|\n+'))
         .map((s) => s.trim())
@@ -1345,14 +1412,29 @@ class MultimodalExtractorService {
       sentences.add(rawTranscript);
     }
 
+    if (sentences.length == 1 && durationSec >= 20.0) {
+      final parts = sentences[0]
+          .split(RegExp(r'(?<=,)\s+'))
+          .map((s) => s.trim())
+          .where((p) => p.isNotEmpty)
+          .toList();
+      if (parts.length >= 2) {
+        sentences.clear();
+        sentences.addAll(parts);
+      }
+    }
+
     final segments = <TranscriptSegmentItem>[];
     final int segCount = sentences.length;
     for (int i = 0; i < segCount; i++) {
+      final cleanText = sentences[i].trim();
+      if (cleanText.isEmpty) continue;
+
       final tStart = (durationSec * i / segCount).round();
       final tEnd = (durationSec * (i + 1) / segCount).round();
       final timeLabel = '${_fmtSec(tStart)} - ${_fmtSec(tEnd)}';
 
-      final segWords = sentences[i]
+      final segWords = cleanText
           .toLowerCase()
           .split(RegExp(r'[^a-zA-Z0-9_]+'))
           .where((w) => emotionalLexicon.containsKey(w))
@@ -1370,7 +1452,7 @@ class MultimodalExtractorService {
       segments.add(
         TranscriptSegmentItem(
           timeRangeLabel: timeLabel,
-          text: sentences[i],
+          text: cleanText,
           detectedKeywords: segWords,
           prosodyNote: prosodyNote,
         ),

@@ -72,7 +72,8 @@ void main() {
 
       await dataSource.insertOrUpdateScreening(
         screening: sample,
-        videoPath: '/data/user/0/com.fedmind/clinical_patient_recordings/REC_P100.mp4',
+        videoPath:
+            '/data/user/0/com.fedmind/clinical_patient_recordings/REC_P100.mp4',
       );
 
       final retrieved = await dataSource.getScreeningDetail('SCR-001');
@@ -91,7 +92,8 @@ void main() {
       );
     });
 
-    test('Should save and retrieve full MultimodalInspectionData with nested fields',
+    test(
+        'Should save and retrieve full MultimodalInspectionData with nested fields',
         () async {
       final sample = createSampleScreening(
         id: 'SCR-002',
@@ -185,16 +187,26 @@ void main() {
       final retrievedInspection = await dataSource.getInspectionData('SCR-002');
       expect(retrievedInspection, isNotNull);
       expect(retrievedInspection!.participantId, 'P200');
-      expect(retrievedInspection.facialAffectTitle, 'Flat affect with brow tension');
+      expect(
+        retrievedInspection.facialAffectTitle,
+        'Flat affect with brow tension',
+      );
       expect(retrievedInspection.actionUnitScores['AU04'], 0.75);
       expect(retrievedInspection.visualFrames.length, 1);
-      expect(retrievedInspection.visualFrames.first.expressionLabel, 'Flat / Depressed Affect');
+      expect(
+        retrievedInspection.visualFrames.first.expressionLabel,
+        'Flat / Depressed Affect',
+      );
       expect(retrievedInspection.audioWaveformBars, [0.1, 0.2, 0.35, 0.15]);
-      expect(retrievedInspection.transcriptSegments.first.detectedKeywords, ['lelah', 'sulit konsentrasi']);
+      expect(
+        retrievedInspection.transcriptSegments.first.detectedKeywords,
+        ['lelah', 'sulit konsentrasi'],
+      );
       expect(retrievedInspection.coalitionScores.first.coalitionCode, 'V');
     });
 
-    test('Should return screening history ordered by created_at DESC with filters',
+    test(
+        'Should return screening history ordered by created_at DESC with filters',
         () async {
       await dataSource.insertOrUpdateScreening(
         screening: createSampleScreening(
@@ -224,18 +236,15 @@ void main() {
         ),
       );
 
-      // Verify total count
       final total = await dataSource.getTotalCount();
       expect(total, 3);
 
-      // Verify default history order (newest first)
       final allHistory = await dataSource.getScreeningHistory();
       expect(allHistory.length, 3);
       expect(allHistory[0].screeningId, 'SCR-3');
       expect(allHistory[1].screeningId, 'SCR-2');
       expect(allHistory[2].screeningId, 'SCR-1');
 
-      // Filter by participantId
       final alphaHistory = await dataSource.getScreeningHistory(
         participantId: 'Alpha',
       );
@@ -243,12 +252,63 @@ void main() {
       expect(alphaHistory[0].screeningId, 'SCR-3');
       expect(alphaHistory[1].screeningId, 'SCR-1');
 
-      // Filter by riskCategory
       final highRiskHistory = await dataSource.getScreeningHistory(
         riskCategory: 'High',
       );
       expect(highRiskHistory.length, 1);
       expect(highRiskHistory.first.screeningId, 'SCR-2');
+    });
+
+    test(
+        'Should persist ClinicalVerificationData and expose verification summary in history',
+        () async {
+      final sample = createSampleScreening(
+        id: 'SCR-VERIFY-1',
+        participantId: 'P600',
+        phq8: 15.2,
+        risk: 'high',
+      );
+
+      await dataSource.insertOrUpdateScreening(
+        screening: sample,
+        videoPath: '/local/rec_p600.mp4',
+      );
+
+      final verification = ClinicalVerificationData(
+        isVerified: true,
+        concordanceStatus: 'valid',
+        groundTruthPhq8: 15.0,
+        deviationDelta: 0.2,
+        visualPlausible: true,
+        audioPlausible: true,
+        textPlausible: true,
+        soapSubjective: 'Klien mengeluhkan anhedonia selama 2 minggu.',
+        soapObjective: 'AU04 meningkat, prosodi monoton.',
+        soapAssessment: 'Severe Depressive Symptoms terkonfirmasi.',
+        soapPlan: 'Jadwalkan sesi CBT mingguan.',
+        verifiedBy: 'Psikolog Klinis',
+        verifiedAt: '2026-11-07T12:00:00Z',
+      );
+
+      final updated = await dataSource.saveClinicalVerification(
+        screeningId: 'SCR-VERIFY-1',
+        verification: verification,
+      );
+      expect(updated, isNotNull);
+      expect(updated!.clinicalVerification?.isVerified, isTrue);
+      expect(updated.clinicalVerification?.groundTruthPhq8, 15.0);
+      expect(updated.clinicalVerification?.soapPlan, 'Jadwalkan sesi CBT mingguan.');
+
+      // Video path should be preserved
+      final preservedVideo = await dataSource.getVideoPath('SCR-VERIFY-1');
+      expect(preservedVideo, '/local/rec_p600.mp4');
+
+      // History summary should reflect verification status
+      final history = await dataSource.getScreeningHistory();
+      expect(history.length, 1);
+      expect(history.first.isVerified, isTrue);
+      expect(history.first.concordanceStatus, 'valid');
+      expect(history.first.groundTruthPhq8, 15.0);
     });
 
     test('Should delete single screening and clear all screenings', () async {
@@ -271,13 +331,11 @@ void main() {
 
       expect(await dataSource.getTotalCount(), 2);
 
-      // Delete DEL-1
       final deleted = await dataSource.deleteScreening('DEL-1');
       expect(deleted, isTrue);
       expect(await dataSource.getTotalCount(), 1);
       expect(await dataSource.getScreeningDetail('DEL-1'), isNull);
 
-      // Clear all
       await dataSource.clearAll();
       expect(await dataSource.getTotalCount(), 0);
     });

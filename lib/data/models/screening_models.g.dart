@@ -105,7 +105,7 @@ Map<String, dynamic> _$PatientModalityAttributionToJson(
   'visual_pct': instance.visualPct,
   'audio_pct': instance.audioPct,
   'dominant_modality': instance.dominantModality,
-  'shap_values': instance.shapValues,
+  'shap_values': instance.shapValues.toJson(),
 };
 
 GlobalReferenceAttribution _$GlobalReferenceAttributionFromJson(
@@ -182,6 +182,42 @@ Map<String, dynamic> _$XAIMetadataToJson(XAIMetadata instance) =>
       'baseline_expected_value': instance.baselineExpectedValue,
     };
 
+ClinicalVerificationData _$ClinicalVerificationDataFromJson(
+  Map<String, dynamic> json,
+) => ClinicalVerificationData(
+  isVerified: json['is_verified'] as bool? ?? true,
+  concordanceStatus: json['concordance_status'] as String? ?? 'concordant',
+  groundTruthPhq8: (json['ground_truth_phq8'] as num?)?.toDouble() ?? 0.0,
+  deviationDelta: (json['deviation_delta'] as num?)?.toDouble() ?? 0.0,
+  visualPlausible: json['visual_plausible'] as bool? ?? true,
+  audioPlausible: json['audio_plausible'] as bool? ?? true,
+  textPlausible: json['text_plausible'] as bool? ?? true,
+  soapSubjective: json['soap_subjective'] as String? ?? '',
+  soapObjective: json['soap_objective'] as String? ?? '',
+  soapAssessment: json['soap_assessment'] as String? ?? '',
+  soapPlan: json['soap_plan'] as String? ?? '',
+  verifiedBy: json['verified_by'] as String? ?? 'Psikolog Klinis / Konselor',
+  verifiedAt: json['verified_at'] as String? ?? '',
+);
+
+Map<String, dynamic> _$ClinicalVerificationDataToJson(
+  ClinicalVerificationData instance,
+) => <String, dynamic>{
+  'is_verified': instance.isVerified,
+  'concordance_status': instance.concordanceStatus,
+  'ground_truth_phq8': instance.groundTruthPhq8,
+  'deviation_delta': instance.deviationDelta,
+  'visual_plausible': instance.visualPlausible,
+  'audio_plausible': instance.audioPlausible,
+  'text_plausible': instance.textPlausible,
+  'soap_subjective': instance.soapSubjective,
+  'soap_objective': instance.soapObjective,
+  'soap_assessment': instance.soapAssessment,
+  'soap_plan': instance.soapPlan,
+  'verified_by': instance.verifiedBy,
+  'verified_at': instance.verifiedAt,
+};
+
 ScreeningResponse _$ScreeningResponseFromJson(
   Map<String, dynamic> json,
 ) => ScreeningResponse(
@@ -214,6 +250,13 @@ ScreeningResponse _$ScreeningResponseFromJson(
   disclaimer: json['disclaimer'] as String?,
   createdAt: json['created_at'] as String?,
   completedAt: json['completed_at'] as String?,
+  clinicalVerification: json['clinical_verification'] == null
+      ? null
+      : ClinicalVerificationData.fromJson(
+          json['clinical_verification'] as Map<String, dynamic>,
+        ),
+  sessionType: json['session_type'] as String?,
+  initialCounselorNote: json['initial_counselor_note'] as String?,
 );
 
 Map<String, dynamic> _$ScreeningResponseToJson(ScreeningResponse instance) =>
@@ -221,16 +264,20 @@ Map<String, dynamic> _$ScreeningResponseToJson(ScreeningResponse instance) =>
       'screening_id': instance.screeningId,
       'participant_id': instance.participantId,
       'status': instance.status,
-      'prediction': instance.prediction,
-      'patient_modality_attribution': instance.patientModalityAttribution,
-      'global_reference': instance.globalReference,
-      'quality_flags': instance.qualityFlags,
+      'prediction': instance.prediction?.toJson(),
+      'patient_modality_attribution':
+          instance.patientModalityAttribution?.toJson(),
+      'global_reference': instance.globalReference?.toJson(),
+      'quality_flags': instance.qualityFlags?.toJson(),
       'clinical_narrative': instance.clinicalNarrative,
-      'model': instance.model,
-      'xai': instance.xai,
+      'model': instance.model?.toJson(),
+      'xai': instance.xai?.toJson(),
       'disclaimer': instance.disclaimer,
       'created_at': instance.createdAt,
       'completed_at': instance.completedAt,
+      'clinical_verification': instance.clinicalVerification?.toJson(),
+      'session_type': instance.sessionType,
+      'initial_counselor_note': instance.initialCounselorNote,
     };
 
 ScreeningSummaryItem _$ScreeningSummaryItemFromJson(
@@ -245,6 +292,9 @@ ScreeningSummaryItem _$ScreeningSummaryItemFromJson(
   dominantModality: json['dominant_modality'] as String?,
   createdAt: json['created_at'] as String,
   completedAt: json['completed_at'] as String?,
+  isVerified: json['is_verified'] as bool? ?? false,
+  concordanceStatus: json['concordance_status'] as String?,
+  groundTruthPhq8: (json['ground_truth_phq8'] as num?)?.toDouble(),
 );
 
 Map<String, dynamic> _$ScreeningSummaryItemToJson(
@@ -259,6 +309,9 @@ Map<String, dynamic> _$ScreeningSummaryItemToJson(
   'dominant_modality': instance.dominantModality,
   'created_at': instance.createdAt,
   'completed_at': instance.completedAt,
+  'is_verified': instance.isVerified,
+  'concordance_status': instance.concordanceStatus,
+  'ground_truth_phq8': instance.groundTruthPhq8,
 };
 
 ScreeningListResponse _$ScreeningListResponseFromJson(
@@ -274,5 +327,5 @@ Map<String, dynamic> _$ScreeningListResponseToJson(
   ScreeningListResponse instance,
 ) => <String, dynamic>{
   'total': instance.total,
-  'screenings': instance.screenings,
+  'screenings': instance.screenings.map((e) => e.toJson()).toList(),
 };

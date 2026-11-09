@@ -187,6 +187,21 @@ class ScreeningRepository {
     }
   }
 
+  /// Simpan verifikasi klinis konselor (Ground Truth PHQ-8, Concordance, Audit XAI, & Catatan SOAP)
+  Future<ScreeningResponse?> saveLocalClinicalVerification({
+    required String screeningId,
+    required ClinicalVerificationData verification,
+  }) async {
+    try {
+      return await localDataSource.saveClinicalVerification(
+        screeningId: screeningId,
+        verification: verification,
+      );
+    } catch (e) {
+      throw 'Failed to save clinical verification to local SQLite: $e';
+    }
+  }
+
   /// Ambil riwayat skrining lokal dari SQLite
   Future<List<ScreeningSummaryItem>> getLocalScreeningHistory({
     int skip = 0,
