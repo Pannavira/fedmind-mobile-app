@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:fedmind_mobile_app/core/constants/clinical_constants.dart';
 import 'package:fedmind_mobile_app/presentation/providers/screening_provider.dart';
@@ -9,7 +10,9 @@ import 'package:fedmind_mobile_app/presentation/screens/screening/screening_form
 import 'package:fedmind_mobile_app/presentation/widgets/clinical_disclaimer_dialog.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  final Function(int tabIndex, {int? formSourceOption})? onNavigateToTab;
+
+  const HomeScreen({super.key, this.onNavigateToTab});
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -25,7 +28,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
-  int _selectedGuideTab = 0; // 0: Tahapan Cek, 1: Kenali Hasil
+  int _selectedFilterIndex =
+      0; // 0: Semua, 1: Perlu Verifikasi, 2: Terverifikasi
   static bool _hasShownDisclaimer = false;
 
   @override
@@ -33,9 +37,8 @@ class _HomeScreenState extends State<HomeScreen> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final provider = context.read<ScreeningProvider>();
-      // Inisialisasi model berjalan otomatis di latar belakang tanpa menampilkan istilah teknis ke pengguna
       provider.checkServerHealth();
-      provider.fetchHistory(limit: 5);
+      provider.fetchHistory(limit: 50);
 
       if (!_hasShownDisclaimer && mounted) {
         _hasShownDisclaimer = true;
@@ -50,48 +53,16 @@ class _HomeScreenState extends State<HomeScreen> {
     super.dispose();
   }
 
-  String _getFriendlyModalityName(String? modality) {
-    switch (modality?.toLowerCase()) {
-      case 'text':
-        return 'Cerita & Ungkapan';
-      case 'visual':
-        return 'Ekspresi Wajah';
-      case 'audio':
-        return 'Intonasi Suara';
-      default:
-        return 'Kombinasi Lengkap';
+  String _formatDate(String isoString) {
+    try {
+      final dt = DateTime.parse(isoString).toLocal();
+      return DateFormat('dd MMM yyyy, HH:mm').format(dt);
+    } catch (_) {
+      return isoString;
     }
   }
 
-  String _getFriendlyRiskLabel(String? riskCategory) {
-    switch (riskCategory?.toLowerCase()) {
-      case 'low':
-        return 'Kondisi Baik & Stabil';
-      case 'borderline':
-        return 'Perlu Istirahat & Perhatian';
-      case 'moderate':
-        return 'Disarankan Konsultasi';
-      case 'high':
-        return 'Butuh Pendampingan Segera';
-      default:
-        return 'Menunggu Evaluasi';
-    }
-  }
-
-  IconData _getModalityIcon(String? modality) {
-    switch (modality?.toLowerCase()) {
-      case 'text':
-        return Icons.chat_bubble_outline_rounded;
-      case 'visual':
-        return Icons.sentiment_satisfied_alt_rounded;
-      case 'audio':
-        return Icons.graphic_eq_rounded;
-      default:
-        return Icons.favorite_border_rounded;
-    }
-  }
-
-  void _showAboutSheet(BuildContext context) {
+  void _showNodeInfoSheet(BuildContext context, ScreeningProvider provider) {
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.white,
@@ -115,56 +86,95 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ),
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 18),
               Row(
                 children: [
                   Container(
                     padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
                       color: _softMintBg,
-                      borderRadius: BorderRadius.circular(14),
+                      borderRadius: BorderRadius.circular(12),
                     ),
                     child: const Icon(
-                      Icons.verified_user_outlined,
+                      Icons.hub_rounded,
                       color: _brandTealDark,
                       size: 22,
                     ),
                   ),
                   const SizedBox(width: 12),
                   const Expanded(
-                    child: Text(
-                      'Privasi & Kenyamanan Anda',
-                      style: TextStyle(
-                        fontSize: 17,
-                        fontWeight: FontWeight.w700,
-                        color: _textPrimary,
-                      ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Node Federated Learning & Runtime',
+                          style: TextStyle(
+                            fontSize: 15.5,
+                            fontWeight: FontWeight.w800,
+                            color: _textPrimary,
+                          ),
+                        ),
+                        Text(
+                          'Status Komputasi Lokal & Keamanan Privasi',
+                          style: TextStyle(
+                            fontSize: 11.5,
+                            color: _textSecondary,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ],
               ),
-              const SizedBox(height: 14),
-              const Text(
-                'Aplikasi ini dirancang untuk membantu Anda mengenali kondisi kesehatan emosional secara mandiri, nyaman, dan mudah dipahami.\n\n'
-                'Seluruh proses pemeriksaan berlangsung langsung di perangkat Anda sehingga cerita, suara, dan wajah Anda tetap aman dan terjaga kerahasiaannya.',
-                style: TextStyle(
-                  fontSize: 13.5,
-                  color: _textSecondary,
-                  height: 1.55,
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF8FAFC),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                ),
+                child: Column(
+                  children: [
+                    _buildTelemetryRow(
+                      'Model Checkpoint',
+                      'FedMind-Multimodal-ONNX v2.4-FL',
+                    ),
+                    const Divider(height: 14, color: Color(0xFFE2E8F0)),
+                    _buildTelemetryRow(
+                      'Baseline Shapley E[f(X)]',
+                      '8.42 poin PHQ-8 (E-DAIC Reference)',
+                    ),
+                    const Divider(height: 14, color: Color(0xFFE2E8F0)),
+                    _buildTelemetryRow(
+                      'Status Komputasi',
+                      provider.isServerOnline
+                          ? 'ONNX Runtime Siap (On-Device)'
+                          : 'Inisialisasi Runtime...',
+                    ),
+                    const Divider(height: 14, color: Color(0xFFE2E8F0)),
+                    _buildTelemetryRow(
+                      'Privasi Pasien',
+                      'Penyimpanan SQLite Lokal • Zero Cloud Media Upload',
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 16),
               SizedBox(
                 width: double.infinity,
                 child: OutlinedButton.icon(
-                  icon: const Icon(Icons.info_outline_rounded, size: 18),
-                  label: const Text('Baca Peringatan & Batasan Klinis'),
+                  icon: const Icon(Icons.gpp_good_outlined, size: 18),
+                  label: const Text('Protokol CDSS & Batasan Etika Klinis'),
                   style: OutlinedButton.styleFrom(
                     foregroundColor: _brandTealDark,
-                    side: const BorderSide(color: Color(0xFFCCFBF1), width: 1.2),
+                    side: const BorderSide(
+                      color: Color(0xFFCCFBF1),
+                      width: 1.4,
+                    ),
                     padding: const EdgeInsets.symmetric(vertical: 12),
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
+                      borderRadius: BorderRadius.circular(14),
                     ),
                   ),
                   onPressed: () {
@@ -173,29 +183,55 @@ class _HomeScreenState extends State<HomeScreen> {
                   },
                 ),
               ),
-              const SizedBox(height: 10),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: _brandTeal,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
+              if (widget.onNavigateToTab != null) ...[
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: double.infinity,
+                  child: TextButton.icon(
+                    icon: const Icon(Icons.hub_outlined, size: 17),
+                    label: const Text('Buka Halaman Node & Sistem Lengkap'),
+                    style: TextButton.styleFrom(
+                      foregroundColor: _brandTealDark,
+                      padding: const EdgeInsets.symmetric(vertical: 10),
                     ),
-                  ),
-                  onPressed: () => Navigator.pop(ctx),
-                  child: const Text(
-                    'Tutup',
-                    style: TextStyle(fontWeight: FontWeight.w700),
+                    onPressed: () {
+                      Navigator.pop(ctx);
+                      widget.onNavigateToTab!(4);
+                    },
                   ),
                 ),
-              ),
+              ],
             ],
           ),
         );
       },
+    );
+  }
+
+  Widget _buildTelemetryRow(String label, String value) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 11.5,
+            fontWeight: FontWeight.w600,
+            color: _textSecondary,
+          ),
+        ),
+        Flexible(
+          child: Text(
+            value,
+            textAlign: TextAlign.right,
+            style: const TextStyle(
+              fontSize: 11.5,
+              fontWeight: FontWeight.w700,
+              color: _textPrimary,
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -204,15 +240,24 @@ class _HomeScreenState extends State<HomeScreen> {
     final provider = context.watch<ScreeningProvider>();
 
     final filteredHistory = provider.historyItems.where((item) {
-      if (_searchQuery.trim().isEmpty) return true;
-      final q = _searchQuery.toLowerCase();
-      final idMatch = item.participantId.toLowerCase().contains(q);
-      final riskMatch =
-          _getFriendlyRiskLabel(item.riskCategory).toLowerCase().contains(q);
-      final modMatch = _getFriendlyModalityName(item.dominantModality)
-          .toLowerCase()
-          .contains(q);
-      return idMatch || riskMatch || modMatch;
+      // 1. Text search
+      if (_searchQuery.trim().isNotEmpty) {
+        final q = _searchQuery.toLowerCase();
+        final idMatch = item.participantId.toLowerCase().contains(q);
+        final riskMatch = ClinicalConstants.getRiskLabel(item.riskCategory)
+            .toLowerCase()
+            .contains(q);
+        final modMatch = ClinicalConstants.getModalityClinicalName(
+          item.dominantModality,
+        ).toLowerCase().contains(q);
+        if (!idMatch && !riskMatch && !modMatch) return false;
+      }
+
+      // 2. Filter segment
+      if (_selectedFilterIndex == 1 && item.isVerified) return false;
+      if (_selectedFilterIndex == 2 && !item.isVerified) return false;
+
+      return true;
     }).toList();
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
@@ -223,29 +268,29 @@ class _HomeScreenState extends State<HomeScreen> {
           color: _brandTeal,
           onRefresh: () async {
             await provider.checkServerHealth();
-            await provider.fetchHistory(limit: 5);
+            await provider.fetchHistory(limit: 50);
           },
           child: CustomScrollView(
             physics: const AlwaysScrollableScrollPhysics(),
             slivers: [
-              // --- BAGIAN ATAS (WELCOME BANNER TANPA HEADER APLIKASI) ---
+              // --- HEADER TEAL (BERSIH, MODERN, SESUAI LAST COMMIT) ---
               SliverToBoxAdapter(
                 child: SafeArea(
                   bottom: false,
                   child: Padding(
-                    padding: const EdgeInsets.fromLTRB(24, 20, 24, 28),
+                    padding: const EdgeInsets.fromLTRB(24, 20, 24, 26),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Expanded(
+                            Expanded(
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Text(
-                                    'Selamat Datang!',
+                                  const Text(
+                                    'FEDMIND Prototype 1',
                                     style: TextStyle(
                                       color: Colors.white,
                                       fontSize: 26,
@@ -254,12 +299,14 @@ class _HomeScreenState extends State<HomeScreen> {
                                       height: 1.2,
                                     ),
                                   ),
-                                  SizedBox(height: 4),
+                                  const SizedBox(height: 4),
                                   Text(
-                                    'Bagaimana perasaan Anda hari ini?',
+                                    'Sistem Pendukung Keputusan & Verifikasi Model',
                                     style: TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 18,
+                                      color: Colors.white.withValues(
+                                        alpha: 0.92,
+                                      ),
+                                      fontSize: 14.5,
                                       fontWeight: FontWeight.w600,
                                       letterSpacing: -0.2,
                                     ),
@@ -272,11 +319,12 @@ class _HomeScreenState extends State<HomeScreen> {
                               borderRadius: BorderRadius.circular(12),
                               child: InkWell(
                                 borderRadius: BorderRadius.circular(12),
-                                onTap: () => _showAboutSheet(context),
+                                onTap: () =>
+                                    _showNodeInfoSheet(context, provider),
                                 child: const Padding(
                                   padding: EdgeInsets.all(10),
                                   child: Icon(
-                                    Icons.grid_view_rounded,
+                                    Icons.tune_rounded,
                                     color: Colors.white,
                                     size: 22,
                                   ),
@@ -285,13 +333,46 @@ class _HomeScreenState extends State<HomeScreen> {
                             ),
                           ],
                         ),
-                        const SizedBox(height: 10),
-                        Text(
-                          'Kenali kondisi kesehatan mental Anda lebih awal dengan tenang, nyaman, dan rahasia.',
-                          style: TextStyle(
-                            color: Colors.white.withValues(alpha: 0.9),
-                            fontSize: 13,
-                            height: 1.45,
+                        const SizedBox(height: 12),
+                        // Status chip modern & halus
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 11,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.16),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Container(
+                                width: 7,
+                                height: 7,
+                                decoration: BoxDecoration(
+                                  color: provider.isServerOnline
+                                      ? const Color(0xFF6EE7B7)
+                                      : const Color(0xFFFDE68A),
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Flexible(
+                                child: Text(
+                                  provider.isServerOnline
+                                      ? 'Edge Node Siap • ONNX Runtime v2.4 • Komputasi Lokal'
+                                      : 'Edge Node Menyiapkan Model Lokal...',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: Colors.white.withValues(alpha: 0.95),
+                                    fontSize: 11.5,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                       ],
@@ -300,9 +381,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
 
-              // --- SHEET PUTIH MELENGKUNG (GAYA MODERN CLEAN MINIMALIST) ---
-              SliverFillRemaining(
-                hasScrollBody: false,
+              // --- SHEET PUTIH MELENGKUNG (MINIMALIS, ELEGAN & NATIVE) ---
+              SliverToBoxAdapter(
                 child: Container(
                   decoration: const BoxDecoration(
                     color: Colors.white,
@@ -311,11 +391,11 @@ class _HomeScreenState extends State<HomeScreen> {
                       topRight: Radius.circular(34),
                     ),
                   ),
-                  padding: const EdgeInsets.fromLTRB(22, 26, 22, 32),
+                  padding: const EdgeInsets.fromLTRB(22, 26, 22, 110),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // 1. PILL SEARCH BAR MINIMALIS
+                      // 1. PILL SEARCH BAR
                       Container(
                         decoration: BoxDecoration(
                           color: Colors.white,
@@ -334,13 +414,14 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                         child: TextField(
                           controller: _searchController,
-                          onChanged: (val) => setState(() => _searchQuery = val),
+                          onChanged: (val) =>
+                              setState(() => _searchQuery = val),
                           style: const TextStyle(
                             fontSize: 13.5,
                             color: _textPrimary,
                           ),
                           decoration: InputDecoration(
-                            hintText: 'Cari riwayat pemeriksaan...',
+                            hintText: 'Cari ID klien atau kategori risiko...',
                             hintStyle: const TextStyle(
                               color: _textMuted,
                               fontSize: 13.5,
@@ -374,11 +455,11 @@ class _HomeScreenState extends State<HomeScreen> {
                           ),
                         ),
                       ),
-                      const SizedBox(height: 28),
+                      const SizedBox(height: 24),
 
-                      // 2. LAYANAN UTAMA (FULL-WIDTH MOBILE-FIRST CTA)
+                      // 2. LAYANAN PEMERIKSAAN (CARD UTAMA TASTE MODERN)
                       const Text(
-                        'Layanan Utama',
+                        'Layanan Asesmen',
                         style: TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.w800,
@@ -386,88 +467,73 @@ class _HomeScreenState extends State<HomeScreen> {
                           letterSpacing: -0.3,
                         ),
                       ),
-                      const SizedBox(height: 14),
+                      const SizedBox(height: 12),
                       _buildPrimaryStartCard(
                         onTap: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) =>
-                                  const ScreeningFormScreen(),
-                            ),
-                          );
-                        },
-                      ),
-                      const SizedBox(height: 12),
-                      _buildHistoryShortcutTile(
-                        totalSessions: provider.historyItems.length,
-                        onTap: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) =>
-                                  const ScreeningHistoryScreen(),
-                            ),
-                          );
-                        },
-                      ),
-                      const SizedBox(height: 28),
-
-                      // 3. PANDUAN SINGKAT (TOGGLE PILL SEPERTI REFERENSI INFO / BOOKING)
-                      Row(
-                        children: [
-                          const Expanded(
-                            child: Text(
-                              'Mengenal Pemeriksaan',
-                              style: TextStyle(
-                                fontSize: 17,
-                                fontWeight: FontWeight.w800,
-                                color: _brandTeal,
-                                letterSpacing: -0.3,
+                          if (widget.onNavigateToTab != null) {
+                            widget.onNavigateToTab!(2, formSourceOption: 0);
+                          } else {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) =>
+                                    const ScreeningFormScreen(),
                               ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Container(
-                            padding: const EdgeInsets.all(3),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFF1F5F9),
-                              borderRadius: BorderRadius.circular(24),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                _buildSegmentPill(
-                                  label: 'Cara Kerja',
-                                  isSelected: _selectedGuideTab == 0,
-                                  onTap: () =>
-                                      setState(() => _selectedGuideTab = 0),
-                                ),
-                                _buildSegmentPill(
-                                  label: 'Arti Hasil',
-                                  isSelected: _selectedGuideTab == 1,
-                                  onTap: () =>
-                                      setState(() => _selectedGuideTab = 1),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
+                            );
+                          }
+                        },
                       ),
-                      const SizedBox(height: 14),
-                      if (_selectedGuideTab == 0)
-                        _buildHowItWorksCard()
-                      else
-                        _buildScoreGuideCard(),
+                      const SizedBox(height: 24),
 
-                      const SizedBox(height: 28),
+                      // 3. STATS STRIP RINGKAS (SIMPEL & TIDAK MAKAN TEMPAT)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 12,
+                        ),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF8FAFC),
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: const Color(0xFFF1F5F9)),
+                        ),
+                        child: Row(
+                          children: [
+                            _buildCompactMetricItem(
+                              label: 'Total Sesi',
+                              value: '${provider.historyItems.length}',
+                              color: _textPrimary,
+                            ),
+                            Container(
+                              height: 24,
+                              width: 1,
+                              color: const Color(0xFFE2E8F0),
+                            ),
+                            _buildCompactMetricItem(
+                              label: 'Perlu Review',
+                              value: '${provider.pendingVerificationCount}',
+                              color: const Color(0xFFF59E0B),
+                            ),
+                            Container(
+                              height: 24,
+                              width: 1,
+                              color: const Color(0xFFE2E8F0),
+                            ),
+                            _buildCompactMetricItem(
+                              label: 'Triase Kritis',
+                              value: '${provider.urgentTriageCount}',
+                              color: const Color(0xFFEF4444),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 24),
 
-                      // 4. RIWAYAT PEMERIKSAAN TERAKHIR (GAYA LIST DOCTORS DI REFERENSI)
+                      // 4. ANTREAN PASIEN & FILTER
                       Row(
                         children: [
                           const Expanded(
                             child: Text(
-                              'Pemeriksaan Terakhir',
+                              'Daftar Pasien & Riwayat',
                               style: TextStyle(
                                 fontSize: 17,
                                 fontWeight: FontWeight.w800,
@@ -479,13 +545,17 @@ class _HomeScreenState extends State<HomeScreen> {
                           if (provider.historyItems.isNotEmpty)
                             TextButton(
                               onPressed: () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (context) =>
-                                        const ScreeningHistoryScreen(),
-                                  ),
-                                );
+                                if (widget.onNavigateToTab != null) {
+                                  widget.onNavigateToTab!(3);
+                                } else {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) =>
+                                          const ScreeningHistoryScreen(),
+                                    ),
+                                  );
+                                }
                               },
                               style: TextButton.styleFrom(
                                 foregroundColor: _brandTealDark,
@@ -506,171 +576,60 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                       const SizedBox(height: 10),
 
+                      // Filter Segmen Pills
+                      Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF1F5F9),
+                          borderRadius: BorderRadius.circular(24),
+                        ),
+                        child: Row(
+                          children: [
+                            _buildFilterPill(
+                              label: 'Semua (${provider.historyItems.length})',
+                              isSelected: _selectedFilterIndex == 0,
+                              onTap: () =>
+                                  setState(() => _selectedFilterIndex = 0),
+                            ),
+                            _buildFilterPill(
+                              label:
+                                  'Perlu Review (${provider.pendingVerificationCount})',
+                              isSelected: _selectedFilterIndex == 1,
+                              onTap: () =>
+                                  setState(() => _selectedFilterIndex = 1),
+                            ),
+                            _buildFilterPill(
+                              label:
+                                  'Terverifikasi (${provider.verifiedCasesCount})',
+                              isSelected: _selectedFilterIndex == 2,
+                              onTap: () =>
+                                  setState(() => _selectedFilterIndex = 2),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+
+                      // LIST PASIEN / PEMERIKSAAN
                       if (provider.isLoadingHistory &&
                           provider.historyItems.isEmpty)
                         const Center(
                           child: Padding(
-                            padding: EdgeInsets.all(28),
+                            padding: EdgeInsets.all(32),
                             child: CircularProgressIndicator(color: _brandTeal),
                           ),
                         )
                       else if (filteredHistory.isEmpty)
-                        _buildFriendlyEmptyState(context)
+                        _buildCleanEmptyState(
+                          context,
+                          provider.historyItems.isNotEmpty,
+                        )
                       else
-                        ...filteredHistory.take(3).map((item) {
-                          final riskColor =
-                              ClinicalConstants.getRiskColor(item.riskCategory);
-                          final friendlyRisk =
-                              _getFriendlyRiskLabel(item.riskCategory);
-                          final friendlyModality =
-                              _getFriendlyModalityName(item.dominantModality);
-
-                          return Padding(
-                            padding: const EdgeInsets.only(bottom: 12),
-                            child: Container(
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(20),
-                                border: Border.all(
-                                  color: const Color(0xFFF1F5F9),
-                                  width: 1.2,
-                                ),
-                                boxShadow: const [
-                                  BoxShadow(
-                                    color: Color(0x0A0F172A),
-                                    blurRadius: 16,
-                                    offset: Offset(0, 4),
-                                  ),
-                                ],
-                              ),
-                              child: Material(
-                                color: Colors.transparent,
-                                child: InkWell(
-                                  borderRadius: BorderRadius.circular(20),
-                                  onTap: () async {
-                                    final nav = Navigator.of(context);
-                                    await provider
-                                        .loadScreeningDetail(item.screeningId);
-                                    if (!mounted) return;
-                                    if (provider.currentScreening != null) {
-                                      nav.push(
-                                        MaterialPageRoute(
-                                          builder: (context) =>
-                                              ScreeningResultScreen(
-                                            result: provider.currentScreening!,
-                                          ),
-                                        ),
-                                      );
-                                    }
-                                  },
-                                  child: Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 16,
-                                      vertical: 14,
-                                    ),
-                                    child: Row(
-                                      children: [
-                                        // Avatar bulat bersih seperti pada referensi
-                                        Container(
-                                          width: 52,
-                                          height: 52,
-                                          decoration: BoxDecoration(
-                                            color: riskColor.withValues(
-                                              alpha: 0.12,
-                                            ),
-                                            shape: BoxShape.circle,
-                                          ),
-                                          alignment: Alignment.center,
-                                          child: Column(
-                                            mainAxisAlignment:
-                                                MainAxisAlignment.center,
-                                            children: [
-                                              Text(
-                                                item.phq8Score
-                                                        ?.toStringAsFixed(1) ??
-                                                    '-',
-                                                style: TextStyle(
-                                                  color: riskColor,
-                                                  fontWeight: FontWeight.w800,
-                                                  fontSize: 14,
-                                                ),
-                                              ),
-                                              Text(
-                                                'Skor',
-                                                style: TextStyle(
-                                                  color: riskColor.withValues(
-                                                    alpha: 0.85,
-                                                  ),
-                                                  fontSize: 9.5,
-                                                  fontWeight: FontWeight.w600,
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                        const SizedBox(width: 14),
-                                        Expanded(
-                                          child: Column(
-                                            crossAxisAlignment:
-                                                CrossAxisAlignment.start,
-                                            children: [
-                                              Text(
-                                                friendlyRisk,
-                                                style: const TextStyle(
-                                                  fontWeight: FontWeight.w700,
-                                                  fontSize: 14.5,
-                                                  color: _textPrimary,
-                                                ),
-                                              ),
-                                              const SizedBox(height: 4),
-                                              Row(
-                                                children: [
-                                                  Icon(
-                                                    _getModalityIcon(
-                                                      item.dominantModality,
-                                                    ),
-                                                    size: 13,
-                                                    color: _textMuted,
-                                                  ),
-                                                  const SizedBox(width: 5),
-                                                  Expanded(
-                                                    child: Text(
-                                                      '${item.participantId} • Fokus: $friendlyModality',
-                                                      overflow:
-                                                          TextOverflow.ellipsis,
-                                                      style: const TextStyle(
-                                                        fontSize: 12,
-                                                        color: _textSecondary,
-                                                        fontWeight:
-                                                            FontWeight.w500,
-                                                      ),
-                                                    ),
-                                                  ),
-                                                ],
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                        const SizedBox(width: 8),
-                                        Container(
-                                          padding: const EdgeInsets.all(8),
-                                          decoration: BoxDecoration(
-                                            color: const Color(0xFFF8FAFC),
-                                            borderRadius:
-                                                BorderRadius.circular(10),
-                                          ),
-                                          child: const Icon(
-                                            Icons.bookmark_border_rounded,
-                                            color: Color(0xFFCBD5E1),
-                                            size: 20,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ),
+                        ...filteredHistory.take(5).map((item) {
+                          return _buildPatientSessionCard(
+                            context,
+                            provider,
+                            item,
                           );
                         }),
                     ],
@@ -678,6 +637,77 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCompactMetricItem({
+    required String label,
+    required String value,
+    required Color color,
+  }) {
+    return Expanded(
+      child: Column(
+        children: [
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w800,
+              color: color,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            label,
+            style: const TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: _textSecondary,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFilterPill({
+    required String label,
+    required bool isSelected,
+    required VoidCallback onTap,
+  }) {
+    return Expanded(
+      child: InkWell(
+        borderRadius: BorderRadius.circular(20),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: isSelected ? _brandTeal : Colors.transparent,
+            borderRadius: BorderRadius.circular(20),
+            boxShadow: isSelected
+                ? [
+                    BoxShadow(
+                      color: _brandTeal.withValues(alpha: 0.25),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    ),
+                  ]
+                : null,
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 11.5,
+              fontWeight: FontWeight.w700,
+              color: isSelected ? Colors.white : _textSecondary,
+            ),
+            textAlign: TextAlign.center,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
           ),
         ),
       ),
@@ -696,7 +726,7 @@ class _HomeScreenState extends State<HomeScreen> {
         borderRadius: BorderRadius.circular(26),
         boxShadow: [
           BoxShadow(
-            color: _brandTeal.withValues(alpha: 0.30),
+            color: _brandTeal.withValues(alpha: 0.28),
             blurRadius: 22,
             offset: const Offset(0, 10),
           ),
@@ -725,16 +755,16 @@ class _HomeScreenState extends State<HomeScreen> {
                 right: 18,
                 top: 22,
                 child: Container(
-                  width: 56,
-                  height: 56,
+                  width: 54,
+                  height: 54,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     color: Colors.white.withValues(alpha: 0.18),
                   ),
                   child: const Icon(
-                    Icons.favorite_rounded,
+                    Icons.video_camera_front_outlined,
                     color: Colors.white,
-                    size: 28,
+                    size: 26,
                   ),
                 ),
               ),
@@ -746,65 +776,53 @@ class _HomeScreenState extends State<HomeScreen> {
                     Container(
                       padding: const EdgeInsets.symmetric(
                         horizontal: 10,
-                        vertical: 5,
+                        vertical: 4,
                       ),
                       decoration: BoxDecoration(
                         color: Colors.white.withValues(alpha: 0.20),
                         borderRadius: BorderRadius.circular(20),
                       ),
-                      child: const Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            Icons.verified_user_outlined,
-                            size: 13,
-                            color: Colors.white,
-                          ),
-                          SizedBox(width: 5),
-                          Text(
-                            'Privasi Terjaga • 100% Offline',
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
-                              color: Colors.white,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 14),
-                    const Padding(
-                      padding: EdgeInsets.only(right: 64),
-                      child: Text(
-                        'Cek Kondisi Mental',
+                      child: const Text(
+                        'Asesmen Baru',
                         style: TextStyle(
-                          fontSize: 22,
-                          fontWeight: FontWeight.w800,
                           color: Colors.white,
-                          letterSpacing: -0.4,
-                          height: 1.2,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.2,
                         ),
                       ),
                     ),
-                    const SizedBox(height: 6),
-                    Text(
-                      'Kenali kondisi perasaan dan emosimu melalui cerita, intonasi suara, serta ekspresi wajah secara nyaman.',
+                    const SizedBox(height: 10),
+                    const Text(
+                      'Mulai Pemeriksaan Pasien',
                       style: TextStyle(
-                        fontSize: 13,
-                        color: Colors.white.withValues(alpha: 0.92),
-                        height: 1.45,
+                        fontSize: 20,
+                        fontWeight: FontWeight.w800,
+                        color: Colors.white,
+                        letterSpacing: -0.3,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    SizedBox(
+                      width: 230,
+                      child: Text(
+                        'Observasi multimodal kamera & audio langsung untuk skrining depresi.',
+                        style: TextStyle(
+                          fontSize: 12.5,
+                          color: Colors.white.withValues(alpha: 0.90),
+                          height: 1.4,
+                        ),
                       ),
                     ),
                     const SizedBox(height: 18),
                     Container(
-                      width: double.infinity,
                       padding: const EdgeInsets.symmetric(
-                        horizontal: 18,
-                        vertical: 14,
+                        horizontal: 16,
+                        vertical: 10,
                       ),
                       decoration: BoxDecoration(
                         color: Colors.white,
-                        borderRadius: BorderRadius.circular(18),
+                        borderRadius: BorderRadius.circular(24),
                         boxShadow: const [
                           BoxShadow(
                             color: Color(0x140F172A),
@@ -813,29 +831,22 @@ class _HomeScreenState extends State<HomeScreen> {
                           ),
                         ],
                       ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
                         children: [
-                          const Text(
-                            'Mulai Pemeriksaan Sekarang',
+                          Text(
+                            'Buka Sesi Pemeriksaan',
                             style: TextStyle(
-                              fontSize: 14,
+                              fontSize: 13,
                               fontWeight: FontWeight.w800,
                               color: _brandTealDark,
                             ),
                           ),
-                          const SizedBox(width: 8),
-                          Container(
-                            padding: const EdgeInsets.all(4),
-                            decoration: const BoxDecoration(
-                              color: _softMintBg,
-                              shape: BoxShape.circle,
-                            ),
-                            child: const Icon(
-                              Icons.arrow_forward_rounded,
-                              size: 16,
-                              color: _brandTealDark,
-                            ),
+                          SizedBox(width: 8),
+                          Icon(
+                            Icons.arrow_forward_rounded,
+                            size: 16,
+                            color: _brandTealDark,
                           ),
                         ],
                       ),
@@ -850,322 +861,217 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildHistoryShortcutTile({
-    required int totalSessions,
-    required VoidCallback onTap,
-  }) {
-    return Container(
-      width: double.infinity,
-      decoration: BoxDecoration(
-        color: _softMintBg,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: const Color(0xFFCCFBF1),
-          width: 1.2,
-        ),
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(20),
-          onTap: onTap,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 15),
-            child: Row(
-              children: [
-                Container(
-                  width: 44,
-                  height: 44,
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: const Icon(
-                    Icons.insert_chart_outlined_rounded,
-                    color: _brandTealDark,
-                    size: 22,
-                  ),
-                ),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Riwayat Pemeriksaan',
-                        style: TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w800,
-                          color: _textPrimary,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        totalSessions == 0
-                            ? 'Pantau perkembangan hasil pemeriksaan Anda'
-                            : '$totalSessions sesi pemeriksaan tersimpan di perangkat',
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: _textSecondary,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 7,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: const Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        'Buka',
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                          color: _brandTealDark,
-                        ),
-                      ),
-                      SizedBox(width: 4),
-                      Icon(
-                        Icons.arrow_forward_ios_rounded,
-                        size: 11,
-                        color: _brandTealDark,
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
+  Widget _buildPatientSessionCard(
+    BuildContext context,
+    ScreeningProvider provider,
+    dynamic item,
+  ) {
+    final riskColor = ClinicalConstants.getRiskColor(item.riskCategory);
+    final riskLabel = ClinicalConstants.getRiskShortBadge(item.riskCategory);
+    final phqScoreText = item.phq8Score != null
+        ? item.phq8Score!.toStringAsFixed(1)
+        : '-';
+    final modalityName = ClinicalConstants.getModalityClinicalName(
+      item.dominantModality,
     );
-  }
+    final isVerified = item.isVerified as bool? ?? false;
 
-  Widget _buildSegmentPill({
-    required String label,
-    required bool isSelected,
-    required VoidCallback onTap,
-  }) {
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Container(
         decoration: BoxDecoration(
-          color: isSelected ? _brandTeal : Colors.transparent,
+          color: Colors.white,
           borderRadius: BorderRadius.circular(20),
-          boxShadow: isSelected
-              ? [
-                  BoxShadow(
-                    color: _brandTeal.withValues(alpha: 0.25),
-                    blurRadius: 8,
-                    offset: const Offset(0, 2),
+          border: Border.all(color: const Color(0xFFF1F5F9), width: 1.2),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x0A0F172A),
+              blurRadius: 16,
+              offset: Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(20),
+            onTap: () async {
+              final nav = Navigator.of(context);
+              await provider.loadScreeningDetail(item.screeningId);
+              if (!mounted) return;
+              if (provider.currentScreening != null) {
+                nav.push(
+                  MaterialPageRoute(
+                    builder: (context) => ScreeningResultScreen(
+                      result: provider.currentScreening!,
+                    ),
                   ),
-                ]
-              : null,
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: 11.5,
-            fontWeight: FontWeight.w700,
-            color: isSelected ? Colors.white : _textSecondary,
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildHowItWorksCard() {
-    return Container(
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF8FAFC),
-        borderRadius: BorderRadius.circular(22),
-      ),
-      child: Column(
-        children: [
-          _buildStepRow(
-            number: '1',
-            title: 'Ceritakan Perasaan Anda',
-            desc:
-                'Ungkapkan apa yang sedang dirasakan secara leluasa dan nyaman.',
-            icon: Icons.chat_bubble_outline_rounded,
-          ),
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 10),
-            child: Divider(height: 1, color: Color(0xFFE2E8F0)),
-          ),
-          _buildStepRow(
-            number: '2',
-            title: 'Kenali Nada Suara & Ekspresi',
-            desc:
-                'Kamera & mikrofon membantu membaca tanda kelelahan emosional secara alami.',
-            icon: Icons.sentiment_satisfied_alt_rounded,
-          ),
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 10),
-            child: Divider(height: 1, color: Color(0xFFE2E8F0)),
-          ),
-          _buildStepRow(
-            number: '3',
-            title: 'Dapatkan Saran yang Mudah Dipahami',
-            desc:
-                'Hasil langsung ditampilkan beserta panduan menjaga kesehatan pikiran Anda.',
-            icon: Icons.assignment_turned_in_outlined,
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildStepRow({
-    required String number,
-    required String title,
-    required String desc,
-    required IconData icon,
-  }) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          width: 34,
-          height: 34,
-          decoration: const BoxDecoration(
-            color: _softMintBg,
-            shape: BoxShape.circle,
-          ),
-          alignment: Alignment.center,
-          child: Text(
-            number,
-            style: const TextStyle(
-              color: _brandTealDark,
-              fontWeight: FontWeight.w800,
-              fontSize: 13.5,
+                );
+              }
+            },
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              child: Row(
+                children: [
+                  // Avatar icon modalitas
+                  Container(
+                    width: 48,
+                    height: 48,
+                    decoration: BoxDecoration(
+                      color: _softMintBg,
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: riskColor.withValues(alpha: 0.3),
+                        width: 1.5,
+                      ),
+                    ),
+                    child: Center(
+                      child: Text(
+                        item.participantId.length > 2
+                            ? item.participantId.substring(0, 2).toUpperCase()
+                            : item.participantId.toUpperCase(),
+                        style: const TextStyle(
+                          color: _brandTealDark,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 14,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 14),
+                  // Informasi Pasien & Skor
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Flexible(
+                              child: Text(
+                                item.participantId,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w800,
+                                  color: _textPrimary,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Flexible(
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 6,
+                                  vertical: 2,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: riskColor.withValues(alpha: 0.12),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Text(
+                                  riskLabel,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: riskColor,
+                                    fontSize: 10.5,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'PHQ-8: $phqScoreText • Dominan: $modalityName',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: _textSecondary,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          _formatDate(item.createdAt),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 11,
+                            color: _textMuted,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  // Badge Verifikasi Konselor
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: isVerified
+                              ? const Color(0xFFECFDF5)
+                              : const Color(0xFFFFFBEB),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: isVerified
+                                ? const Color(0xFFA7F3D0)
+                                : const Color(0xFFFDE68A),
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              isVerified
+                                  ? Icons.check_circle_rounded
+                                  : Icons.hourglass_top_rounded,
+                              size: 12,
+                              color: isVerified
+                                  ? const Color(0xFF059669)
+                                  : const Color(0xFFD97706),
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              isVerified ? 'Terverifikasi' : 'Review',
+                              style: TextStyle(
+                                fontSize: 10.5,
+                                fontWeight: FontWeight.w700,
+                                color: isVerified
+                                    ? const Color(0xFF059669)
+                                    : const Color(0xFFD97706),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      const Icon(
+                        Icons.chevron_right_rounded,
+                        color: Color(0xFFCBD5E1),
+                        size: 20,
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
         ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: const TextStyle(
-                  fontSize: 13.5,
-                  fontWeight: FontWeight.w700,
-                  color: _textPrimary,
-                ),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                desc,
-                style: const TextStyle(
-                  fontSize: 12,
-                  color: _textSecondary,
-                  height: 1.4,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildScoreGuideCard() {
-    return Container(
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF8FAFC),
-        borderRadius: BorderRadius.circular(22),
-      ),
-      child: Column(
-        children: [
-          _buildRiskGuideRow(
-            color: ClinicalConstants.riskLowColor,
-            title: 'Kondisi Baik (Skor < 8)',
-            desc: 'Kondisi emosional stabil. Pertahankan pola hidup sehat.',
-          ),
-          const SizedBox(height: 10),
-          _buildRiskGuideRow(
-            color: ClinicalConstants.riskBorderlineColor,
-            title: 'Perlu Perhatian (Skor 8 – 9.9)',
-            desc: 'Gejala stres ringan. Luangkan waktu istirahat yang cukup.',
-          ),
-          const SizedBox(height: 10),
-          _buildRiskGuideRow(
-            color: ClinicalConstants.riskModerateColor,
-            title: 'Gejala Sedang (Skor 10 – 14.9)',
-            desc: 'Disarankan berbincang dengan konselor atau psikolog.',
-          ),
-          const SizedBox(height: 10),
-          _buildRiskGuideRow(
-            color: ClinicalConstants.riskHighColor,
-            title: 'Perlu Pendampingan (Skor ≥ 15)',
-            desc: 'Sangat dianjurkan mendapat pendampingan profesional segera.',
-          ),
-        ],
       ),
     );
   }
 
-  Widget _buildRiskGuideRow({
-    required Color color,
-    required String title,
-    required String desc,
-  }) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          margin: const EdgeInsets.only(top: 4),
-          width: 10,
-          height: 10,
-          decoration: BoxDecoration(
-            color: color,
-            shape: BoxShape.circle,
-          ),
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: const TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                  color: _textPrimary,
-                ),
-              ),
-              Text(
-                desc,
-                style: const TextStyle(
-                  fontSize: 11.5,
-                  color: _textSecondary,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildFriendlyEmptyState(BuildContext context) {
+  Widget _buildCleanEmptyState(BuildContext context, bool hasOtherItems) {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
@@ -1176,37 +1082,40 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       child: Column(
         children: [
-          // Ilustrasi lingkaran lembut terinspirasi layar kiri referensi ("Hello!")
           Container(
-            width: 84,
-            height: 84,
+            width: 72,
+            height: 72,
             decoration: const BoxDecoration(
               color: _softMintBg,
               shape: BoxShape.circle,
             ),
             child: const Icon(
-              Icons.health_and_safety_outlined,
-              size: 40,
+              Icons.assignment_outlined,
+              size: 34,
               color: _brandTeal,
             ),
           ),
           const SizedBox(height: 14),
-          const Text(
-            'Halo! Belum Ada Pemeriksaan',
-            style: TextStyle(
-              fontSize: 16,
+          Text(
+            hasOtherItems
+                ? 'Tidak Ada Kasus yang Sesuai Filter'
+                : 'Belum Ada Pemeriksaan Pasien',
+            style: const TextStyle(
+              fontSize: 15,
               fontWeight: FontWeight.w800,
               color: _brandTeal,
             ),
           ),
           const SizedBox(height: 6),
-          const Text(
-            'Mulai langkah pertama untuk mengenali kondisi perasaan dan kesehatan mental Anda hari ini.',
+          Text(
+            hasOtherItems
+                ? 'Pilih filter status lain untuk menampilkan data klien.'
+                : 'Mulai sesi intake observasi pasien atau jalankan uji data kasus standar.',
             textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 12.5,
+            style: const TextStyle(
+              fontSize: 12,
               color: _textSecondary,
-              height: 1.45,
+              height: 1.4,
             ),
           ),
           const SizedBox(height: 18),
@@ -1215,25 +1124,26 @@ class _HomeScreenState extends State<HomeScreen> {
               backgroundColor: _brandTeal,
               foregroundColor: Colors.white,
               elevation: 0,
-              padding: const EdgeInsets.symmetric(horizontal: 26, vertical: 13),
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(14),
               ),
             ),
             onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const ScreeningFormScreen(),
-                ),
-              );
+              if (widget.onNavigateToTab != null) {
+                widget.onNavigateToTab!(2);
+              } else {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const ScreeningFormScreen(),
+                  ),
+                );
+              }
             },
             child: const Text(
-              'Mulai Sekarang',
-              style: TextStyle(
-                fontWeight: FontWeight.w700,
-                fontSize: 13.5,
-              ),
+              'Mulai Sesi Baru',
+              style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
             ),
           ),
         ],

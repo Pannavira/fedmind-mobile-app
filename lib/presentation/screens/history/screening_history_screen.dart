@@ -8,7 +8,12 @@ import 'package:fedmind_mobile_app/presentation/screens/result/screening_result_
 import 'package:fedmind_mobile_app/presentation/widgets/risk_badge.dart';
 
 class ScreeningHistoryScreen extends StatefulWidget {
-  const ScreeningHistoryScreen({super.key});
+  final bool isTab;
+
+  const ScreeningHistoryScreen({
+    super.key,
+    this.isTab = false,
+  });
 
   @override
   State<ScreeningHistoryScreen> createState() => _ScreeningHistoryScreenState();
@@ -16,10 +21,17 @@ class ScreeningHistoryScreen extends StatefulWidget {
 
 class _ScreeningHistoryScreenState extends State<ScreeningHistoryScreen> {
   final TextEditingController _searchController = TextEditingController();
-  String _selectedRiskFilter = 'All';
+  String _selectedVerificationFilter = 'Semua';
+  String _selectedRiskFilter = 'Semua';
 
-  final List<String> _riskFilterOptions = [
-    'All',
+  final List<String> _verificationFilterOptions = const [
+    'Semua',
+    'Perlu Verifikasi',
+    'Terverifikasi',
+  ];
+
+  final List<String> _riskFilterOptions = const [
+    'Semua',
     'High',
     'Moderate',
     'Borderline',
@@ -30,7 +42,7 @@ class _ScreeningHistoryScreenState extends State<ScreeningHistoryScreen> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<ScreeningProvider>().fetchHistory();
+      context.read<ScreeningProvider>().fetchHistory(limit: 100);
     });
   }
 
@@ -49,19 +61,6 @@ class _ScreeningHistoryScreenState extends State<ScreeningHistoryScreen> {
     }
   }
 
-  IconData _getModalityIcon(String? modality) {
-    switch (modality?.toLowerCase()) {
-      case 'text':
-        return Icons.text_snippet_outlined;
-      case 'visual':
-        return Icons.face_retouching_natural_rounded;
-      case 'audio':
-        return Icons.mic_none_rounded;
-      default:
-        return Icons.hub_outlined;
-    }
-  }
-
   Future<void> _openDetail(ScreeningSummaryItem item) async {
     final provider = context.read<ScreeningProvider>();
     await provider.loadScreeningDetail(item.screeningId);
@@ -74,6 +73,7 @@ class _ScreeningHistoryScreenState extends State<ScreeningHistoryScreen> {
         MaterialPageRoute(
           builder: (context) => ScreeningResultScreen(
             result: provider.currentScreening!,
+            inspectionData: provider.currentInspectionData,
           ),
         ),
       );
@@ -93,40 +93,51 @@ class _ScreeningHistoryScreenState extends State<ScreeningHistoryScreen> {
 
     return Scaffold(
       appBar: AppBar(
+        automaticallyImplyLeading: !widget.isTab,
         title: const Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Patient Screening History'),
             Text(
-              'Clinical Sessions & Decision Archives',
-              style: TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+              'Riwayat Pemeriksaan',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            Text(
+              'Daftar Pasien & Status Verifikasi Model',
+              style: TextStyle(
+                fontSize: 11.5,
+                color: Color(0xFF64748B),
+                fontWeight: FontWeight.w500,
+              ),
             ),
           ],
         ),
         actions: [
           IconButton(
-            onPressed: () => provider.fetchHistory(),
+            onPressed: () => provider.fetchHistory(limit: 100),
             icon: const Icon(Icons.sync_rounded),
-            tooltip: 'Refresh History',
+            tooltip: 'Sinkronisasi Arsip Lokal',
           ),
         ],
       ),
       body: RefreshIndicator(
-        color: const Color(0xFF0F766E),
-        onRefresh: () => provider.fetchHistory(),
+        color: const Color(0xFF0D9488),
+        onRefresh: () => provider.fetchHistory(limit: 100),
         child: Column(
           children: [
-            // Search and Filters Header
             Container(
               color: Colors.white,
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
               child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   TextField(
                     controller: _searchController,
                     onChanged: (_) => setState(() {}),
                     decoration: InputDecoration(
-                      hintText: 'Search by Patient or Session ID...',
+                      hintText: 'Cari ID Pasien atau Nomor Rekam Medis...',
                       prefixIcon: const Icon(Icons.search_rounded, size: 20),
                       suffixIcon: _searchController.text.isNotEmpty
                           ? IconButton(
@@ -137,15 +148,20 @@ class _ScreeningHistoryScreenState extends State<ScreeningHistoryScreen> {
                               },
                             )
                           : null,
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 10,
+                      ),
                     ),
                   ),
                   const SizedBox(height: 10),
+                  // Filter Status Verifikasi
                   SingleChildScrollView(
                     scrollDirection: Axis.horizontal,
                     child: Row(
-                      children: _riskFilterOptions.map((filter) {
-                        final isSelected = _selectedRiskFilter == filter;
+                      children: _verificationFilterOptions.map((filter) {
+                        final isSelected =
+                            _selectedVerificationFilter == filter;
                         return Padding(
                           padding: const EdgeInsets.only(right: 8),
                           child: ChoiceChip(
@@ -154,18 +170,64 @@ class _ScreeningHistoryScreenState extends State<ScreeningHistoryScreen> {
                             onSelected: (selected) {
                               if (selected) {
                                 setState(() {
+                                  _selectedVerificationFilter = filter;
+                                });
+                              }
+                            },
+                            selectedColor: const Color(0xFF0F172A),
+                            labelStyle: TextStyle(
+                              color: isSelected
+                                  ? Colors.white
+                                  : const Color(0xFF475569),
+                              fontWeight: isSelected
+                                  ? FontWeight.w700
+                                  : FontWeight.w600,
+                              fontSize: 11.5,
+                            ),
+                            side: BorderSide(
+                              color: isSelected
+                                  ? const Color(0xFF0F172A)
+                                  : const Color(0xFFCBD5E1),
+                            ),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  // Filter Kategori Risiko
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: _riskFilterOptions.map((filter) {
+                        final isSelected = _selectedRiskFilter == filter;
+                        return Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: ChoiceChip(
+                            label: Text('Risiko: $filter'),
+                            selected: isSelected,
+                            onSelected: (selected) {
+                              if (selected) {
+                                setState(() {
                                   _selectedRiskFilter = filter;
                                 });
                               }
                             },
-                            selectedColor: const Color(0xFF0F766E).withValues(alpha: 0.15),
+                            selectedColor: const Color(0xFF0D9488)
+                                .withValues(alpha: 0.15),
                             labelStyle: TextStyle(
-                              color: isSelected ? const Color(0xFF0F766E) : const Color(0xFF64748B),
-                              fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                              color: isSelected
+                                  ? const Color(0xFF0F766E)
+                                  : const Color(0xFF64748B),
+                              fontWeight: isSelected
+                                  ? FontWeight.w700
+                                  : FontWeight.w500,
                               fontSize: 11.5,
                             ),
                             side: BorderSide(
-                              color: isSelected ? const Color(0xFF0F766E) : const Color(0xFFCBD5E1),
+                              color: isSelected
+                                  ? const Color(0xFF0D9488)
+                                  : const Color(0xFFCBD5E1),
                             ),
                           ),
                         );
@@ -175,9 +237,7 @@ class _ScreeningHistoryScreenState extends State<ScreeningHistoryScreen> {
                 ],
               ),
             ),
-            const Divider(color: Color(0xFFE2E8F0)),
-
-            // History List
+            const Divider(color: Color(0xFFE2E8F0), height: 1),
             Expanded(
               child: _buildBody(provider),
             ),
@@ -189,11 +249,14 @@ class _ScreeningHistoryScreenState extends State<ScreeningHistoryScreen> {
 
   Widget _buildBody(ScreeningProvider provider) {
     if (provider.isLoadingHistory && provider.historyItems.isEmpty) {
-      return const Center(child: CircularProgressIndicator(color: Color(0xFF0F766E)));
+      return const Center(
+        child: CircularProgressIndicator(color: Color(0xFF0D9488)),
+      );
     }
 
     if (provider.historyItems.isEmpty) {
       return ListView(
+        padding: EdgeInsets.only(bottom: widget.isTab ? 100 : 20),
         children: [
           SizedBox(height: MediaQuery.of(context).size.height * 0.2),
           Center(
@@ -201,19 +264,19 @@ class _ScreeningHistoryScreenState extends State<ScreeningHistoryScreen> {
               children: [
                 Container(
                   padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF1F5F9),
+                  decoration: const BoxDecoration(
+                    color: Color(0xFFF1F5F9),
                     shape: BoxShape.circle,
                   ),
                   child: Icon(
-                    Icons.history_outlined,
+                    Icons.folder_open_rounded,
                     size: 48,
                     color: Colors.grey.shade400,
                   ),
                 ),
                 const SizedBox(height: 14),
                 const Text(
-                  'No screening history yet',
+                  'Belum ada data pemeriksaan klinis',
                   style: TextStyle(
                     fontSize: 15,
                     fontWeight: FontWeight.w700,
@@ -222,7 +285,7 @@ class _ScreeningHistoryScreenState extends State<ScreeningHistoryScreen> {
                 ),
                 const SizedBox(height: 6),
                 const Text(
-                  'Complete a clinical assessment session to log patient records.',
+                  'Mulai sesi pemeriksaan baru atau jalankan evaluasi Golden Case P600.',
                   style: TextStyle(fontSize: 12, color: Color(0xFF94A3B8)),
                   textAlign: TextAlign.center,
                 ),
@@ -233,7 +296,6 @@ class _ScreeningHistoryScreenState extends State<ScreeningHistoryScreen> {
       );
     }
 
-    // Apply Filter & Search
     final query = _searchController.text.trim().toLowerCase();
     final filtered = provider.historyItems.where((item) {
       final matchesQuery = query.isEmpty ||
@@ -242,34 +304,36 @@ class _ScreeningHistoryScreenState extends State<ScreeningHistoryScreen> {
 
       if (!matchesQuery) return false;
 
-      if (_selectedRiskFilter == 'All') return true;
+      if (_selectedVerificationFilter == 'Perlu Verifikasi' &&
+          item.isVerified) {
+        return false;
+      }
+      if (_selectedVerificationFilter == 'Terverifikasi' && !item.isVerified) {
+        return false;
+      }
+
+      if (_selectedRiskFilter == 'Semua') return true;
 
       final category = item.riskCategory?.toLowerCase() ?? '';
-      switch (_selectedRiskFilter) {
-        case 'High':
-          return category == 'high';
-        case 'Moderate':
-          return category == 'moderate';
-        case 'Borderline':
-          return category == 'borderline';
-        case 'Low':
-          return category == 'low';
-        default:
-          return true;
-      }
+      return category == _selectedRiskFilter.toLowerCase();
     }).toList();
 
     if (filtered.isEmpty) {
       return ListView(
+        padding: EdgeInsets.only(bottom: widget.isTab ? 100 : 20),
         children: [
           SizedBox(height: MediaQuery.of(context).size.height * 0.15),
           Center(
             child: Column(
               children: [
-                Icon(Icons.search_off_rounded, size: 44, color: Colors.grey.shade400),
+                Icon(
+                  Icons.search_off_rounded,
+                  size: 44,
+                  color: Colors.grey.shade400,
+                ),
                 const SizedBox(height: 10),
                 const Text(
-                  'No matching screening records',
+                  'Tidak ada sesi yang sesuai filter',
                   style: TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w700,
@@ -278,7 +342,7 @@ class _ScreeningHistoryScreenState extends State<ScreeningHistoryScreen> {
                 ),
                 const SizedBox(height: 4),
                 const Text(
-                  'Try adjusting your search query or risk filter.',
+                  'Sesuaikan filter status verifikasi atau kategori risiko.',
                   style: TextStyle(fontSize: 12, color: Color(0xFF94A3B8)),
                 ),
               ],
@@ -289,7 +353,7 @@ class _ScreeningHistoryScreenState extends State<ScreeningHistoryScreen> {
     }
 
     return ListView.separated(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      padding: EdgeInsets.fromLTRB(16, 12, 16, widget.isTab ? 110 : 20),
       itemCount: filtered.length,
       separatorBuilder: (context, index) => const SizedBox(height: 10),
       itemBuilder: (context, index) {
@@ -306,31 +370,45 @@ class _ScreeningHistoryScreenState extends State<ScreeningHistoryScreen> {
               padding: const EdgeInsets.all(14),
               child: Row(
                 children: [
-                  // Skor badge bulat
                   Container(
-                    width: 48,
-                    height: 48,
+                    width: 52,
+                    height: 52,
                     decoration: BoxDecoration(
                       color: riskColor.withValues(alpha: 0.12),
-                      shape: BoxShape.circle,
+                      borderRadius: BorderRadius.circular(12),
                       border: Border.all(
                         color: riskColor.withValues(alpha: 0.4),
                         width: 1.5,
                       ),
                     ),
                     alignment: Alignment.center,
-                    child: Text(
-                      score != null ? score.toStringAsFixed(1) : '?',
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w800,
-                        color: riskColor,
-                      ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          score != null ? score.toStringAsFixed(1) : '?',
+                          style: TextStyle(
+                            fontSize: 13.5,
+                            height: 1.1,
+                            fontWeight: FontWeight.w900,
+                            color: riskColor,
+                          ),
+                        ),
+                        const SizedBox(height: 1),
+                        Text(
+                          'PHQ-8',
+                          style: TextStyle(
+                            fontSize: 8.5,
+                            height: 1.1,
+                            fontWeight: FontWeight.w700,
+                            color: riskColor,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                   const SizedBox(width: 14),
-
-                  // Info pasien dan waktu
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -338,41 +416,43 @@ class _ScreeningHistoryScreenState extends State<ScreeningHistoryScreen> {
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            Text(
-                              item.participantId,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w800,
-                                fontSize: 14.5,
-                                color: Color(0xFF0F172A),
+                            Flexible(
+                              child: Text(
+                                item.participantId,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 14.5,
+                                  color: Color(0xFF0F172A),
+                                ),
+                                overflow: TextOverflow.ellipsis,
                               ),
                             ),
-                            RiskBadge(riskCategory: item.riskCategory),
+                            _buildVerificationBadge(item),
                           ],
                         ),
                         const SizedBox(height: 4),
-                        Text(
-                          _formatDate(item.createdAt),
-                          style: const TextStyle(
-                            fontSize: 11.5,
-                            color: Color(0xFF64748B),
-                            fontWeight: FontWeight.w500,
-                          ),
+                        RiskBadge(
+                          riskCategory: item.riskCategory,
+                          useFullClinicalLabel: true,
                         ),
-                        const SizedBox(height: 4),
+                        const SizedBox(height: 6),
                         Row(
                           children: [
                             Icon(
-                              _getModalityIcon(dominantMod),
+                              ClinicalConstants.getModalityIcon(dominantMod),
                               size: 13,
-                              color: const Color(0xFF0F766E),
+                              color: const Color(0xFF0D9488),
                             ),
                             const SizedBox(width: 4),
-                            Text(
-                              'Modality: ${dominantMod.toUpperCase()}',
-                              style: const TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w700,
-                                color: Color(0xFF0F766E),
+                            Expanded(
+                              child: Text(
+                                '${ClinicalConstants.getModalityCompactName(dominantMod)} • ${_formatDate(item.createdAt)}',
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                  color: Color(0xFF475569),
+                                ),
                               ),
                             ),
                           ],
@@ -380,7 +460,7 @@ class _ScreeningHistoryScreenState extends State<ScreeningHistoryScreen> {
                       ],
                     ),
                   ),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: 6),
                   const Icon(
                     Icons.chevron_right,
                     color: Color(0xFFCBD5E1),
@@ -392,6 +472,49 @@ class _ScreeningHistoryScreenState extends State<ScreeningHistoryScreen> {
           ),
         );
       },
+    );
+  }
+
+  Widget _buildVerificationBadge(ScreeningSummaryItem item) {
+    final verified = item.isVerified;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: verified
+            ? const Color(0xFF10B981).withValues(alpha: 0.14)
+            : const Color(0xFFF1F5F9),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(
+          color: verified
+              ? const Color(0xFF10B981).withValues(alpha: 0.45)
+              : const Color(0xFFCBD5E1),
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            verified
+                ? Icons.verified_rounded
+                : Icons.pending_actions_rounded,
+            size: 11,
+            color: verified
+                ? const Color(0xFF047857)
+                : const Color(0xFF64748B),
+          ),
+          const SizedBox(width: 4),
+          Text(
+            verified ? 'Diverifikasi' : 'Belum Terverifikasi',
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w800,
+              color: verified
+                  ? const Color(0xFF047857)
+                  : const Color(0xFF64748B),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

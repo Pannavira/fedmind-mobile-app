@@ -18,7 +18,7 @@ class ClinicalCameraScreen extends StatefulWidget {
 
 class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
     with WidgetsBindingObserver {
-  static const Color _brandTeal = Color(0xFF18B2AC);
+  static const Color _brandTeal = Color(0xFF0D9488);
 
   CameraController? _controller;
   List<CameraDescription> _availableCameras = [];
@@ -28,8 +28,8 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
 
   Timer? _timer;
   int _secondsRecorded = 0;
-  static const int _recommendedDuration = 45; // 45 detik
-  static const int _maxDuration = 90; // 90 detik batas maksimal
+  static const int _recommendedDuration = 45;
+  static const int _maxDuration = 90;
 
   @override
   void initState() {
@@ -69,12 +69,12 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
       } else {
         setState(() {
           _errorMessage =
-              'Izin kamera dan mikrofon diperlukan untuk merekam sesi pemeriksaan Anda.';
+              'Otorisasi sensor kamera dan mikrofon diperlukan untuk akuisisi Modalitas Visual (AUs) dan Prosodi Audio.';
         });
       }
     } catch (e) {
       setState(() {
-        _errorMessage = 'Gagal meminta izin kamera/mikrofon: $e';
+        _errorMessage = 'Gagal meminta otorisasi sensor kamera/mikrofon: $e';
       });
     }
   }
@@ -84,7 +84,7 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
       _availableCameras = await availableCameras();
       if (_availableCameras.isEmpty) {
         setState(() {
-          _errorMessage = 'Kamera tidak ditemukan pada perangkat ini.';
+          _errorMessage = 'Perangkat sensor kamera tidak terdeteksi.';
         });
         return;
       }
@@ -111,7 +111,7 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
       });
     } catch (e) {
       setState(() {
-        _errorMessage = 'Gagal mengaktifkan kamera: $e';
+        _errorMessage = 'Gagal menginisialisasi sensor kamera klinis: $e';
       });
     }
   }
@@ -144,7 +144,7 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Gagal memulai rekaman: $e'),
+          content: Text('Gagal memulai akuisisi video observasi: $e'),
           backgroundColor: Colors.red,
         ),
       );
@@ -172,7 +172,7 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Gagal menyimpan rekaman video: $e'),
+          content: Text('Gagal menyimpan berkas observasi klinis: $e'),
           backgroundColor: Colors.red,
         ),
       );
@@ -190,7 +190,7 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
     if (_errorMessage != null) {
       return Scaffold(
         backgroundColor: const Color(0xFFF8FAFC),
-        appBar: AppBar(title: const Text('Kamera Pemeriksaan')),
+        appBar: AppBar(title: const Text('Clinical Camera & Audio Capture')),
         body: Center(
           child: Padding(
             padding: const EdgeInsets.all(24),
@@ -215,7 +215,7 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
                 ElevatedButton.icon(
                   onPressed: _checkPermissionsAndInit,
                   icon: const Icon(Icons.refresh),
-                  label: const Text('Coba Lagi'),
+                  label: const Text('Kalibrasi Ulang Sensor'),
                 ),
               ],
             ),
@@ -243,7 +243,7 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
             child: CameraPreview(_controller!),
           ),
 
-          // 2. Panduan Posisi Wajah
+          // 2. Panduan Kalibrasi Wajah FACS
           IgnorePointer(
             child: Center(
               child: Container(
@@ -274,8 +274,8 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
                       ),
                       child: Text(
                         _isRecording
-                            ? 'Posisi Wajah Sudah Pas'
-                            : 'Posisikan Wajah di Dalam Lingkaran',
+                            ? 'FACS ROI Terkunci • Akuisisi Aktif'
+                            : 'Kalibrasi Wajah Klien pada Zona FACS',
                         style: const TextStyle(
                           color: Colors.white,
                           fontSize: 11,
@@ -289,7 +289,7 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
             ),
           ),
 
-          // 3. Bar Atas & Panduan Cerita
+          // 3. Bar Atas & Protokol Wawancara Semi-Terstruktur
           SafeArea(
             child: Align(
               alignment: Alignment.topCenter,
@@ -351,8 +351,8 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
                               const SizedBox(width: 6),
                               Text(
                                 _isRecording
-                                    ? 'Merekam: ${_formatTimer(_secondsRecorded)}'
-                                    : 'Kamera Siap',
+                                    ? 'REC: ${_formatTimer(_secondsRecorded)} (${widget.participantId})'
+                                    : 'Clinical Camera Ready (${widget.participantId})',
                                 style: const TextStyle(
                                   color: Colors.white,
                                   fontSize: 12,
@@ -367,12 +367,12 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
                     ),
                     const SizedBox(height: 12),
 
-                    // Kartu Panduan Cerita Santai
+                    // Kartu Protokol Wawancara Klinis Semi-Terstruktur
                     Container(
                       padding: const EdgeInsets.all(14),
                       decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.68),
-                        borderRadius: BorderRadius.circular(18),
+                        color: Colors.black.withValues(alpha: 0.72),
+                        borderRadius: BorderRadius.circular(16),
                         border: Border.all(
                           color: _brandTeal.withValues(alpha: 0.55),
                         ),
@@ -383,18 +383,18 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
                           Row(
                             children: [
                               Icon(
-                                Icons.chat_bubble_outline_rounded,
+                                Icons.medical_information_outlined,
                                 color: Color(0xFF5EEAD4),
                                 size: 15,
                               ),
                               SizedBox(width: 6),
                               Expanded(
                                 child: Text(
-                                  'Panduan Cerita (Bicaralah dengan Santai):',
+                                  'Protokol Elisitasi Wawancara Klinis (PHQ-8 Probe):',
                                   style: TextStyle(
                                     color: Color(0xFF5EEAD4),
                                     fontSize: 11.5,
-                                    fontWeight: FontWeight.w700,
+                                    fontWeight: FontWeight.w800,
                                   ),
                                 ),
                               ),
@@ -402,19 +402,19 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
                           ),
                           SizedBox(height: 6),
                           Text(
-                            '1. Bagaimana perasaan, pikiran, dan kualitas tidur Anda dalam beberapa hari terakhir?',
+                            '1. Eksplorasi Anhedonia & Afek Depresif: "Bagaimana minat, energi, serta suasana perasaan klien selama 2 minggu terakhir?"',
                             style: TextStyle(
                               color: Colors.white,
-                              fontSize: 11.5,
+                              fontSize: 11,
                               height: 1.4,
                             ),
                           ),
                           SizedBox(height: 4),
                           Text(
-                            '2. Hal apa yang belakangan ini terasa paling melelahkan atau membebani pikiran Anda?',
+                            '2. Fungsi Vegetatif & Psikomotor: "Adakah perubahan pola tidur, konsentrasi, atau beban kognitif yang menonjol?"',
                             style: TextStyle(
                               color: Colors.white,
-                              fontSize: 11.5,
+                              fontSize: 11,
                               height: 1.4,
                             ),
                           ),
@@ -427,7 +427,7 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
             ),
           ),
 
-          // 4. Tombol Rekam di Bawah
+          // 4. Tombol Akuisisi di Bawah
           Align(
             alignment: Alignment.bottomCenter,
             child: SafeArea(
@@ -438,7 +438,7 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
                   gradient: LinearGradient(
                     colors: [
                       Colors.transparent,
-                      Colors.black.withValues(alpha: 0.82),
+                      Colors.black.withValues(alpha: 0.85),
                     ],
                     begin: Alignment.topCenter,
                     end: Alignment.bottomCenter,
@@ -452,11 +452,12 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const Text(
-                          'Durasi Ideal:',
-                          style: TextStyle(color: Colors.white70, fontSize: 10.5),
+                          'Durasi Observasi:',
+                          style:
+                              TextStyle(color: Colors.white70, fontSize: 10.5),
                         ),
                         Text(
-                          '$_recommendedDuration detik',
+                          'Min. $_recommendedDuration detik',
                           style: const TextStyle(
                             color: Colors.white,
                             fontSize: 12.5,
@@ -506,11 +507,12 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
                       crossAxisAlignment: CrossAxisAlignment.end,
                       children: [
                         Text(
-                          'Privasi Anda:',
-                          style: TextStyle(color: Colors.white70, fontSize: 10.5),
+                          'Pemrosesan:',
+                          style:
+                              TextStyle(color: Colors.white70, fontSize: 10.5),
                         ),
                         Text(
-                          '100% Offline',
+                          'On-Device FL',
                           style: TextStyle(
                             color: Color(0xFF34D399),
                             fontSize: 12.5,

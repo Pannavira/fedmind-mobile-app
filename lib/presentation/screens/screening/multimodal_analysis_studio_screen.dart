@@ -15,6 +15,7 @@ class MultimodalAnalysisStudioScreen extends StatefulWidget {
   final MultimodalInspectionData inspection;
   final String? localVideoPath;
   final bool isFromResultScreen;
+  final bool isSimulation;
 
   const MultimodalAnalysisStudioScreen({
     super.key,
@@ -22,6 +23,7 @@ class MultimodalAnalysisStudioScreen extends StatefulWidget {
     required this.inspection,
     this.localVideoPath,
     this.isFromResultScreen = false,
+    this.isSimulation = false,
   });
 
   @override
@@ -34,10 +36,11 @@ class _MultimodalAnalysisStudioScreenState
     with SingleTickerProviderStateMixin {
   static const Color _brandTeal = Color(0xFF18B2AC);
   static const Color _brandTealDark = Color(0xFF0D9488);
-  static const Color _slateDark = Color(0xFF0F172A);
+  static const Color _softBg = Color(0xFFF8FAFC);
+  static const Color _textSecondary = Color(0xFF64748B);
 
   late TabController _tabController;
-  bool _isSimpleMode = true;
+  final bool _isSimpleMode = false;
   double _videoPlaybackProgress = 0.25;
 
   @override
@@ -64,7 +67,7 @@ class _MultimodalAnalysisStudioScreenState
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle.light,
       child: Scaffold(
-        backgroundColor: const Color(0xFFF8FAFC),
+        backgroundColor: _softBg,
         bottomNavigationBar: _buildBottomActionBar(context, riskColor, score),
         body: NestedScrollView(
           headerSliverBuilder: (context, innerBoxIsScrolled) {
@@ -73,7 +76,7 @@ class _MultimodalAnalysisStudioScreenState
                 child: Container(
                   decoration: const BoxDecoration(
                     gradient: LinearGradient(
-                      colors: [Color(0xFF0F766E), Color(0xFF18B2AC)],
+                      colors: [_brandTeal, _brandTealDark],
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
                     ),
@@ -81,11 +84,11 @@ class _MultimodalAnalysisStudioScreenState
                   child: SafeArea(
                     bottom: false,
                     child: Padding(
-                      padding: const EdgeInsets.fromLTRB(18, 12, 18, 18),
+                      padding: const EdgeInsets.fromLTRB(20, 14, 20, 20),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          // Baris Navigasi Atas & Switch Bahasa Mudah
+                          // Top bar: Tombol kembali, judul & identitas pasien
                           Row(
                             children: [
                               Material(
@@ -99,140 +102,93 @@ class _MultimodalAnalysisStudioScreenState
                                     child: Icon(
                                       Icons.arrow_back_ios_new_rounded,
                                       color: Colors.white,
-                                      size: 17,
+                                      size: 18,
                                     ),
                                   ),
                                 ),
                               ),
-                              const SizedBox(width: 12),
+                              const SizedBox(width: 14),
                               Expanded(
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     const Text(
-                                      'Studio Analisis & Kalkulasi AI',
+                                      'Studio Observasi',
                                       style: TextStyle(
                                         color: Colors.white,
-                                        fontSize: 17,
+                                        fontSize: 20,
                                         fontWeight: FontWeight.w800,
                                         letterSpacing: -0.3,
                                       ),
                                     ),
+                                    const SizedBox(height: 2),
                                     Text(
-                                      'Peserta: ${widget.result.participantId} • Transparansi Penuh On-Device',
+                                      'ID Pasien: ${widget.result.participantId} • Triangulasi Sinyal & XAI',
                                       style: TextStyle(
-                                        color:
-                                            Colors.white.withValues(alpha: 0.88),
-                                        fontSize: 11.5,
+                                        color: Colors.white.withValues(alpha: 0.90),
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w500,
                                       ),
                                     ),
                                   ],
                                 ),
                               ),
-                              // Toggle Mode Mudah vs Teknis
-                              GestureDetector(
-                                onTap: () {
-                                  setState(() {
-                                    _isSimpleMode = !_isSimpleMode;
-                                  });
-                                },
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 10,
-                                    vertical: 6,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: Colors.white.withValues(alpha: 0.22),
-                                    borderRadius: BorderRadius.circular(20),
-                                    border: Border.all(
-                                      color:
-                                          Colors.white.withValues(alpha: 0.4),
-                                    ),
-                                  ),
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Icon(
-                                        _isSimpleMode
-                                            ? Icons.lightbulb_rounded
-                                            : Icons.science_rounded,
-                                        color: Colors.white,
-                                        size: 14,
-                                      ),
-                                      const SizedBox(width: 5),
-                                      Text(
-                                        _isSimpleMode
-                                            ? 'Bahasa Mudah'
-                                            : 'Mode Teknis',
-                                        style: const TextStyle(
-                                          color: Colors.white,
-                                          fontSize: 11,
-                                          fontWeight: FontWeight.w800,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
                             ],
                           ),
-                          const SizedBox(height: 16),
+                          const SizedBox(height: 18),
 
-                          // Tab Selector (Inspeksi Modalitas vs Proses Kalkulasi Model)
+                          // Tab Selector (Kapsul Modern & Bersih)
                           Container(
                             padding: const EdgeInsets.all(4),
                             decoration: BoxDecoration(
-                              color: Colors.black.withValues(alpha: 0.18),
-                              borderRadius: BorderRadius.circular(16),
+                              color: Colors.white.withValues(alpha: 0.18),
+                              borderRadius: BorderRadius.circular(24),
                             ),
                             child: TabBar(
                               controller: _tabController,
                               indicator: BoxDecoration(
                                 color: Colors.white,
-                                borderRadius: BorderRadius.circular(12),
+                                borderRadius: BorderRadius.circular(20),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withValues(alpha: 0.08),
+                                    blurRadius: 8,
+                                    offset: const Offset(0, 2),
+                                  ),
+                                ],
                               ),
                               indicatorSize: TabBarIndicatorSize.tab,
                               dividerColor: Colors.transparent,
                               labelColor: _brandTealDark,
                               unselectedLabelColor: Colors.white,
                               labelStyle: const TextStyle(
-                                fontSize: 12,
+                                fontSize: 12.5,
                                 fontWeight: FontWeight.w800,
                               ),
                               unselectedLabelStyle: const TextStyle(
-                                fontSize: 12,
+                                fontSize: 12.5,
                                 fontWeight: FontWeight.w600,
                               ),
                               tabs: const [
                                 Tab(
-                                  height: 40,
+                                  height: 38,
                                   child: Row(
                                     mainAxisAlignment: MainAxisAlignment.center,
                                     children: [
                                       Icon(Icons.sensors_rounded, size: 16),
                                       SizedBox(width: 6),
-                                      Flexible(
-                                        child: Text(
-                                          '1. Deteksi Wajah, Suara & Teks',
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                      ),
+                                      Text('Sinyal Multimodal'),
                                     ],
                                   ),
                                 ),
                                 Tab(
-                                  height: 40,
+                                  height: 38,
                                   child: Row(
                                     mainAxisAlignment: MainAxisAlignment.center,
                                     children: [
-                                      Icon(Icons.calculate_outlined, size: 16),
+                                      Icon(Icons.balance_rounded, size: 16),
                                       SizedBox(width: 6),
-                                      Flexible(
-                                        child: Text(
-                                          '2. Proses Kalkulasi AI',
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                      ),
+                                      Text('Atribusi XAI'),
                                     ],
                                   ),
                                 ),
@@ -250,14 +206,12 @@ class _MultimodalAnalysisStudioScreenState
           body: TabBarView(
             controller: _tabController,
             children: [
-              // --- TAB 1: INSPEKSI 3 MODALITAS RIIL ---
+              // --- TAB 1: INSPEKSI 3 MODALITAS KLINIS ---
               SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
+                padding: const EdgeInsets.fromLTRB(16, 18, 16, 28),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    _buildQuickOverviewBanner(),
-                    const SizedBox(height: 16),
                     FaceModalityCard(
                       inspection: widget.inspection,
                       isSimpleMode: _isSimpleMode,
@@ -278,15 +232,13 @@ class _MultimodalAnalysisStudioScreenState
                       inspection: widget.inspection,
                       isSimpleMode: _isSimpleMode,
                     ),
-                    const SizedBox(height: 16),
-                    _buildNextTabCalloutCard(),
                   ],
                 ),
               ),
 
               // --- TAB 2: PROSES KALKULASI MODEL AI & SHAPLEY ---
               SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
+                padding: const EdgeInsets.fromLTRB(16, 18, 16, 28),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
@@ -310,119 +262,6 @@ class _MultimodalAnalysisStudioScreenState
     );
   }
 
-  Widget _buildQuickOverviewBanner() {
-    final ins = widget.inspection;
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: const Color(0xFFCCFBF1)),
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: const Color(0xFFF0FDFA),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: const Icon(
-              Icons.verified_user_rounded,
-              color: _brandTealDark,
-              size: 22,
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  ins.isFromRealVideo
-                      ? 'Sinyal Video Anda Berhasil Diekstrak Secara Riil'
-                      : 'Pratinjau Sinyal Multimodal Siap Diinspeksi',
-                  style: const TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w800,
-                    color: _slateDark,
-                  ),
-                ),
-                const SizedBox(height: 3),
-                const Text(
-                  'Periksa deteksi wajah, gelombang suara, dan transkrip cerita Anda di bawah ini sebelum melihat cara AI menghitung skor.',
-                  style: TextStyle(
-                    fontSize: 11.5,
-                    color: Color(0xFF475569),
-                    height: 1.35,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildNextTabCalloutCard() {
-    return Material(
-      color: const Color(0xFFF0FDFA),
-      borderRadius: BorderRadius.circular(18),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(18),
-        onTap: () {
-          _tabController.animateTo(1);
-        },
-        child: Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: _brandTeal.withValues(alpha: 0.45)),
-          ),
-          child: const Row(
-            children: [
-              Icon(
-                Icons.auto_awesome_rounded,
-                color: _brandTealDark,
-                size: 24,
-              ),
-              SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Penasaran Bagaimana Ketiga Sinyal Ini Dihitung?',
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w800,
-                        color: Color(0xFF0F766E),
-                      ),
-                    ),
-                    SizedBox(height: 2),
-                    Text(
-                      'Ketuk di sini untuk membuka Tab 2 dan melihat timbangan kalkulasi model AI secara langsung.',
-                      style: TextStyle(
-                        fontSize: 11.5,
-                        color: Color(0xFF134E4A),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Icon(
-                Icons.arrow_forward_ios_rounded,
-                size: 16,
-                color: _brandTealDark,
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
   Widget _buildBottomActionBar(
     BuildContext context,
     Color riskColor,
@@ -432,13 +271,9 @@ class _MultimodalAnalysisStudioScreenState
       padding: const EdgeInsets.fromLTRB(18, 12, 18, 16),
       decoration: const BoxDecoration(
         color: Colors.white,
-        boxShadow: [
-          BoxShadow(
-            color: Color(0x140F172A),
-            blurRadius: 16,
-            offset: Offset(0, -4),
-          ),
-        ],
+        border: Border(
+          top: BorderSide(color: Color(0xFFE2E8F0)),
+        ),
       ),
       child: SafeArea(
         top: false,
@@ -446,10 +281,10 @@ class _MultimodalAnalysisStudioScreenState
           children: [
             // Ringkasan Skor Mini di Kiri
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
               decoration: BoxDecoration(
                 color: riskColor.withValues(alpha: 0.10),
-                borderRadius: BorderRadius.circular(14),
+                borderRadius: BorderRadius.circular(12),
                 border: Border.all(color: riskColor.withValues(alpha: 0.35)),
               ),
               child: Column(
@@ -457,15 +292,15 @@ class _MultimodalAnalysisStudioScreenState
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text(
-                    'Skor PHQ-8',
+                    'Estimasi PHQ-8',
                     style: TextStyle(
                       fontSize: 10,
                       fontWeight: FontWeight.w700,
-                      color: Color(0xFF64748B),
+                      color: _textSecondary,
                     ),
                   ),
                   Text(
-                    '${score.toStringAsFixed(2)} / 24',
+                    '${score.toStringAsFixed(1)} / 24',
                     style: TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.w900,
@@ -478,13 +313,11 @@ class _MultimodalAnalysisStudioScreenState
             const SizedBox(width: 12),
             Expanded(
               child: SizedBox(
-                height: 50,
+                height: 48,
                 child: ElevatedButton.icon(
                   onPressed: () {
                     if (widget.isFromResultScreen) {
                       Navigator.of(context).pop();
-                    } else if (_tabController.index == 0) {
-                      _tabController.animateTo(1);
                     } else {
                       Navigator.pushReplacement(
                         context,
@@ -493,6 +326,8 @@ class _MultimodalAnalysisStudioScreenState
                             result: widget.result,
                             localVideoPath: widget.localVideoPath,
                             inspectionData: widget.inspection,
+                            isSimulation:
+                                widget.isSimulation || widget.result.isSimulation,
                           ),
                         ),
                       );
@@ -503,26 +338,20 @@ class _MultimodalAnalysisStudioScreenState
                     foregroundColor: Colors.white,
                     elevation: 0,
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
+                      borderRadius: BorderRadius.circular(14),
                     ),
                   ),
-                  icon: Icon(
-                    widget.isFromResultScreen
-                        ? Icons.check_circle_outline_rounded
-                        : (_tabController.index == 0
-                            ? Icons.calculate_rounded
-                            : Icons.assignment_turned_in_rounded),
-                    size: 19,
+                  icon: const Icon(
+                    Icons.assignment_turned_in_rounded,
+                    size: 18,
                   ),
                   label: Text(
                     widget.isFromResultScreen
-                        ? 'Kembali ke Ringkasan Hasil'
-                        : (_tabController.index == 0
-                            ? 'Lihat Kalkulasi AI (Tab 2)'
-                            : 'Buka Laporan Lengkap'),
+                        ? 'Kembali ke Hasil Asesmen'
+                        : 'Buka Hasil & Verifikasi',
                     style: const TextStyle(
-                      fontSize: 13.5,
-                      fontWeight: FontWeight.w800,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
                 ),

@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:provider/provider.dart';
 import 'package:fedmind_mobile_app/main.dart';
 import 'package:fedmind_mobile_app/core/network/api_client.dart';
 import 'package:fedmind_mobile_app/data/datasources/screening_remote_datasource.dart';
 import 'package:fedmind_mobile_app/data/models/screening_models.dart';
 import 'package:fedmind_mobile_app/data/repositories/screening_repository.dart';
 import 'package:fedmind_mobile_app/core/services/local_inference_service.dart';
+import 'package:fedmind_mobile_app/presentation/providers/screening_provider.dart';
+import 'package:fedmind_mobile_app/presentation/screens/result/screening_result_screen.dart';
 
 class FakeLocalInferenceService extends LocalInferenceService {
   @override
@@ -53,31 +56,110 @@ class FakeScreeningRepository extends ScreeningRepository {
   Future<int> getLocalScreeningTotalCount() async {
     return 0;
   }
+
+  @override
+  Future<ScreeningResponse?> saveLocalClinicalVerification({
+    required String screeningId,
+    required ClinicalVerificationData verification,
+  }) async {
+    return null;
+  }
+
+  @override
+  Future<void> saveLocalScreeningRecord({
+    required ScreeningResponse screening,
+    dynamic inspectionData,
+    String? videoPath,
+  }) async {}
 }
 
 void main() {
-  testWidgets('FedMindApp smoke test with stub repository and disclaimer popup',
+  testWidgets(
+      'FedMindApp CDSS Clinical Dashboard & Authorization Dialog smoke test',
       (WidgetTester tester) async {
     await tester.pumpWidget(FedMindApp(repository: FakeScreeningRepository()));
     await tester.pumpAndSettle();
 
-    // Verifikasi Pop-up Peringatan Klinis muncul saat awal aplikasi dibuka
-    expect(find.text('Pemberitahuan Penting'), findsOneWidget);
-    expect(find.text('Bukan Diagnosa Medis Mutlak'), findsOneWidget);
-    expect(find.text('100% Berjalan Offline & Data Aman'), findsOneWidget);
-    expect(find.text('Saya Mengerti & Lanjutkan'), findsOneWidget);
+    // Verifikasi Dialog Otorisasi Konsol CDSS muncul saat awal aplikasi dibuka
+    expect(
+      find.text('Otorisasi Konsol CDSS & Audit Model'),
+      findsOneWidget,
+    );
+    expect(
+      find.text('Instrumen Pendukung Keputusan Klinis (Human-in-the-Loop)'),
+      findsOneWidget,
+    );
+    expect(
+      find.text('Konfirmasi Otorisasi Klinisi & Buka Konsol'),
+      findsOneWidget,
+    );
 
-    // Tekan tombol "Saya Mengerti & Lanjutkan" untuk menutup dialog
-    await tester.tap(find.text('Saya Mengerti & Lanjutkan'));
+    // Tekan tombol otorisasi untuk menutup dialog
+    await tester.tap(find.text('Konfirmasi Otorisasi Klinisi & Buka Konsol'));
     await tester.pumpAndSettle();
 
-    // Verifikasi Dashboard tampil bersih tanpa navbar dan tanpa kartu teknis
-    expect(find.text('Selamat Datang!'), findsOneWidget);
-    expect(find.text('Layanan Utama'), findsOneWidget);
-    expect(find.text('Cek Kondisi Mental'), findsOneWidget);
-    expect(find.text('Mulai Pemeriksaan Sekarang'), findsOneWidget);
-    expect(find.text('Mengenal Pemeriksaan'), findsOneWidget);
+    // Verifikasi Dashboard Konsol Konseling tampil bersih & elegan
+    expect(find.text('FEDMIND Prototype 1'), findsOneWidget);
+    expect(find.text('Layanan Asesmen'), findsOneWidget);
+    expect(find.text('Mulai Pemeriksaan Pasien'), findsOneWidget);
+    // Shortcut Golden Case telah dipindahkan ke tab tersendiri "Simulasi"
+    expect(
+      find.text('Uji Kasus Standar (Golden Case P600)'),
+      findsNothing,
+    );
+    expect(find.text('Simulasi'), findsOneWidget);
+    expect(find.text('Daftar Pasien & Riwayat'), findsOneWidget);
     expect(find.byType(NavigationBar), findsNothing);
-    expect(find.text('Edge Mobile AI Engine Ready'), findsNothing);
+  });
+
+  testWidgets(
+      'ScreeningResultScreen displays Model Verification & SOAP Workbench',
+      (WidgetTester tester) async {
+    final fakeRepo = FakeScreeningRepository();
+    final provider = ScreeningProvider(repository: fakeRepo);
+
+    final sampleResult = ScreeningResponse(
+      screeningId: 'SCR-TEST-600',
+      participantId: 'P600',
+      status: 'completed',
+      prediction: PredictionResult(
+        phq8Score: 15.4,
+        riskProbabilityProxy: 0.86,
+        binaryPrediction: 'depression_risk',
+        riskCategory: 'high',
+      ),
+      patientModalityAttribution: PatientModalityAttribution(
+        textPct: 25.0,
+        visualPct: 50.0,
+        audioPct: 25.0,
+        dominantModality: 'visual',
+        shapValues: PatientShapValues(text: 1.5, visual: 3.8, audio: 1.68),
+      ),
+      createdAt: '2026-11-07T10:00:00Z',
+    );
+
+    await tester.pumpWidget(
+      ChangeNotifierProvider<ScreeningProvider>.value(
+        value: provider,
+        child: MaterialApp(
+          home: ScreeningResultScreen(result: sampleResult),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Asesmen: P600'), findsOneWidget);
+    expect(find.text('Verifikasi Ahli & Ground-Truth'), findsOneWidget);
+    expect(find.text('Sesuai / Valid'), findsOneWidget);
+    expect(find.text('Terlalu Tinggi'), findsOneWidget);
+    expect(find.text('Terlalu Rendah'), findsOneWidget);
+    expect(find.text('Anomali Sensor'), findsOneWidget);
+    expect(find.text('Visual AU'), findsOneWidget);
+    expect(find.text('Akustik Audio'), findsOneWidget);
+    expect(find.text('Linguistik Teks'), findsOneWidget);
+    expect(
+      find.text('Simpan Verifikasi ke Rekam Medis Lokal'),
+      findsOneWidget,
+    );
   });
 }
