@@ -27,7 +27,7 @@ class ClinicalBottomNavBar extends StatelessWidget {
     final bottomPadding = MediaQuery.of(context).padding.bottom;
 
     return SizedBox(
-      height: 82 + bottomPadding,
+      height: 70 + bottomPadding,
       child: Stack(
         clipBehavior: Clip.none,
         alignment: Alignment.bottomCenter,
@@ -37,7 +37,7 @@ class ClinicalBottomNavBar extends StatelessWidget {
             left: 0,
             right: 0,
             bottom: 0,
-            top: 18,
+            top: 0,
             child: Container(
               decoration: const BoxDecoration(
                 color: Colors.white,
@@ -59,7 +59,7 @@ class ClinicalBottomNavBar extends StatelessWidget {
                 top: false,
                 bottom: true,
                 child: SizedBox(
-                  height: 64,
+                  height: 70,
                   child: Row(
                     children: [
                       // Tab 0: Home
@@ -104,7 +104,7 @@ class ClinicalBottomNavBar extends StatelessWidget {
 
           // 2. Tombol Menonjol di Tengah untuk "Analisa" (Elevated Floating Action Button)
           Positioned(
-            top: 2,
+            top: -14,
             left: 0,
             right: 0,
             child: Center(
@@ -198,7 +198,7 @@ class ClinicalBottomNavBar extends StatelessWidget {
           onTap(index);
         },
         child: Padding(
-          padding: const EdgeInsets.only(top: 6, bottom: 2),
+          padding: const EdgeInsets.only(top: 4, bottom: 2),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             mainAxisAlignment: MainAxisAlignment.center,
@@ -212,10 +212,10 @@ class ClinicalBottomNavBar extends StatelessWidget {
                     duration: const Duration(milliseconds: 200),
                     curve: Curves.easeInOutCubic,
                     width: isSelected ? 52 : 36,
-                    height: 30,
+                    height: 28,
                     decoration: BoxDecoration(
                       color: isSelected ? _brandTealDark : Colors.transparent,
-                      borderRadius: BorderRadius.circular(15),
+                      borderRadius: BorderRadius.circular(14),
                     ),
                     alignment: Alignment.center,
                     child: Icon(
