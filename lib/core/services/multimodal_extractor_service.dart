@@ -1236,9 +1236,9 @@ class MultimodalExtractorService {
       avgFaceConfidence: 94.2,
       avgHeadPitchDeg: -4.8,
       avgHeadYawDeg: 1.6,
-      facialAffectTitle: 'FACS Tracking Valid • Reduced Zygomaticus (AU12) & Elevated Corrugator (AU04)',
+      facialAffectTitle: 'Wajah Terdeteksi Jelas & Kontak Mata Terjaga',
       facialAffectDescription:
-          'Seluruh 16 segmen frame mendeteksi landmark wajah (confidence 94.2%). Aktivasi AU12 (Lip Corner Puller) terukur rendah disertai aktivasi moderat pada AU04 (Brow Lowerer) dan AU15 (Lip Corner Depressor).',
+          'Seluruh 16 segmen frame mendeteksi wajah dengan jelas. Kontak mata klien terjaga baik, teramati senyuman wajar dan sedikit ketegangan pada dahi saat berkonsentrasi.',
       actionUnitScores: const {
         'AU04 Brow Lowerer (Corrugator Supercilii)': 0.54,
         'AU05 Upper Lid Raiser (Eye Aperture)': 0.68,

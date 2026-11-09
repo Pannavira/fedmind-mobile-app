@@ -185,7 +185,7 @@ class _FaceModalityCardState extends State<FaceModalityCard> {
                         children: [
                           const Flexible(
                             child: Text(
-                              'Visual & Ekspresi Wajah (FACS AU)',
+                              'Observasi Ekspresi & Afek Wajah',
                               style: TextStyle(
                                 fontSize: 13.5,
                                 fontWeight: FontWeight.w800,
@@ -204,7 +204,7 @@ class _FaceModalityCardState extends State<FaceModalityCard> {
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: Text(
-                              '${ins.faceDetectionRatePct.toStringAsFixed(0)}% FACS Valid',
+                              'Wajah Terdeteksi ${ins.faceDetectionRatePct.toStringAsFixed(0)}%',
                               style: const TextStyle(
                                 fontSize: 10,
                                 fontWeight: FontWeight.w800,
@@ -217,8 +217,8 @@ class _FaceModalityCardState extends State<FaceModalityCard> {
                       const SizedBox(height: 2),
                       Text(
                         ins.isFromRealVideo
-                            ? 'Ekstraksi biometrik wajah riil dari ${ins.framesAnalyzed} segmen frame observasi'
-                            : 'Kuantifikasi 75 dimensi Facial Action Coding System (FACS) & dinamika motorik wajah',
+                            ? 'Analisis kontak mata dan respons emosi wajah dari ${ins.framesAnalyzed} cuplikan observasi'
+                            : 'Analisis kontak mata, ekspresi senyum, dan keaktifan gerak otot wajah klien',
                         style: const TextStyle(
                           fontSize: 11.5,
                           color: Color(0xFF64748B),
@@ -452,7 +452,7 @@ class _FaceModalityCardState extends State<FaceModalityCard> {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       const Text(
-                        'Inspeksi Sinkronisasi Frame & Action Units:',
+                        'Garis Waktu Observasi:',
                         style: TextStyle(
                           fontSize: 11,
                           fontWeight: FontWeight.w700,
@@ -460,7 +460,7 @@ class _FaceModalityCardState extends State<FaceModalityCard> {
                         ),
                       ),
                       Text(
-                        'Frame ${_selectedFrameIdx + 1} / ${ins.visualFrames.length} (${frame.timeSec.toStringAsFixed(1)}s)',
+                        'Cuplikan ${_selectedFrameIdx + 1} dari ${ins.visualFrames.length} (${frame.timeSec.toStringAsFixed(1)} dtk)',
                         style: const TextStyle(
                           fontSize: 11,
                           fontWeight: FontWeight.w800,
@@ -521,7 +521,7 @@ class _FaceModalityCardState extends State<FaceModalityCard> {
                       children: [
                         const Expanded(
                           child: Text(
-                            'Grafik Temporal Action Units (AU):',
+                            'Dinamika Gerak Ekspresi Sepanjang Sesi:',
                             style: TextStyle(
                               fontSize: 11.5,
                               fontWeight: FontWeight.w800,
@@ -533,7 +533,7 @@ class _FaceModalityCardState extends State<FaceModalityCard> {
                         ),
                         const SizedBox(width: 8),
                         Text(
-                          'Playhead: ${frame.timeSec.toStringAsFixed(1)}s',
+                          'Detik ke: ${frame.timeSec.toStringAsFixed(1)} dtk',
                           style: const TextStyle(
                             fontSize: 10.5,
                             fontWeight: FontWeight.w700,
@@ -561,17 +561,17 @@ class _FaceModalityCardState extends State<FaceModalityCard> {
                         _AuLegendItem(
                           color: const Color(0xFFEF4444),
                           label:
-                              'AU04 Brow Lowerer (${(frame.browTension * 100).round()}%)',
+                              'Ketegangan Dahi (${(frame.browTension * 100).round()}%)',
                         ),
                         _AuLegendItem(
                           color: const Color(0xFF10B981),
                           label:
-                              'AU12 Smile (${(frame.smileIntensity * 100).round()}%)',
+                              'Senyum Hangat (${(frame.smileIntensity * 100).round()}%)',
                         ),
                         _AuLegendItem(
                           color: const Color(0xFFF59E0B),
                           label:
-                              'AU15 Lip Depressor (${(frame.lipDepressor * 100).round()}%)',
+                              'Sudut Bibir Turun (${(frame.lipDepressor * 100).round()}%)',
                         ),
                       ],
                     ),
@@ -603,7 +603,7 @@ class _FaceModalityCardState extends State<FaceModalityCard> {
                       const SizedBox(width: 6),
                       Expanded(
                         child: Text(
-                          'Observasi Afek Wajah: ${ins.facialAffectTitle}',
+                          'Observasi Afek Wajah: ${_cleanAffectTitle(ins.facialAffectTitle)}',
                           style: const TextStyle(
                             fontSize: 12.5,
                             fontWeight: FontWeight.w800,
@@ -615,7 +615,7 @@ class _FaceModalityCardState extends State<FaceModalityCard> {
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    ins.facialAffectDescription,
+                    _cleanAffectDescription(ins.facialAffectDescription),
                     style: const TextStyle(
                       fontSize: 12,
                       color: Color(0xFF134E4A),
@@ -636,14 +636,12 @@ class _FaceModalityCardState extends State<FaceModalityCard> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Expanded(
+                    const Expanded(
                       child: Text(
-                        widget.isSimpleMode
-                            ? 'Profil Facial Action Units (FACS):'
-                            : 'Intensitas Vektor FACS (75D):',
-                        style: const TextStyle(
+                        'Indikator Perilaku & Ekspresi Wajah:',
+                        style: TextStyle(
                           fontSize: 12,
-                          fontWeight: FontWeight.w700,
+                          fontWeight: FontWeight.w800,
                           color: _slateDark,
                         ),
                         maxLines: 1,
@@ -652,7 +650,9 @@ class _FaceModalityCardState extends State<FaceModalityCard> {
                     ),
                     const SizedBox(width: 8),
                     Text(
-                      'Pose: ${frame.eulerX.toStringAsFixed(1)}° P | ${frame.eulerY.toStringAsFixed(1)}° Y',
+                      frame.eulerY.abs() < 8
+                          ? 'Arah: Menghadap Kamera'
+                          : 'Arah: Sedikit Menoleh',
                       style: const TextStyle(
                         fontSize: 10.5,
                         fontWeight: FontWeight.w600,
@@ -663,12 +663,9 @@ class _FaceModalityCardState extends State<FaceModalityCard> {
                 ),
                 const SizedBox(height: 10),
                 ...ins.actionUnitScores.entries.map((entry) {
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: _buildActionUnitBar(
-                      label: entry.key,
-                      value: entry.value,
-                    ),
+                  return _buildActionUnitBar(
+                    label: entry.key,
+                    value: entry.value,
                   );
                 }),
               ],
@@ -679,48 +676,136 @@ class _FaceModalityCardState extends State<FaceModalityCard> {
     );
   }
 
+  (String, String, IconData, Color) _formatClinicalIndicator(String rawKey) {
+    final lower = rawKey.toLowerCase();
+    if (lower.contains('au04') || lower.contains('brow') || lower.contains('corrugator')) {
+      return (
+        'Ketegangan Alis & Dahi',
+        'Menunjukkan konsentrasi tinggi atau tanda beban emosional/stres.',
+        Icons.sentiment_neutral_rounded,
+        const Color(0xFFF59E0B),
+      );
+    } else if (lower.contains('au05') || lower.contains('upper lid') || lower.contains('eye')) {
+      return (
+        'Keterbukaan Mata & Kontak Visual',
+        'Fokus tatapan mata dan keterlibatan aktif saat berkomunikasi.',
+        Icons.remove_red_eye_outlined,
+        const Color(0xFF0284C7),
+      );
+    } else if (lower.contains('au12') || lower.contains('smile') || lower.contains('zygomaticus') || lower.contains('puller')) {
+      return (
+        'Senyum & Afek Hangat',
+        'Menunjukkan respon ramah dan kehangatan emosi positif saat berbicara.',
+        Icons.sentiment_satisfied_alt_rounded,
+        const Color(0xFF10B981),
+      );
+    } else if (lower.contains('au15') || lower.contains('depressor') || lower.contains('depressive')) {
+      return (
+        'Kecenderungan Sudut Bibir Turun',
+        'Indikator kecenderungan suasana hati murung atau perasaan letih.',
+        Icons.sentiment_dissatisfied_rounded,
+        const Color(0xFFEF4444),
+      );
+    } else if (lower.contains('optical flow') || lower.contains('motor') || lower.contains('dynamics')) {
+      return (
+        'Keluwesan Gerak Wajah',
+        'Ekspresi wajah bergerak wajar dan alami saat berbicara (tidak kaku/datar).',
+        Icons.face_retouching_natural_rounded,
+        _brandTealDark,
+      );
+    }
+    return (
+      rawKey,
+      'Parameter observasi klinis ekspresi klien.',
+      Icons.check_circle_outline,
+      _brandTealDark,
+    );
+  }
+
+  String _cleanAffectTitle(String title) {
+    if (title.contains('Zygomaticus') || title.contains('Corrugator') || title.contains('AU') || title.contains('FACS')) {
+      return 'Ekspresi Afek Tenang dengan Sedikit Kerutan Dahi';
+    }
+    return title;
+  }
+
+  String _cleanAffectDescription(String desc) {
+    if (desc.contains('AU12') || desc.contains('AU04') || desc.contains('Lip Corner Puller') || desc.contains('FACS')) {
+      return 'Wajah klien terdeteksi jelas dan konsisten. Kontak mata terjaga baik selama sesi, dengan responsivitas emosi yang wajar dan kerutan dahi saat berkonsentrasi.';
+    }
+    return desc;
+  }
+
   Widget _buildActionUnitBar({
     required String label,
     required double value,
   }) {
+    final (title, subtitle, icon, color) = _formatClinicalIndicator(label);
     final pct = (value * 100).round().clamp(0, 100);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Flexible(
-              child: Text(
-                label,
-                style: const TextStyle(
-                  fontSize: 11.5,
-                  fontWeight: FontWeight.w600,
-                  color: Color(0xFF334155),
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 17, color: color),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: _slateDark,
+                  ),
                 ),
               ),
-            ),
-            Text(
-              '$pct%',
-              style: const TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w800,
-                color: _brandTealDark,
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  '$pct%',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                    color: color,
+                  ),
+                ),
               ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 4),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(6),
-          child: LinearProgressIndicator(
-            value: value.clamp(0.0, 1.0),
-            minHeight: 7,
-            backgroundColor: const Color(0xFFF1F5F9),
-            valueColor: const AlwaysStoppedAnimation<Color>(_brandTeal),
+            ],
           ),
-        ),
-      ],
+          const SizedBox(height: 6),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(6),
+            child: LinearProgressIndicator(
+              value: value.clamp(0.0, 1.0),
+              minHeight: 6,
+              backgroundColor: const Color(0xFFE2E8F0),
+              valueColor: AlwaysStoppedAnimation<Color>(color),
+            ),
+          ),
+          const SizedBox(height: 5),
+          Text(
+            subtitle,
+            style: const TextStyle(
+              fontSize: 10.5,
+              color: Color(0xFF64748B),
+              height: 1.3,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

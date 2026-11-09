@@ -463,6 +463,7 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
               localVideoPath: _localVideoPath,
               inspectionData: provider.currentInspectionData,
               isSimulation: false,
+              initialNavIndex: 2,
             ),
           ),
         );

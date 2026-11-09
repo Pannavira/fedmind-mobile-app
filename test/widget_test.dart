@@ -9,6 +9,8 @@ import 'package:fedmind_mobile_app/data/repositories/screening_repository.dart';
 import 'package:fedmind_mobile_app/core/services/local_inference_service.dart';
 import 'package:fedmind_mobile_app/presentation/providers/screening_provider.dart';
 import 'package:fedmind_mobile_app/presentation/screens/result/screening_result_screen.dart';
+import 'package:fedmind_mobile_app/presentation/screens/verification/clinical_verification_screen.dart';
+import 'package:fedmind_mobile_app/presentation/widgets/clinical_bottom_nav_bar.dart';
 
 class FakeLocalInferenceService extends LocalInferenceService {
   @override
@@ -149,16 +151,35 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Asesmen: P600'), findsOneWidget);
-    expect(find.text('Verifikasi Ahli & Ground-Truth'), findsOneWidget);
+    expect(find.text('Hasil Skrining Model Multimodal'), findsOneWidget);
+    expect(find.text('Faktor Observasi Multimodal'), findsOneWidget);
+    expect(find.text('Panduan Tindak Lanjut Konseling'), findsOneWidget);
+    expect(find.text('Kesimpulan & Penjelasan Model'), findsOneWidget);
+    expect(find.text('Masuk ke Lembar Verifikasi Konselor'), findsOneWidget);
+    expect(find.byType(ClinicalBottomNavBar), findsOneWidget);
+    expect(find.text('Evaluasi Ahli Klinis'), findsNothing);
+
+    // Test layar terpisah ClinicalVerificationScreen
+    await tester.pumpWidget(
+      ChangeNotifierProvider<ScreeningProvider>.value(
+        value: provider,
+        child: MaterialApp(
+          home: ClinicalVerificationScreen(screening: sampleResult),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Evaluasi Ahli Klinis'), findsOneWidget);
     expect(find.text('Sesuai / Valid'), findsOneWidget);
     expect(find.text('Terlalu Tinggi'), findsOneWidget);
     expect(find.text('Terlalu Rendah'), findsOneWidget);
     expect(find.text('Anomali Sensor'), findsOneWidget);
-    expect(find.text('Visual AU'), findsOneWidget);
-    expect(find.text('Akustik Audio'), findsOneWidget);
-    expect(find.text('Linguistik Teks'), findsOneWidget);
+    expect(find.text('Visual (Wajah)'), findsOneWidget);
+    expect(find.text('Akustik (Suara)'), findsOneWidget);
+    expect(find.text('Linguistik (Teks)'), findsOneWidget);
     expect(
-      find.text('Simpan Verifikasi ke Rekam Medis Lokal'),
+      find.text('Simpan Verifikasi ke Rekam Medis'),
       findsOneWidget,
     );
   });

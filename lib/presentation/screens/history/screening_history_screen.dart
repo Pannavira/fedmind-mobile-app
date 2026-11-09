@@ -5,6 +5,7 @@ import 'package:fedmind_mobile_app/core/constants/clinical_constants.dart';
 import 'package:fedmind_mobile_app/data/models/screening_models.dart';
 import 'package:fedmind_mobile_app/presentation/providers/screening_provider.dart';
 import 'package:fedmind_mobile_app/presentation/screens/result/screening_result_screen.dart';
+import 'package:fedmind_mobile_app/presentation/screens/verification/clinical_verification_screen.dart';
 import 'package:fedmind_mobile_app/presentation/widgets/risk_badge.dart';
 
 class ScreeningHistoryScreen extends StatefulWidget {
@@ -74,6 +75,7 @@ class _ScreeningHistoryScreenState extends State<ScreeningHistoryScreen> {
           builder: (context) => ScreeningResultScreen(
             result: provider.currentScreening!,
             inspectionData: provider.currentInspectionData,
+            initialNavIndex: 3,
           ),
         ),
       );
@@ -84,6 +86,28 @@ class _ScreeningHistoryScreenState extends State<ScreeningHistoryScreen> {
           backgroundColor: const Color(0xFFDC2626),
         ),
       );
+    }
+  }
+
+  Future<void> _openVerification(ScreeningSummaryItem item) async {
+    final provider = context.read<ScreeningProvider>();
+    await provider.loadScreeningDetail(item.screeningId);
+
+    if (!mounted) return;
+
+    if (provider.currentScreening != null) {
+      await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => ClinicalVerificationScreen(
+            screening: provider.currentScreening!,
+            inspectionData: provider.currentInspectionData,
+          ),
+        ),
+      );
+      if (mounted) {
+        provider.fetchHistory(limit: 100);
+      }
     }
   }
 
@@ -477,43 +501,47 @@ class _ScreeningHistoryScreenState extends State<ScreeningHistoryScreen> {
 
   Widget _buildVerificationBadge(ScreeningSummaryItem item) {
     final verified = item.isVerified;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
-        color: verified
-            ? const Color(0xFF10B981).withValues(alpha: 0.14)
-            : const Color(0xFFF1F5F9),
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(
+    return InkWell(
+      borderRadius: BorderRadius.circular(6),
+      onTap: () => _openVerification(item),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        decoration: BoxDecoration(
           color: verified
-              ? const Color(0xFF10B981).withValues(alpha: 0.45)
-              : const Color(0xFFCBD5E1),
-        ),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            verified
-                ? Icons.verified_rounded
-                : Icons.pending_actions_rounded,
-            size: 11,
+              ? const Color(0xFF10B981).withValues(alpha: 0.14)
+              : const Color(0xFFFFFBEB),
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(
             color: verified
-                ? const Color(0xFF047857)
-                : const Color(0xFF64748B),
+                ? const Color(0xFF10B981).withValues(alpha: 0.45)
+                : const Color(0xFFFDE68A),
           ),
-          const SizedBox(width: 4),
-          Text(
-            verified ? 'Diverifikasi' : 'Belum Terverifikasi',
-            style: TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.w800,
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              verified
+                  ? Icons.verified_rounded
+                  : Icons.hourglass_top_rounded,
+              size: 11,
               color: verified
                   ? const Color(0xFF047857)
-                  : const Color(0xFF64748B),
+                  : const Color(0xFFD97706),
             ),
-          ),
-        ],
+            const SizedBox(width: 4),
+            Text(
+              verified ? 'Terverifikasi' : 'Review',
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w800,
+                color: verified
+                    ? const Color(0xFF047857)
+                    : const Color(0xFFD97706),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -328,6 +328,7 @@ class _MultimodalAnalysisStudioScreenState
                             inspectionData: widget.inspection,
                             isSimulation:
                                 widget.isSimulation || widget.result.isSimulation,
+                            initialNavIndex: 2,
                           ),
                         ),
                       );

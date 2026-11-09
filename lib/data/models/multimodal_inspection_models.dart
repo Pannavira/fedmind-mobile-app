@@ -292,6 +292,53 @@ class MultimodalInspectionData {
     );
   }
 
+  MultimodalInspectionData copyWith({
+    String? videoPath,
+  }) {
+    return MultimodalInspectionData(
+      participantId: participantId,
+      videoPath: videoPath ?? this.videoPath,
+      isFromRealVideo: isFromRealVideo,
+      videoDurationSec: videoDurationSec,
+      framesAnalyzed: framesAnalyzed,
+      facesDetected: facesDetected,
+      faceDetectionRatePct: faceDetectionRatePct,
+      avgFaceConfidence: avgFaceConfidence,
+      avgHeadPitchDeg: avgHeadPitchDeg,
+      avgHeadYawDeg: avgHeadYawDeg,
+      facialAffectTitle: facialAffectTitle,
+      facialAffectDescription: facialAffectDescription,
+      actionUnitScores: actionUnitScores,
+      visualFrames: visualFrames,
+      audioSampleRate: audioSampleRate,
+      totalAudioSamples: totalAudioSamples,
+      audioWaveformBars: audioWaveformBars,
+      pitchContourHz: pitchContourHz,
+      avgPitchHz: avgPitchHz,
+      pitchStdHz: pitchStdHz,
+      voicedRatioPct: voicedRatioPct,
+      pauseRatioPct: pauseRatioPct,
+      jitterPct: jitterPct,
+      shimmerPct: shimmerPct,
+      vocalProsodyTitle: vocalProsodyTitle,
+      vocalProsodyDescription: vocalProsodyDescription,
+      fullTranscript: fullTranscript,
+      transcriptSegments: transcriptSegments,
+      detectedKeywords: detectedKeywords,
+      emotionalValence: emotionalValence,
+      selfPronounCount: selfPronounCount,
+      linguisticTitle: linguisticTitle,
+      linguisticDescription: linguisticDescription,
+      sampleVisualVector: sampleVisualVector,
+      sampleAudioVector: sampleAudioVector,
+      sampleTextVector: sampleTextVector,
+      audioLatentNorm: audioLatentNorm,
+      visualLatentNorm: visualLatentNorm,
+      textLatentNorm: textLatentNorm,
+      coalitionScores: coalitionScores,
+    );
+  }
+
   Map<String, dynamic> toJson() => {
     'participantId': participantId,
     'videoPath': videoPath,

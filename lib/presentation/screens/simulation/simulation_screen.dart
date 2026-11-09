@@ -173,6 +173,7 @@ class _SimulationScreenState extends State<SimulationScreen> {
               result: provider.currentScreening!,
               inspectionData: provider.currentInspectionData,
               isSimulation: true,
+              initialNavIndex: 1,
             ),
           ),
         );

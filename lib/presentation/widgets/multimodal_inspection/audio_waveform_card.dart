@@ -84,7 +84,7 @@ class _AudioWaveformCardState extends State<AudioWaveformCard> {
                         children: [
                           const Flexible(
                             child: Text(
-                              'Akustik & Prosodi Vokal',
+                              'Pengamatan Intonasi & Suara',
                               style: TextStyle(
                                 fontSize: 13.5,
                                 fontWeight: FontWeight.w800,
@@ -102,9 +102,9 @@ class _AudioWaveformCardState extends State<AudioWaveformCard> {
                               color: const Color(0xFFE0F2FE),
                               borderRadius: BorderRadius.circular(8),
                             ),
-                            child: Text(
-                              'F0: ${ins.avgPitchHz.toStringAsFixed(0)} Hz',
-                              style: const TextStyle(
+                            child: const Text(
+                              'Intonasi Terukur',
+                              style: TextStyle(
                                 fontSize: 10,
                                 fontWeight: FontWeight.w800,
                                 color: _brandBlue,
@@ -114,11 +114,9 @@ class _AudioWaveformCardState extends State<AudioWaveformCard> {
                         ],
                       ),
                       const SizedBox(height: 2),
-                      Text(
-                        ins.isFromRealVideo
-                            ? 'Sinyal akustik PCM riil (${ins.totalAudioSamples} sampel @ ${ins.audioSampleRate}Hz)'
-                            : 'Ekstraksi 248 fitur prosodi vokal (Pitch F0, Jitter, Shimmer, & Pause Duration)',
-                        style: const TextStyle(
+                      const Text(
+                        'Analisis pola nada bicara, tempo kelancaran, dan jeda percakapan klien',
+                        style: TextStyle(
                           fontSize: 11.5,
                           color: Color(0xFF64748B),
                         ),
@@ -162,8 +160,8 @@ class _AudioWaveformCardState extends State<AudioWaveformCard> {
                             Expanded(
                               child: Text(
                                 isPauseSegment
-                                    ? 't=${currentSec.toStringAsFixed(1)}s: Jeda Vokal (Pause)'
-                                    : 't=${currentSec.toStringAsFixed(1)}s: Segmen Fonasi Aktif (${(activeAmp * 100).toStringAsFixed(0)}% RMS)',
+                                    ? 't=${currentSec.toStringAsFixed(1)} dtk: Jeda Reflektif (Hening)'
+                                    : 't=${currentSec.toStringAsFixed(1)} dtk: Sedang Berbicara Aktif',
                                 style: const TextStyle(
                                   color: Colors.white,
                                   fontSize: 11,
@@ -237,12 +235,12 @@ class _AudioWaveformCardState extends State<AudioWaveformCard> {
                         children: [
                           _LegendDot(
                             color: Color(0xFF38BDF8),
-                            label: 'Fonasi (Voiced)',
+                            label: 'Suara Berbicara',
                           ),
                           SizedBox(width: 10),
                           _LegendDot(
                             color: Color(0xFFF59E0B),
-                            label: 'Jeda (Pause)',
+                            label: 'Jeda Hening',
                           ),
                         ],
                       ),
@@ -279,7 +277,7 @@ class _AudioWaveformCardState extends State<AudioWaveformCard> {
                     children: [
                       const Expanded(
                         child: Text(
-                          'Kontur Nada Dasar (Pitch F0):',
+                          'Variasi Nada Suara (Intonasi):',
                           style: TextStyle(
                             fontSize: 11.5,
                             fontWeight: FontWeight.w700,
@@ -291,7 +289,7 @@ class _AudioWaveformCardState extends State<AudioWaveformCard> {
                       ),
                       const SizedBox(width: 8),
                       Text(
-                        'SD: ±${ins.pitchStdHz.toStringAsFixed(1)} Hz',
+                        ins.pitchStdHz < 15 ? 'Stabilitas: Wajar & Alami' : 'Stabilitas: Bervariasi',
                         style: const TextStyle(
                           fontSize: 11,
                           fontWeight: FontWeight.w700,
@@ -338,7 +336,7 @@ class _AudioWaveformCardState extends State<AudioWaveformCard> {
                       const SizedBox(width: 6),
                       Expanded(
                         child: Text(
-                          'Temuan Prosodi Klinis: ${ins.vocalProsodyTitle}',
+                          'Observasi Karakter Suara: ${ins.vocalProsodyTitle}',
                           style: const TextStyle(
                             fontSize: 12.5,
                             fontWeight: FontWeight.w800,
@@ -369,27 +367,27 @@ class _AudioWaveformCardState extends State<AudioWaveformCard> {
               children: [
                 Expanded(
                   child: _buildAcousticStatBox(
-                    title: 'Voiced Ratio',
+                    title: 'Waktu Bicara',
                     value: '${ins.voicedRatioPct.toStringAsFixed(0)}%',
-                    subtitle: 'Proporsi fonasi',
+                    subtitle: 'Aktif berbicara',
                     color: _brandTeal,
                   ),
                 ),
                 const SizedBox(width: 8),
                 Expanded(
                   child: _buildAcousticStatBox(
-                    title: 'Pause Duration',
+                    title: 'Waktu Jeda',
                     value: '${ins.pauseRatioPct.toStringAsFixed(0)}%',
-                    subtitle: 'Rasio jeda vokal',
+                    subtitle: 'Jeda berpikir',
                     color: const Color(0xFFF59E0B),
                   ),
                 ),
                 const SizedBox(width: 8),
                 Expanded(
                   child: _buildAcousticStatBox(
-                    title: 'Jitter / Shimmer',
-                    value: '${ins.jitterPct.toStringAsFixed(1)}%',
-                    subtitle: 'Perturbasi glotis',
+                    title: 'Kestabilan Vokal',
+                    value: ins.jitterPct < 2.0 ? 'Stabil' : 'Fluktuatif',
+                    subtitle: 'Kualitas nada',
                     color: _brandBlue,
                   ),
                 ),

@@ -6,6 +6,7 @@ import 'package:fedmind_mobile_app/core/constants/clinical_constants.dart';
 import 'package:fedmind_mobile_app/presentation/providers/screening_provider.dart';
 import 'package:fedmind_mobile_app/presentation/screens/history/screening_history_screen.dart';
 import 'package:fedmind_mobile_app/presentation/screens/result/screening_result_screen.dart';
+import 'package:fedmind_mobile_app/presentation/screens/verification/clinical_verification_screen.dart';
 import 'package:fedmind_mobile_app/presentation/screens/screening/screening_form_screen.dart';
 import 'package:fedmind_mobile_app/presentation/widgets/clinical_disclaimer_dialog.dart';
 
@@ -904,6 +905,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   MaterialPageRoute(
                     builder: (context) => ScreeningResultScreen(
                       result: provider.currentScreening!,
+                      initialNavIndex: 0,
                     ),
                   ),
                 );
@@ -1012,46 +1014,64 @@ class _HomeScreenState extends State<HomeScreen> {
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 4,
-                        ),
-                        decoration: BoxDecoration(
-                          color: isVerified
-                              ? const Color(0xFFECFDF5)
-                              : const Color(0xFFFFFBEB),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(
-                            color: isVerified
-                                ? const Color(0xFFA7F3D0)
-                                : const Color(0xFFFDE68A),
+                      InkWell(
+                        borderRadius: BorderRadius.circular(12),
+                        onTap: () async {
+                          final nav = Navigator.of(context);
+                          await provider.loadScreeningDetail(item.screeningId);
+                          if (!mounted) return;
+                          if (provider.currentScreening != null) {
+                            nav.push(
+                              MaterialPageRoute(
+                                builder: (context) => ClinicalVerificationScreen(
+                                  screening: provider.currentScreening!,
+                                  inspectionData: provider.currentInspectionData,
+                                ),
+                              ),
+                            );
+                          }
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
                           ),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              isVerified
-                                  ? Icons.check_circle_rounded
-                                  : Icons.hourglass_top_rounded,
-                              size: 12,
+                          decoration: BoxDecoration(
+                            color: isVerified
+                                ? const Color(0xFFECFDF5)
+                                : const Color(0xFFFFFBEB),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
                               color: isVerified
-                                  ? const Color(0xFF059669)
-                                  : const Color(0xFFD97706),
+                                  ? const Color(0xFFA7F3D0)
+                                  : const Color(0xFFFDE68A),
                             ),
-                            const SizedBox(width: 4),
-                            Text(
-                              isVerified ? 'Terverifikasi' : 'Review',
-                              style: TextStyle(
-                                fontSize: 10.5,
-                                fontWeight: FontWeight.w700,
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                isVerified
+                                    ? Icons.check_circle_rounded
+                                    : Icons.hourglass_top_rounded,
+                                size: 12,
                                 color: isVerified
                                     ? const Color(0xFF059669)
                                     : const Color(0xFFD97706),
                               ),
-                            ),
-                          ],
+                              const SizedBox(width: 4),
+                              Text(
+                                isVerified ? 'Terverifikasi' : 'Review',
+                                style: TextStyle(
+                                  fontSize: 10.5,
+                                  fontWeight: FontWeight.w700,
+                                  color: isVerified
+                                      ? const Color(0xFF059669)
+                                      : const Color(0xFFD97706),
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                       const SizedBox(height: 8),

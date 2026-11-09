@@ -78,7 +78,7 @@ class SpeechTranscriptCard extends StatelessWidget {
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: const Text(
-                              'MentalBERT 768D',
+                              'Pola Komunikasi',
                               style: TextStyle(
                                 fontSize: 10,
                                 fontWeight: FontWeight.w800,
@@ -90,7 +90,7 @@ class SpeechTranscriptCard extends StatelessWidget {
                       ),
                       const SizedBox(height: 2),
                       const Text(
-                        'Transkrip teks bertanda afek emosi & analisis leksikon psikolinguistik',
+                        'Analisis kata kunci percakapan dan ekspresi semantik emosi klien',
                         style: TextStyle(
                           fontSize: 11.5,
                           color: Color(0xFF64748B),
@@ -126,7 +126,7 @@ class SpeechTranscriptCard extends StatelessWidget {
                       SizedBox(width: 6),
                       Expanded(
                         child: Text(
-                          'Transkrip Verbatim Bertanda Afek & Prosodi:',
+                          'Transkrip Percakapan Klien:',
                           style: TextStyle(
                             fontSize: 11.5,
                             fontWeight: FontWeight.w800,

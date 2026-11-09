@@ -287,10 +287,10 @@ class LocalInferenceService {
       final dominantClinicalLabel = ClinicalConstants.getModalityClinicalName(dominantMod);
       final riskClinicalLabel = ClinicalConstants.getRiskLabel(riskCategory);
       final narrative =
-          'Berdasarkan inferensi model Edge Federated Learning ($_modelName), estimasi tingkat keparahan simtomatologi depresi '
-          'klien $participantId menghasilkan skor PHQ-8 = ${phq8Score.toStringAsFixed(2)} / 24.00 ($riskClinicalLabel). '
-          'Dekomposisi Exact Shapley (8 koalisi laten) menunjukkan atribusi dominan pada $dominantClinicalLabel ($dominantPct%; '
-          'φ_visual=${pV >= 0 ? "+" : ""}${pV.toStringAsFixed(2)}, φ_audio=${pA >= 0 ? "+" : ""}${pA.toStringAsFixed(2)}, φ_text=${pT >= 0 ? "+" : ""}${pT.toStringAsFixed(2)}).';
+          'Berdasarkan asesmen skrining multimodal pada klien $participantId, estimasi skor PHQ-8 adalah '
+          '${phq8Score.toStringAsFixed(1)} dari rentang 24.0 ($riskClinicalLabel). '
+          'Indikator yang paling berpengaruh teramati pada $dominantClinicalLabel '
+          'dengan kontribusi $dominantPct%, mencerminkan pola respons afektif dan komunikasi klien.';
 
       return ScreeningResponse(
         screeningId: screeningId,
