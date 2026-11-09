@@ -15,6 +15,7 @@ class ScreeningProvider extends ChangeNotifier {
 
   bool _isServerHealthy = false;
   bool get isServerHealthy => _isServerHealthy;
+  bool get isServerOnline => _isServerHealthy;
 
   bool _isEdgeHealthy = false;
   bool get isEdgeHealthy => _isEdgeHealthy;
@@ -77,6 +78,28 @@ class ScreeningProvider extends ChangeNotifier {
     return _localInspectionCache[screeningId] ?? _currentInspectionData;
   }
 
+  // --- Clinical Dashboard Computed Metrics ---
+  int get urgentTriageCount => _historyItems.where((item) {
+    final r = item.riskCategory?.toLowerCase();
+    return r == 'moderate' || r == 'high';
+  }).length;
+
+  int get pendingVerificationCount =>
+      _historyItems.where((item) => !item.isVerified).length;
+
+  int get verifiedCasesCount =>
+      _historyItems.where((item) => item.isVerified).length;
+
+  double get modelConcordanceRatePct {
+    final verified = _historyItems.where((item) => item.isVerified).toList();
+    if (verified.isEmpty) return 100.0;
+    final concordant = verified.where((item) {
+      final s = item.concordanceStatus?.toLowerCase();
+      return s == 'valid' || s == 'concordant';
+    }).length;
+    return (concordant / verified.length) * 100.0;
+  }
+
   void clearError() {
     _errorMessage = null;
     notifyListeners();
@@ -100,10 +123,11 @@ class ScreeningProvider extends ChangeNotifier {
       _isEdgeHealthy = true;
       _serverDevice = 'Mobile NPU/CPU';
       _modelInfo = {
-        'model': 'FED-MIND Baseline (On-Device)',
+        'model': 'FedAvg FL-IID v1.0.0 (On-Device)',
         'architecture': 'Multimodal BiLSTM Attention Fusion',
         'parameters': '7,832,001 (Float32 ONNX)',
         'engine': 'ONNX Runtime Mobile v1.9.0',
+        'xai_baseline': 'E[f(X)] = 8.42 (xai_baseline.json)',
         'privacy': '100% On-Device (Zero-Leakage)',
       };
     } catch (e) {
@@ -116,7 +140,6 @@ class ScreeningProvider extends ChangeNotifier {
   }
 
   /// Menjalankan inferensi dan ekstraksi riil via Local Edge Server (Port 8001)
-  /// Video diproses on-premise di klinik dengan OpenFace 2.2.0, openSMILE, Whisper & MentalBERT
   Future<bool> processVideoAtEdge({
     required String videoPath,
     required String participantId,
@@ -157,7 +180,9 @@ class ScreeningProvider extends ChangeNotifier {
           videoPath: videoPath,
         );
       } catch (e) {
-        debugPrint('[SCREENING_PROVIDER] Warning: Failed to persist edge screening to SQLite: $e');
+        debugPrint(
+          '[SCREENING_PROVIDER] Warning: Failed to persist edge screening to SQLite: $e',
+        );
       }
 
       // Refresh riwayat skrining
@@ -181,19 +206,21 @@ class ScreeningProvider extends ChangeNotifier {
     required List<double> visualFeatures,
     String? sessionId,
     String? counselorNote,
+    String? sessionType,
     String? transcription,
     MultimodalInspectionData? inspectionData,
+    bool isSimulation = false,
   }) async {
     _isExecuting = true;
     _errorMessage = null;
     _currentScreening = null;
     _executionProgress = null;
     _executionStatusMessage =
-        'Menjalankan model AI & perhitungan kontribusi (Exact Shapley) di perangkat...';
+        'Menjalankan inferensi ONNX & dekomposisi Exact Shapley (8 koalisi laten) di perangkat...';
     notifyListeners();
 
     try {
-      final result = await repository.executeLocalScreening(
+      final rawResult = await repository.executeLocalScreening(
         participantId: participantId,
         textFeatures: textFeatures,
         audioFeatures: audioFeatures,
@@ -201,6 +228,28 @@ class ScreeningProvider extends ChangeNotifier {
         sessionId: sessionId,
         counselorNote: counselorNote,
         transcription: transcription,
+      );
+
+      final effectiveSessionType =
+          isSimulation ? 'simulation' : (sessionType ?? 'clinical');
+
+      final result = ScreeningResponse(
+        screeningId: rawResult.screeningId,
+        participantId: rawResult.participantId,
+        status: rawResult.status,
+        prediction: rawResult.prediction,
+        patientModalityAttribution: rawResult.patientModalityAttribution,
+        globalReference: rawResult.globalReference,
+        qualityFlags: rawResult.qualityFlags,
+        clinicalNarrative: rawResult.clinicalNarrative,
+        model: rawResult.model,
+        xai: rawResult.xai,
+        disclaimer: rawResult.disclaimer,
+        createdAt: rawResult.createdAt,
+        completedAt: rawResult.completedAt,
+        clinicalVerification: rawResult.clinicalVerification,
+        sessionType: effectiveSessionType,
+        initialCounselorNote: counselorNote,
       );
 
       final baseInspection = inspectionData ??
@@ -226,34 +275,43 @@ class ScreeningProvider extends ChangeNotifier {
       _localInspectionCache[result.screeningId] = enrichedInspection;
       _executionStatusMessage = 'Selesai!';
 
-      // Simpan ke SQLite secara persisten
-      try {
-        await repository.saveLocalScreeningRecord(
-          screening: result,
-          inspectionData: enrichedInspection,
-          videoPath: inspectionData?.videoPath,
-        );
-      } catch (e) {
-        debugPrint('[SCREENING_PROVIDER] Warning: Failed to persist screening to SQLite: $e');
-      }
+      // JIKA INI SIMULASI: Jangan simpan ke database SQLite dan jangan masukkan ke antrean riwayat verifikasi
+      if (!isSimulation) {
+        // Simpan ke SQLite secara persisten
+        try {
+          await repository.saveLocalScreeningRecord(
+            screening: result,
+            inspectionData: enrichedInspection,
+            videoPath: inspectionData?.videoPath,
+          );
+        } catch (e) {
+          debugPrint(
+            '[SCREENING_PROVIDER] Warning: Failed to persist screening to SQLite: $e',
+          );
+        }
 
-      // Catat di riwayat memori agar langsung muncul di tab Riwayat
-      _historyItems.removeWhere((item) => item.screeningId == result.screeningId);
-      _historyItems.insert(
-        0,
-        ScreeningSummaryItem(
-          screeningId: result.screeningId,
-          participantId: result.participantId,
-          status: result.status,
-          phq8Score: result.prediction?.phq8Score ?? 0.0,
-          riskCategory: result.prediction?.riskCategory ?? 'unknown',
-          binaryPrediction: result.prediction?.binaryPrediction ?? 'unknown',
-          createdAt: result.createdAt ?? DateTime.now().toIso8601String(),
-          dominantModality:
-              result.patientModalityAttribution?.dominantModality ?? 'visual',
-        ),
-      );
-      _totalHistory = _historyItems.length;
+        // Catat di riwayat memori agar langsung muncul di daftar pemeriksaan
+        _historyItems
+            .removeWhere((item) => item.screeningId == result.screeningId);
+        _historyItems.insert(
+          0,
+          ScreeningSummaryItem(
+            screeningId: result.screeningId,
+            participantId: result.participantId,
+            status: result.status,
+            phq8Score: result.prediction?.phq8Score ?? 0.0,
+            riskCategory: result.prediction?.riskCategory ?? 'unknown',
+            binaryPrediction: result.prediction?.binaryPrediction ?? 'unknown',
+            createdAt: result.createdAt ?? DateTime.now().toIso8601String(),
+            dominantModality:
+                result.patientModalityAttribution?.dominantModality ?? 'visual',
+            isVerified: result.clinicalVerification?.isVerified ?? false,
+            concordanceStatus: result.clinicalVerification?.concordanceStatus,
+            groundTruthPhq8: result.clinicalVerification?.groundTruthPhq8,
+          ),
+        );
+        _totalHistory = _historyItems.length;
+      }
 
       return true;
     } catch (e) {
@@ -267,8 +325,71 @@ class ScreeningProvider extends ChangeNotifier {
     }
   }
 
+  /// Menyimpan verifikasi klinis konselor (Model Auditing & Catatan SOAP) ke SQLite dan memori
+  Future<bool> saveClinicalVerification({
+    required ScreeningResponse screening,
+    required ClinicalVerificationData verification,
+    MultimodalInspectionData? inspectionData,
+    String? videoPath,
+  }) async {
+    try {
+      final updatedScreening = screening.copyWithVerification(verification);
+      _currentScreening = updatedScreening;
+      _localScreeningCache[updatedScreening.screeningId] = updatedScreening;
+
+      await repository.saveLocalScreeningRecord(
+        screening: updatedScreening,
+        inspectionData:
+            inspectionData ?? _localInspectionCache[updatedScreening.screeningId],
+        videoPath: videoPath,
+      );
+
+      final idx = _historyItems.indexWhere(
+        (item) => item.screeningId == updatedScreening.screeningId,
+      );
+      if (idx != -1) {
+        _historyItems[idx] = _historyItems[idx].copyWithVerification(
+          isVerified: verification.isVerified,
+          concordanceStatus: verification.concordanceStatus,
+          groundTruthPhq8: verification.groundTruthPhq8,
+        );
+      } else {
+        _historyItems.insert(
+          0,
+          ScreeningSummaryItem(
+            screeningId: updatedScreening.screeningId,
+            participantId: updatedScreening.participantId,
+            status: updatedScreening.status,
+            phq8Score: updatedScreening.prediction?.phq8Score ?? 0.0,
+            riskCategory:
+                updatedScreening.prediction?.riskCategory ?? 'unknown',
+            binaryPrediction:
+                updatedScreening.prediction?.binaryPrediction ?? 'unknown',
+            dominantModality: updatedScreening
+                    .patientModalityAttribution?.dominantModality ??
+                'visual',
+            createdAt:
+                updatedScreening.createdAt ?? DateTime.now().toIso8601String(),
+            completedAt: updatedScreening.completedAt,
+            isVerified: verification.isVerified,
+            concordanceStatus: verification.concordanceStatus,
+            groundTruthPhq8: verification.groundTruthPhq8,
+          ),
+        );
+        _totalHistory = _historyItems.length;
+      }
+
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _errorMessage = 'Gagal menyimpan verifikasi klinis: $e';
+      notifyListeners();
+      return false;
+    }
+  }
+
   /// Memuat riwayat skrining dari SQLite Local Storage
-  Future<void> fetchHistory({int skip = 0, int limit = 30}) async {
+  Future<void> fetchHistory({int skip = 0, int limit = 50}) async {
     _isLoadingHistory = true;
     notifyListeners();
 
@@ -296,30 +417,28 @@ class ScreeningProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      if (_localScreeningCache.containsKey(screeningId)) {
+      // Ambil dari SQLite terlebih dahulu agar selalu sinkron dengan perubahan verifikasi terbaru
+      final savedScreening =
+          await repository.getLocalScreeningDetail(screeningId);
+      if (savedScreening != null) {
+        _currentScreening = savedScreening;
+        _localScreeningCache[screeningId] = savedScreening;
+
+        final savedInspection =
+            await repository.getLocalInspectionData(screeningId);
+        if (savedInspection != null) {
+          _currentInspectionData = savedInspection;
+          _localInspectionCache[screeningId] = savedInspection;
+        }
+      } else if (_localScreeningCache.containsKey(screeningId)) {
         _currentScreening = _localScreeningCache[screeningId];
         if (_localInspectionCache.containsKey(screeningId)) {
           _currentInspectionData = _localInspectionCache[screeningId];
         }
+      } else if (_currentScreening?.screeningId == screeningId) {
+        // Sudah ada di memory
       } else {
-        // Ambil dari SQLite
-        final savedScreening =
-            await repository.getLocalScreeningDetail(screeningId);
-        if (savedScreening != null) {
-          _currentScreening = savedScreening;
-          _localScreeningCache[screeningId] = savedScreening;
-
-          final savedInspection =
-              await repository.getLocalInspectionData(screeningId);
-          if (savedInspection != null) {
-            _currentInspectionData = savedInspection;
-            _localInspectionCache[screeningId] = savedInspection;
-          }
-        } else if (_currentScreening?.screeningId == screeningId) {
-          // Sudah ada di memory
-        } else {
-          throw 'Screening detail not found in local storage.';
-        }
+        throw 'Screening detail not found in local storage.';
       }
     } catch (e) {
       _errorMessage = e.toString();

@@ -13,27 +13,27 @@ class SpeechTranscriptCard extends StatelessWidget {
   });
 
   static const Color _brandPurple = Color(0xFF7C3AED);
-  static const Color _slateDark = Color(0xFF0F172A);
+  static const Color _slateDark = Color(0xFF1E293B);
 
   @override
   Widget build(BuildContext context) {
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: const Color(0xFFE2E8F0)),
-        boxShadow: [
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFFF1F5F9), width: 1.2),
+        boxShadow: const [
           BoxShadow(
-            color: const Color(0xFF0F172A).withValues(alpha: 0.04),
+            color: Color(0x0A0F172A),
             blurRadius: 16,
-            offset: const Offset(0, 6),
+            offset: Offset(0, 4),
           ),
         ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // --- HEADER MODALITAS TEKS & TRANSKRIP ---
+          // --- HEADER MODALITAS TEKS ---
           Padding(
             padding: const EdgeInsets.fromLTRB(18, 16, 18, 12),
             child: Row(
@@ -42,7 +42,7 @@ class SpeechTranscriptCard extends StatelessWidget {
                   padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
                     color: _brandPurple.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(14),
+                    borderRadius: BorderRadius.circular(12),
                   ),
                   child: const Icon(
                     Icons.subtitles_rounded,
@@ -57,12 +57,14 @@ class SpeechTranscriptCard extends StatelessWidget {
                     children: [
                       Row(
                         children: [
-                          const Text(
-                            '3. Modalitas Teks (Transkrip & Kata Kunci)',
-                            style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w800,
-                              color: _slateDark,
+                          const Flexible(
+                            child: Text(
+                              'Transkrip & Analisis Kata',
+                              style: TextStyle(
+                                fontSize: 13.5,
+                                fontWeight: FontWeight.w800,
+                                color: _slateDark,
+                              ),
                             ),
                           ),
                           const SizedBox(width: 6),
@@ -76,7 +78,7 @@ class SpeechTranscriptCard extends StatelessWidget {
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: const Text(
-                              '768D Konteks',
+                              'MentalBERT 768D',
                               style: TextStyle(
                                 fontSize: 10,
                                 fontWeight: FontWeight.w800,
@@ -88,7 +90,7 @@ class SpeechTranscriptCard extends StatelessWidget {
                       ),
                       const SizedBox(height: 2),
                       const Text(
-                        'Transkripsi cerita per segmen waktu & pemindaian kata bermuatan emosi',
+                        'Transkrip teks bertanda afek emosi & analisis leksikon psikolinguistik',
                         style: TextStyle(
                           fontSize: 11.5,
                           color: Color(0xFF64748B),
@@ -101,7 +103,7 @@ class SpeechTranscriptCard extends StatelessWidget {
             ),
           ),
 
-          // --- SEGMEN TRANSKRIP SUARA KE TEKS ---
+          // --- SEGMEN TRANSKRIP BERTANDA AFEK EMOSI ---
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Container(
@@ -122,12 +124,16 @@ class SpeechTranscriptCard extends StatelessWidget {
                         color: _brandPurple,
                       ),
                       SizedBox(width: 6),
-                      Text(
-                        'Transkrip Ucapan & Konteks Prosodi:',
-                        style: TextStyle(
-                          fontSize: 11.5,
-                          fontWeight: FontWeight.w800,
-                          color: _slateDark,
+                      Expanded(
+                        child: Text(
+                          'Transkrip Verbatim Bertanda Afek & Prosodi:',
+                          style: TextStyle(
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w800,
+                            color: _slateDark,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                         ),
                       ),
                     ],
@@ -172,8 +178,8 @@ class SpeechTranscriptCard extends StatelessWidget {
                                     seg.prosodyNote,
                                     style: const TextStyle(
                                       fontSize: 10,
-                                      fontWeight: FontWeight.w600,
-                                      color: Color(0xFF64748B),
+                                      fontWeight: FontWeight.w700,
+                                      color: Color(0xFF475569),
                                     ),
                                     overflow: TextOverflow.ellipsis,
                                   ),
@@ -200,14 +206,16 @@ class SpeechTranscriptCard extends StatelessWidget {
             ),
           ),
 
-          // --- KATA KUNCI EMOSIONAL YANG DITEMUKAN ---
+          // --- MARKER PSIKOLINGUISTIK YANG DITEMUKAN ---
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  isSimpleMode ? 'Kata & Topik Penting yang Dikenali AI:' : 'Token Leksikon Psikolinguistik Terdeteksi (MentalBERT):',
+                  isSimpleMode
+                      ? 'Penanda Leksikal & Afek Kognitif Terdeteksi:'
+                      : 'Token Leksikon Psikolinguistik Terdeteksi (MentalBERT Embedding):',
                   style: const TextStyle(
                     fontSize: 11.5,
                     fontWeight: FontWeight.w700,
@@ -215,47 +223,69 @@ class SpeechTranscriptCard extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 8),
-                Wrap(
-                  spacing: 6,
-                  runSpacing: 6,
-                  children: inspection.detectedKeywords.map((kw) {
-                    return Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 6,
+                if (inspection.detectedKeywords.isEmpty)
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF8FAFC),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: const Color(0xFFE2E8F0)),
+                    ),
+                    child: const Text(
+                      'Tidak ada penanda leksikon afek depresif khusus yang terdeteksi secara dominan.',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontStyle: FontStyle.italic,
+                        color: Color(0xFF64748B),
                       ),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF5F3FF),
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(color: const Color(0xFFDDD6FE)),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(
-                            Icons.sell_outlined,
-                            size: 12,
-                            color: _brandPurple,
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            kw,
-                            style: const TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
-                              color: Color(0xFF5B21B6),
+                    ),
+                  )
+                else
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: inspection.detectedKeywords.map((kw) {
+                      return Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF5F3FF),
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(color: const Color(0xFFDDD6FE)),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(
+                              Icons.sell_outlined,
+                              size: 12,
+                              color: _brandPurple,
                             ),
-                          ),
-                        ],
-                      ),
-                    );
-                  }).toList(),
-                ),
+                            const SizedBox(width: 4),
+                            Text(
+                              kw,
+                              style: const TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                                color: Color(0xFF5B21B6),
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    }).toList(),
+                  ),
               ],
             ),
           ),
 
-          // --- PENJELASAN RAMAH PENGGUNA ---
+          // --- INTERPRETASI PSIKOLINGUISTIK KLINIS ---
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 6, 16, 16),
             child: Container(
@@ -278,7 +308,7 @@ class SpeechTranscriptCard extends StatelessWidget {
                       const SizedBox(width: 6),
                       Expanded(
                         child: Text(
-                          'Makna Cerita: ${inspection.linguisticTitle}',
+                          'Evaluasi Psikolinguistik: ${inspection.linguisticTitle}',
                           style: const TextStyle(
                             fontSize: 12.5,
                             fontWeight: FontWeight.w800,

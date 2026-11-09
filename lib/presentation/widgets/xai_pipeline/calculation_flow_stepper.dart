@@ -11,7 +11,7 @@ class CalculationFlowStepper extends StatefulWidget {
     super.key,
     required this.inspection,
     required this.screening,
-    this.isSimpleMode = true,
+    this.isSimpleMode = false,
   });
 
   @override
@@ -19,9 +19,9 @@ class CalculationFlowStepper extends StatefulWidget {
 }
 
 class _CalculationFlowStepperState extends State<CalculationFlowStepper> {
-  static const Color _brandTeal = Color(0xFF18B2AC);
-  static const Color _brandTealDark = Color(0xFF0D9488);
-  static const Color _slateDark = Color(0xFF0F172A);
+  static const Color _clinicalTeal = Color(0xFF18B2AC);
+  static const Color _clinicalTealDark = Color(0xFF0D9488);
+  static const Color _slateDark = Color(0xFF1E293B);
 
   int _selectedCoalitionIndex = 7; // Default S7 (Fusi Lengkap)
 
@@ -35,13 +35,13 @@ class _CalculationFlowStepperState extends State<CalculationFlowStepper> {
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: const Color(0xFFE2E8F0)),
-        boxShadow: [
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFFF1F5F9), width: 1.2),
+        boxShadow: const [
           BoxShadow(
-            color: const Color(0xFF0F172A).withValues(alpha: 0.04),
+            color: Color(0x0A0F172A),
             blurRadius: 16,
-            offset: const Offset(0, 6),
+            offset: Offset(0, 4),
           ),
         ],
       ),
@@ -54,33 +54,31 @@ class _CalculationFlowStepperState extends State<CalculationFlowStepper> {
               Container(
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF0F172A).withValues(alpha: 0.08),
-                  borderRadius: BorderRadius.circular(14),
+                  color: const Color(0xFFE6F7F6),
+                  borderRadius: BorderRadius.circular(12),
                 ),
                 child: const Icon(
                   Icons.account_tree_rounded,
-                  color: _slateDark,
+                  color: _clinicalTealDark,
                   size: 22,
                 ),
               ),
               const SizedBox(width: 12),
-              Expanded(
+              const Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      widget.isSimpleMode
-                          ? '4 Tahap Cara Kerja Otak AI (Transparan)'
-                          : 'Arsitektur Inferensi ONNX & Koalisi Laten',
-                      style: const TextStyle(
-                        fontSize: 14.5,
+                      'Alur Inferensi Model & Koalisi Laten',
+                      style: TextStyle(
+                        fontSize: 14,
                         fontWeight: FontWeight.w800,
                         color: _slateDark,
                       ),
                     ),
-                    const SizedBox(height: 2),
-                    const Text(
-                      'Tidak ada proses tersembunyi — telusuri setiap langkah kalkulasi di bawah',
+                    SizedBox(height: 2),
+                    Text(
+                      'Transparansi kalkulasi fitur hingga verifikasi aksioma efisiensi',
                       style: TextStyle(
                         fontSize: 11.5,
                         color: Color(0xFF64748B),
@@ -91,46 +89,42 @@ class _CalculationFlowStepperState extends State<CalculationFlowStepper> {
               ),
             ],
           ),
-          const SizedBox(height: 18),
+          const SizedBox(height: 16),
 
           // --- TAHAP 1: VEKTORISASI 1.091 FITUR ---
           _buildStageContainer(
             stageNumber: '1',
-            title: widget.isSimpleMode
-                ? 'Mengubah Video Menjadi 1.091 Angka Sinyal'
-                : 'Tahap 1: Ekstraksi & Normalisasi Z-Score (1.091D)',
-            badgeText: '75 + 248 + 768 = 1.091 Fitur',
+            title: 'Tahap 1: Ekstraksi Fitur & Normalisasi Z-Score (1.091D)',
+            badgeText: '75 + 248 + 768 = 1.091D',
             accentColor: const Color(0xFF0284C7),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  widget.isSimpleMode
-                      ? 'AI tidak menyimpan foto wajah Anda, melainkan mengubah gerak wajah, gelombang suara, dan kata-kata menjadi deretan angka matematis:'
-                      : 'Setiap modalitas dinormalisasi terhadap distribusi populasi (train_norm_stats.json) sebelum masuk ke tensor ONNX:',
-                  style: const TextStyle(
-                    fontSize: 11.5,
+                const Text(
+                  'Setiap modalitas dinormalisasi terhadap parameter populasi referensi (train_norm_stats.json) sebelum dibentuk menjadi tensor sekuensial 512 timestep:',
+                  style: TextStyle(
+                    fontSize: 11,
                     color: Color(0xFF475569),
                     height: 1.4,
                   ),
                 ),
                 const SizedBox(height: 10),
                 _buildVectorPreviewRow(
-                  label: 'Wajah (75 Angka)',
+                  label: 'Modalitas Visual (Facial AUs • 75D)',
                   values: ins.sampleVisualVector,
-                  color: _brandTealDark,
+                  color: _clinicalTeal,
                 ),
                 const SizedBox(height: 6),
                 _buildVectorPreviewRow(
-                  label: 'Suara (248 Angka)',
+                  label: 'Modalitas Akustik / Prosodi (248D)',
                   values: ins.sampleAudioVector,
-                  color: const Color(0xFF0284C7),
+                  color: const Color(0xFF6366F1),
                 ),
                 const SizedBox(height: 6),
                 _buildVectorPreviewRow(
-                  label: 'Cerita (768 Angka)',
+                  label: 'Modalitas Teks / Linguistik (768D)',
                   values: ins.sampleTextVector,
-                  color: const Color(0xFF7C3AED),
+                  color: const Color(0xFF3B82F6),
                 ),
               ],
             ),
@@ -140,20 +134,16 @@ class _CalculationFlowStepperState extends State<CalculationFlowStepper> {
           // --- TAHAP 2: FUSI MEMORI BiLSTM & ATTENTION ---
           _buildStageContainer(
             stageNumber: '2',
-            title: widget.isSimpleMode
-                ? 'Menyelaraskan Suara, Wajah, & Cerita'
-                : 'Tahap 2: BiLSTM Temporal Encoding & Attention (256D × 3)',
+            title: 'Tahap 2: BiLSTM Temporal Encoding & Attention (256D × 3)',
             badgeText: 'ONNX Runtime Mobile',
-            accentColor: _brandTealDark,
+            accentColor: _clinicalTeal,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  widget.isSimpleMode
-                      ? 'Jaringan saraf tiruan (BiLSTM) mencari kecocokan antar sinyal — misalnya apakah saat kalimat terdengar lelah, nada suara juga ikut merendah dan ekspresi wajah tampak tegang.'
-                      : 'Model utama (fedmind_multimodal.onnx) memproyeksikan sekuens panjang 512 langkah waktu ke ruang laten 256 dimensi per modalitas:',
-                  style: const TextStyle(
-                    fontSize: 11.5,
+                const Text(
+                  'Arsitektur fedmind_multimodal.onnx memproyeksikan representasi temporal masing-masing modalitas ke ruang laten 256 dimensi (L2-norm energi aktivasi):',
+                  style: TextStyle(
+                    fontSize: 11,
                     color: Color(0xFF475569),
                     height: 1.4,
                   ),
@@ -163,28 +153,28 @@ class _CalculationFlowStepperState extends State<CalculationFlowStepper> {
                   children: [
                     Expanded(
                       child: _buildLatentBox(
-                        title: 'Memori Suara',
+                        title: 'Latent Akustik',
                         dim: '256D',
                         normValue: ins.audioLatentNorm,
-                        color: const Color(0xFF0284C7),
+                        color: const Color(0xFF6366F1),
                       ),
                     ),
                     const SizedBox(width: 8),
                     Expanded(
                       child: _buildLatentBox(
-                        title: 'Memori Wajah',
+                        title: 'Latent Visual (AUs)',
                         dim: '256D',
                         normValue: ins.visualLatentNorm,
-                        color: _brandTealDark,
+                        color: _clinicalTeal,
                       ),
                     ),
                     const SizedBox(width: 8),
                     Expanded(
                       child: _buildLatentBox(
-                        title: 'Memori Cerita',
+                        title: 'Latent Linguistik',
                         dim: '256D',
                         normValue: ins.textLatentNorm,
-                        color: const Color(0xFF7C3AED),
+                        color: const Color(0xFF3B82F6),
                       ),
                     ),
                   ],
@@ -197,25 +187,21 @@ class _CalculationFlowStepperState extends State<CalculationFlowStepper> {
           // --- TAHAP 3: SIMULASI 8 SKENARIO KOALISI (SHAPLEY GAME THEORY) ---
           _buildStageContainer(
             stageNumber: '3',
-            title: widget.isSimpleMode
-                ? 'Simulasi 8 Kombinasi (Uji Coba Keadilan AI)'
-                : 'Tahap 3: Evaluasi 8 Koalisi Exact Shapley (2³ Subset)',
-            badgeText: '8 Kombinasi Diuji',
-            accentColor: const Color(0xFF7C3AED),
+            title: 'Tahap 3: Evaluasi 8 Koalisi Laten Exact Shapley (2³ Subset)',
+            badgeText: '8 Koalisi Diuji',
+            accentColor: const Color(0xFF4F46E5),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  widget.isSimpleMode
-                      ? 'Untuk mengetahui sinyal mana yang paling berpengaruh, AI menguji 8 skenario berbeda (misalnya: bagaimana jika hanya mendengar suara tanpa melihat wajah?). Ketuk tiap kotak untuk melihat hasilnya:'
-                      : 'Regressor ONNX mengevaluasi seluruh 8 kombinasi koalisi (S₀ s/d S₇) untuk menghitung nilai kontribusi marginal eksak:',
-                  style: const TextStyle(
-                    fontSize: 11.5,
+                const Text(
+                  'Regressor ONNX mengevaluasi seluruh 8 kombinasi koalisi modalitas (S₀ s/d S₇) untuk menghitung kontribusi marginal eksak. Ketuk sel koalisi untuk menginspeksi skor:',
+                  style: TextStyle(
+                    fontSize: 11,
                     color: Color(0xFF475569),
                     height: 1.4,
                   ),
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 10),
                 if (coalitions.isNotEmpty) ...[
                   GridView.builder(
                     shrinkWrap: true,
@@ -244,14 +230,14 @@ class _CalculationFlowStepperState extends State<CalculationFlowStepper> {
                           padding: const EdgeInsets.all(6),
                           decoration: BoxDecoration(
                             color: isSelected
-                                ? const Color(0xFF7C3AED)
+                                ? _slateDark
                                 : Colors.white,
-                            borderRadius: BorderRadius.circular(10),
+                            borderRadius: BorderRadius.circular(8),
                             border: Border.all(
                               color: isSelected
-                                  ? const Color(0xFF7C3AED)
+                                  ? _slateDark
                                   : const Color(0xFFCBD5E1),
-                              width: isSelected ? 1.6 : 1.0,
+                              width: isSelected ? 1.5 : 1.0,
                             ),
                           ),
                           child: Column(
@@ -260,10 +246,10 @@ class _CalculationFlowStepperState extends State<CalculationFlowStepper> {
                               Text(
                                 c.coalitionCode.split(' ').first,
                                 style: TextStyle(
-                                  fontSize: 10,
+                                  fontSize: 9.5,
                                   fontWeight: FontWeight.w800,
                                   color: isSelected
-                                      ? Colors.white.withValues(alpha: 0.85)
+                                      ? const Color(0xFF2DD4BF)
                                       : const Color(0xFF64748B),
                                 ),
                               ),
@@ -271,7 +257,7 @@ class _CalculationFlowStepperState extends State<CalculationFlowStepper> {
                               Text(
                                 c.predictedScore.toStringAsFixed(2),
                                 style: TextStyle(
-                                  fontSize: 13,
+                                  fontSize: 12.5,
                                   fontWeight: FontWeight.w900,
                                   color: isSelected
                                       ? Colors.white
@@ -286,21 +272,21 @@ class _CalculationFlowStepperState extends State<CalculationFlowStepper> {
                                     active: c.hasAudio,
                                     color: isSelected
                                         ? Colors.white
-                                        : const Color(0xFF0284C7),
+                                        : const Color(0xFF6366F1),
                                   ),
                                   const SizedBox(width: 3),
                                   _buildMiniModDot(
                                     active: c.hasVisual,
                                     color: isSelected
                                         ? Colors.white
-                                        : _brandTealDark,
+                                        : _clinicalTeal,
                                   ),
                                   const SizedBox(width: 3),
                                   _buildMiniModDot(
                                     active: c.hasText,
                                     color: isSelected
                                         ? Colors.white
-                                        : const Color(0xFF7C3AED),
+                                        : const Color(0xFF3B82F6),
                                   ),
                                 ],
                               ),
@@ -326,22 +312,18 @@ class _CalculationFlowStepperState extends State<CalculationFlowStepper> {
           // --- TAHAP 4: KEPUTUSAN AKHIR & VERIFIKASI AKSIOMA ---
           _buildStageContainer(
             stageNumber: '4',
-            title: widget.isSimpleMode
-                ? 'Keputusan Skor Akhir & Verifikasi Kejujuran AI'
-                : 'Tahap 4: Verifikasi Aksioma Efisiensi & Kalibrasi Risiko',
+            title: 'Tahap 4: Verifikasi Aksioma Efisiensi & Stratifikasi PHQ-8',
             badgeText: scr.xai?.efficiencyAxiomVerified == true
-                ? '100% Akurat & Terverifikasi'
+                ? 'Aksioma Terverifikasi'
                 : 'Terverifikasi',
-            accentColor: const Color(0xFF059669),
+            accentColor: const Color(0xFF10B981),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  widget.isSimpleMode
-                      ? 'Seluruh hasil simulasi digabungkan secara adil. Jumlah kontribusi Suara + Wajah + Cerita dijamin 100% sesuai dengan selisih skor awal ke skor akhir Anda.'
-                      : 'Aksioma Efisiensi Shapley: φ_audio + φ_visual + φ_text = v(1,1,1) − v(0,0,0) terpenuhi secara eksak tanpa aproksimasi stokastik.',
-                  style: const TextStyle(
-                    fontSize: 11.5,
+                const Text(
+                  'Aksioma Efisiensi Shapley: φ_audio + φ_visual + φ_text = v(1,1,1) − v(0,0,0) terpenuhi secara eksak tanpa aproksimasi stokastik.',
+                  style: TextStyle(
+                    fontSize: 11,
                     color: Color(0xFF475569),
                     height: 1.4,
                   ),
@@ -351,15 +333,15 @@ class _CalculationFlowStepperState extends State<CalculationFlowStepper> {
                   children: [
                     const Icon(
                       Icons.verified_rounded,
-                      size: 16,
+                      size: 15,
                       color: Color(0xFF059669),
                     ),
                     const SizedBox(width: 6),
                     Expanded(
                       child: Text(
-                        'Diproses oleh: ${scr.model?.name ?? "FED-MIND Edge Mobile"} • 100% Offline di HP Anda',
+                        'Checkpoint: ${scr.model?.checkpoint ?? "fedmind_multimodal.onnx"} • ${scr.model?.name ?? "FedAvg FL-IID"}',
                         style: const TextStyle(
-                          fontSize: 11,
+                          fontSize: 10.5,
                           fontWeight: FontWeight.w700,
                           color: Color(0xFF065F46),
                         ),
@@ -383,10 +365,10 @@ class _CalculationFlowStepperState extends State<CalculationFlowStepper> {
     required Widget child,
   }) {
     return Container(
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: const Color(0xFFF8FAFC),
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(10),
         border: Border.all(color: const Color(0xFFE2E8F0)),
       ),
       child: Column(
@@ -395,18 +377,18 @@ class _CalculationFlowStepperState extends State<CalculationFlowStepper> {
           Row(
             children: [
               Container(
-                width: 24,
-                height: 24,
+                width: 22,
+                height: 22,
                 decoration: BoxDecoration(
                   color: accentColor,
-                  shape: BoxShape.circle,
+                  borderRadius: BorderRadius.circular(6),
                 ),
                 alignment: Alignment.center,
                 child: Text(
                   stageNumber,
                   style: const TextStyle(
                     color: Colors.white,
-                    fontSize: 12,
+                    fontSize: 11,
                     fontWeight: FontWeight.w900,
                   ),
                 ),
@@ -416,17 +398,17 @@ class _CalculationFlowStepperState extends State<CalculationFlowStepper> {
                 child: Text(
                   title,
                   style: const TextStyle(
-                    fontSize: 12.5,
+                    fontSize: 12,
                     fontWeight: FontWeight.w800,
                     color: _slateDark,
                   ),
                 ),
               ),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2.5),
                 decoration: BoxDecoration(
                   color: accentColor.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(6),
                 ),
                 child: Text(
                   badgeText,
@@ -452,8 +434,8 @@ class _CalculationFlowStepperState extends State<CalculationFlowStepper> {
       child: Center(
         child: Icon(
           Icons.keyboard_double_arrow_down_rounded,
-          size: 20,
-          color: _brandTeal.withValues(alpha: 0.7),
+          size: 18,
+          color: _clinicalTeal.withValues(alpha: 0.7),
         ),
       ),
     );
@@ -469,10 +451,10 @@ class _CalculationFlowStepperState extends State<CalculationFlowStepper> {
         .map((v) => v.toStringAsFixed(2))
         .join(', ');
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(8),
         border: Border.all(color: const Color(0xFFE2E8F0)),
       ),
       child: Row(
@@ -492,7 +474,7 @@ class _CalculationFlowStepperState extends State<CalculationFlowStepper> {
               Text(
                 label,
                 style: const TextStyle(
-                  fontSize: 11,
+                  fontSize: 10.5,
                   fontWeight: FontWeight.w700,
                   color: _slateDark,
                 ),
@@ -503,7 +485,7 @@ class _CalculationFlowStepperState extends State<CalculationFlowStepper> {
             child: Text(
               '[$formatted, ...]',
               style: const TextStyle(
-                fontSize: 10.5,
+                fontSize: 10,
                 fontFamily: 'monospace',
                 fontWeight: FontWeight.w600,
                 color: Color(0xFF64748B),
@@ -523,10 +505,10 @@ class _CalculationFlowStepperState extends State<CalculationFlowStepper> {
     required Color color,
   }) {
     return Container(
-      padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 8),
+      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(8),
         border: Border.all(color: color.withValues(alpha: 0.3)),
       ),
       child: Column(
@@ -534,7 +516,7 @@ class _CalculationFlowStepperState extends State<CalculationFlowStepper> {
           Text(
             title,
             style: TextStyle(
-              fontSize: 10,
+              fontSize: 9.5,
               fontWeight: FontWeight.w800,
               color: color,
             ),
@@ -542,7 +524,7 @@ class _CalculationFlowStepperState extends State<CalculationFlowStepper> {
           ),
           const SizedBox(height: 3),
           Text(
-            'Energi: ${normValue.toStringAsFixed(1)}',
+            'L2: ${normValue.toStringAsFixed(1)}',
             style: const TextStyle(
               fontSize: 11.5,
               fontWeight: FontWeight.w900,
@@ -550,9 +532,9 @@ class _CalculationFlowStepperState extends State<CalculationFlowStepper> {
             ),
           ),
           Text(
-            'Vektor $dim',
+            'Tensor $dim',
             style: const TextStyle(
-              fontSize: 9.5,
+              fontSize: 9,
               color: Color(0xFF94A3B8),
             ),
           ),
@@ -578,27 +560,27 @@ class _CalculationFlowStepperState extends State<CalculationFlowStepper> {
 
   Widget _buildSelectedCoalitionDetail(CoalitionStepScore c) {
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
-        color: const Color(0xFFF5F3FF),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFDDD6FE)),
+        color: const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFFCBD5E1)),
       ),
       child: Row(
         children: [
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
             decoration: BoxDecoration(
-              color: const Color(0xFF7C3AED),
-              borderRadius: BorderRadius.circular(10),
+              color: _slateDark,
+              borderRadius: BorderRadius.circular(8),
             ),
             child: Column(
               children: [
                 Text(
                   c.coalitionCode,
                   style: const TextStyle(
-                    color: Colors.white70,
-                    fontSize: 9.5,
+                    color: Color(0xFF2DD4BF),
+                    fontSize: 9,
                     fontWeight: FontWeight.w700,
                   ),
                 ),
@@ -606,7 +588,7 @@ class _CalculationFlowStepperState extends State<CalculationFlowStepper> {
                   c.predictedScore.toStringAsFixed(2),
                   style: const TextStyle(
                     color: Colors.white,
-                    fontSize: 14,
+                    fontSize: 13.5,
                     fontWeight: FontWeight.w900,
                   ),
                 ),
@@ -621,17 +603,17 @@ class _CalculationFlowStepperState extends State<CalculationFlowStepper> {
                 Text(
                   c.label,
                   style: const TextStyle(
-                    fontSize: 12,
+                    fontSize: 11.5,
                     fontWeight: FontWeight.w800,
-                    color: Color(0xFF4C1D95),
+                    color: _slateDark,
                   ),
                 ),
                 const SizedBox(height: 2),
                 Text(
                   c.description,
                   style: const TextStyle(
-                    fontSize: 11,
-                    color: Color(0xFF5B21B6),
+                    fontSize: 10.5,
+                    color: Color(0xFF475569),
                     height: 1.35,
                   ),
                 ),
@@ -643,4 +625,3 @@ class _CalculationFlowStepperState extends State<CalculationFlowStepper> {
     );
   }
 }
-

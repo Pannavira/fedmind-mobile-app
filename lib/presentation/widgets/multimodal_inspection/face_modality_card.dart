@@ -23,7 +23,7 @@ class FaceModalityCard extends StatefulWidget {
 class _FaceModalityCardState extends State<FaceModalityCard> {
   static const Color _brandTeal = Color(0xFF18B2AC);
   static const Color _brandTealDark = Color(0xFF0D9488);
-  static const Color _slateDark = Color(0xFF0F172A);
+  static const Color _slateDark = Color(0xFF1E293B);
 
   VideoPlayerController? _videoController;
   bool _isVideoReady = false;
@@ -84,7 +84,9 @@ class _FaceModalityCardState extends State<FaceModalityCard> {
 
       final frames = widget.inspection.visualFrames;
       if (frames.isNotEmpty) {
-        final idx = (progress * (frames.length - 1)).round().clamp(0, frames.length - 1);
+        final idx = (progress * (frames.length - 1))
+            .round()
+            .clamp(0, frames.length - 1);
         if (idx != _selectedFrameIdx) {
           setState(() {
             _selectedFrameIdx = idx;
@@ -130,7 +132,7 @@ class _FaceModalityCardState extends State<FaceModalityCard> {
         smileIntensity: 0.35,
         lipDepressor: 0.42,
         motionEnergy: 0.38,
-        expressionLabel: 'Wajah Terdeteksi Jelas • Ekspresi Stabil',
+        expressionLabel: 'FACS Valid • Afek Wajah Stabil',
       );
     }
     return frames[_selectedFrameIdx.clamp(0, frames.length - 1)];
@@ -144,20 +146,20 @@ class _FaceModalityCardState extends State<FaceModalityCard> {
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: const Color(0xFFE2E8F0)),
-        boxShadow: [
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFFF1F5F9), width: 1.2),
+        boxShadow: const [
           BoxShadow(
-            color: const Color(0xFF0F172A).withValues(alpha: 0.04),
+            color: Color(0x0A0F172A),
             blurRadius: 16,
-            offset: const Offset(0, 6),
+            offset: Offset(0, 4),
           ),
         ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // --- HEADER MODALITAS WAJAH ---
+          // --- HEADER MODALITAS VISUAL ---
           Padding(
             padding: const EdgeInsets.fromLTRB(18, 16, 18, 12),
             child: Row(
@@ -166,7 +168,7 @@ class _FaceModalityCardState extends State<FaceModalityCard> {
                   padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
                     color: _brandTeal.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(14),
+                    borderRadius: BorderRadius.circular(12),
                   ),
                   child: const Icon(
                     Icons.face_retouching_natural_rounded,
@@ -181,12 +183,14 @@ class _FaceModalityCardState extends State<FaceModalityCard> {
                     children: [
                       Row(
                         children: [
-                          const Text(
-                            '1. Modalitas Visual (Wajah & Ekspresi)',
-                            style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w800,
-                              color: _slateDark,
+                          const Flexible(
+                            child: Text(
+                              'Visual & Ekspresi Wajah (FACS AU)',
+                              style: TextStyle(
+                                fontSize: 13.5,
+                                fontWeight: FontWeight.w800,
+                                color: _slateDark,
+                              ),
                             ),
                           ),
                           const SizedBox(width: 6),
@@ -200,7 +204,7 @@ class _FaceModalityCardState extends State<FaceModalityCard> {
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: Text(
-                              '${ins.faceDetectionRatePct.toStringAsFixed(0)}% Terdeteksi',
+                              '${ins.faceDetectionRatePct.toStringAsFixed(0)}% FACS Valid',
                               style: const TextStyle(
                                 fontSize: 10,
                                 fontWeight: FontWeight.w800,
@@ -213,8 +217,8 @@ class _FaceModalityCardState extends State<FaceModalityCard> {
                       const SizedBox(height: 2),
                       Text(
                         ins.isFromRealVideo
-                            ? 'Deteksi wajah riil dari ${ins.framesAnalyzed} segmen frame video Anda'
-                            : 'Simulasi pemindaian 75 titik ekspresi wajah (Action Units)',
+                            ? 'Ekstraksi biometrik wajah riil dari ${ins.framesAnalyzed} segmen frame observasi'
+                            : 'Kuantifikasi 75 dimensi Facial Action Coding System (FACS) & dinamika motorik wajah',
                         style: const TextStyle(
                           fontSize: 11.5,
                           color: Color(0xFF64748B),
@@ -231,9 +235,9 @@ class _FaceModalityCardState extends State<FaceModalityCard> {
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: ClipRRect(
-              borderRadius: BorderRadius.circular(18),
+              borderRadius: BorderRadius.circular(16),
               child: Container(
-                height: 235,
+                height: 230,
                 color: const Color(0xFF0F172A),
                 child: Stack(
                   fit: StackFit.expand,
@@ -269,8 +273,8 @@ class _FaceModalityCardState extends State<FaceModalityCard> {
                           vertical: 6,
                         ),
                         decoration: BoxDecoration(
-                          color: Colors.black.withValues(alpha: 0.68),
-                          borderRadius: BorderRadius.circular(12),
+                          color: Colors.black.withValues(alpha: 0.72),
+                          borderRadius: BorderRadius.circular(10),
                           border: Border.all(
                             color: frame.faceFound
                                 ? const Color(0xFF10B981)
@@ -293,8 +297,8 @@ class _FaceModalityCardState extends State<FaceModalityCard> {
                             const SizedBox(width: 6),
                             Text(
                               frame.faceFound
-                                  ? 'Wajah Terdeteksi (${(frame.confidence * 100).toStringAsFixed(0)}%)'
-                                  : 'Wajah Kurang Terlihat',
+                                  ? 'FACS Tracked (${(frame.confidence * 100).toStringAsFixed(0)}%)'
+                                  : 'Oklusi / Wajah Tidak Terdeteksi',
                               style: const TextStyle(
                                 color: Colors.white,
                                 fontSize: 11,
@@ -311,13 +315,14 @@ class _FaceModalityCardState extends State<FaceModalityCard> {
                       top: 12,
                       right: 12,
                       child: Material(
-                        color: Colors.black.withValues(alpha: 0.62),
+                        color: Colors.black.withValues(alpha: 0.65),
                         borderRadius: BorderRadius.circular(10),
                         child: InkWell(
                           borderRadius: BorderRadius.circular(10),
                           onTap: () {
                             setState(() {
-                              _showBoundingBoxOverlay = !_showBoundingBoxOverlay;
+                              _showBoundingBoxOverlay =
+                                  !_showBoundingBoxOverlay;
                             });
                           },
                           child: Padding(
@@ -337,7 +342,9 @@ class _FaceModalityCardState extends State<FaceModalityCard> {
                                 ),
                                 const SizedBox(width: 4),
                                 Text(
-                                  _showBoundingBoxOverlay ? 'Sensor ON' : 'Sensor OFF',
+                                  _showBoundingBoxOverlay
+                                      ? 'FACS Mesh ON'
+                                      : 'FACS Mesh OFF',
                                   style: const TextStyle(
                                     color: Colors.white,
                                     fontSize: 10.5,
@@ -388,8 +395,8 @@ class _FaceModalityCardState extends State<FaceModalityCard> {
                           vertical: 8,
                         ),
                         decoration: BoxDecoration(
-                          color: Colors.black.withValues(alpha: 0.75),
-                          borderRadius: BorderRadius.circular(12),
+                          color: Colors.black.withValues(alpha: 0.78),
+                          borderRadius: BorderRadius.circular(10),
                         ),
                         child: Row(
                           children: [
@@ -399,7 +406,7 @@ class _FaceModalityCardState extends State<FaceModalityCard> {
                                 vertical: 2,
                               ),
                               decoration: BoxDecoration(
-                                color: _brandTeal.withValues(alpha: 0.3),
+                                color: _brandTeal.withValues(alpha: 0.35),
                                 borderRadius: BorderRadius.circular(6),
                               ),
                               child: Text(
@@ -445,18 +452,18 @@ class _FaceModalityCardState extends State<FaceModalityCard> {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       const Text(
-                        'Geser untuk melihat deteksi wajah per detik:',
+                        'Inspeksi Sinkronisasi Frame & Action Units:',
                         style: TextStyle(
                           fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                          color: Color(0xFF64748B),
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF475569),
                         ),
                       ),
                       Text(
-                        'Frame ${_selectedFrameIdx + 1} / ${ins.visualFrames.length}',
+                        'Frame ${_selectedFrameIdx + 1} / ${ins.visualFrames.length} (${frame.timeSec.toStringAsFixed(1)}s)',
                         style: const TextStyle(
                           fontSize: 11,
-                          fontWeight: FontWeight.w700,
+                          fontWeight: FontWeight.w800,
                           color: _brandTealDark,
                         ),
                       ),
@@ -480,6 +487,8 @@ class _FaceModalityCardState extends State<FaceModalityCard> {
                         setState(() {
                           _selectedFrameIdx = newIdx;
                         });
+                        final total = max(1, ins.visualFrames.length - 1);
+                        widget.onVideoProgressChanged?.call(newIdx / total);
                         if (_isVideoReady && _videoController != null) {
                           final targetSec = ins.visualFrames[newIdx].timeSec;
                           _videoController!.seekTo(
@@ -493,9 +502,87 @@ class _FaceModalityCardState extends State<FaceModalityCard> {
               ),
             ),
 
-          // --- APA YANG TERJADI PADA WAJAH? (NARASI RAMAH PENGGUNA) ---
+          // --- GRAFIK GARIS TEMPORAL ACTION UNITS (AU04, AU12, AU15) ---
+          if (ins.visualFrames.length > 1)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+              child: Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF8FAFC),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Expanded(
+                          child: Text(
+                            'Grafik Temporal Action Units (AU):',
+                            style: TextStyle(
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w800,
+                              color: _slateDark,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Playhead: ${frame.timeSec.toStringAsFixed(1)}s',
+                          style: const TextStyle(
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.w700,
+                            color: _brandTealDark,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      height: 82,
+                      width: double.infinity,
+                      child: CustomPaint(
+                        painter: _ActionUnitsTimeSeriesPainter(
+                          frames: ins.visualFrames,
+                          selectedIdx: _selectedFrameIdx,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 12,
+                      runSpacing: 4,
+                      children: [
+                        _AuLegendItem(
+                          color: const Color(0xFFEF4444),
+                          label:
+                              'AU04 Brow Lowerer (${(frame.browTension * 100).round()}%)',
+                        ),
+                        _AuLegendItem(
+                          color: const Color(0xFF10B981),
+                          label:
+                              'AU12 Smile (${(frame.smileIntensity * 100).round()}%)',
+                        ),
+                        _AuLegendItem(
+                          color: const Color(0xFFF59E0B),
+                          label:
+                              'AU15 Lip Depressor (${(frame.lipDepressor * 100).round()}%)',
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+          // --- RINGKASAN TEMUAN VISUAL KLINIS ---
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 6, 16, 12),
+            padding: const EdgeInsets.fromLTRB(16, 2, 16, 12),
             child: Container(
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
@@ -516,7 +603,7 @@ class _FaceModalityCardState extends State<FaceModalityCard> {
                       const SizedBox(width: 6),
                       Expanded(
                         child: Text(
-                          'Apa yang Terjadi: ${ins.facialAffectTitle}',
+                          'Observasi Afek Wajah: ${ins.facialAffectTitle}',
                           style: const TextStyle(
                             fontSize: 12.5,
                             fontWeight: FontWeight.w800,
@@ -549,18 +636,23 @@ class _FaceModalityCardState extends State<FaceModalityCard> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text(
-                      widget.isSimpleMode
-                          ? 'Sinyal Bahasa Wajah yang Dibaca AI:'
-                          : 'Intensitas Facial Action Units (FACS 75D):',
-                      style: const TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                        color: _slateDark,
+                    Expanded(
+                      child: Text(
+                        widget.isSimpleMode
+                            ? 'Profil Facial Action Units (FACS):'
+                            : 'Intensitas Vektor FACS (75D):',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: _slateDark,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
                     ),
+                    const SizedBox(width: 8),
                     Text(
-                      'Pose Kepala: ${frame.eulerX.toStringAsFixed(1)}° Pitch | ${frame.eulerY.toStringAsFixed(1)}° Yaw',
+                      'Pose: ${frame.eulerX.toStringAsFixed(1)}° P | ${frame.eulerY.toStringAsFixed(1)}° Y',
                       style: const TextStyle(
                         fontSize: 10.5,
                         fontWeight: FontWeight.w600,
@@ -598,12 +690,14 @@ class _FaceModalityCardState extends State<FaceModalityCard> {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text(
-              label,
-              style: const TextStyle(
-                fontSize: 11.5,
-                fontWeight: FontWeight.w600,
-                color: Color(0xFF334155),
+            Flexible(
+              child: Text(
+                label,
+                style: const TextStyle(
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF334155),
+                ),
               ),
             ),
             Text(
@@ -628,6 +722,124 @@ class _FaceModalityCardState extends State<FaceModalityCard> {
         ),
       ],
     );
+  }
+}
+
+class _AuLegendItem extends StatelessWidget {
+  final Color color;
+  final String label;
+
+  const _AuLegendItem({required this.color, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 10,
+          height: 3,
+          decoration: BoxDecoration(
+            color: color,
+            borderRadius: BorderRadius.circular(2),
+          ),
+        ),
+        const SizedBox(width: 4),
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 10,
+            fontWeight: FontWeight.w700,
+            color: Color(0xFF475569),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ActionUnitsTimeSeriesPainter extends CustomPainter {
+  final List<VisualFrameInspection> frames;
+  final int selectedIdx;
+
+  _ActionUnitsTimeSeriesPainter({
+    required this.frames,
+    required this.selectedIdx,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (frames.length < 2) return;
+
+    final gridPaint = Paint()
+      ..color = const Color(0xFFE2E8F0)
+      ..strokeWidth = 1.0;
+
+    // Horizontal reference lines (25%, 50%, 75%)
+    for (final r in [0.25, 0.5, 0.75]) {
+      final y = size.height * r;
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), gridPaint);
+    }
+
+    void drawMetricLine(
+      double Function(VisualFrameInspection f) selector,
+      Color color,
+    ) {
+      final path = Path();
+      for (int i = 0; i < frames.length; i++) {
+        final x = (i / (frames.length - 1)) * size.width;
+        final val = selector(frames[i]).clamp(0.05, 0.95);
+        final y = size.height * (1.0 - val);
+        if (i == 0) {
+          path.moveTo(x, y);
+        } else {
+          path.lineTo(x, y);
+        }
+      }
+      final strokePaint = Paint()
+        ..color = color
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.0
+        ..strokeCap = StrokeCap.round;
+      canvas.drawPath(path, strokePaint);
+    }
+
+    // Plot AU04 (Brow Lowerer), AU12 (Smile), AU15 (Lip Corner Depressor)
+    drawMetricLine((f) => f.browTension, const Color(0xFFEF4444));
+    drawMetricLine((f) => f.smileIntensity, const Color(0xFF10B981));
+    drawMetricLine((f) => f.lipDepressor, const Color(0xFFF59E0B));
+
+    // Vertical Playhead
+    final clampedIdx = selectedIdx.clamp(0, frames.length - 1);
+    final playheadX = (clampedIdx / (frames.length - 1)) * size.width;
+    final playheadPaint = Paint()
+      ..color = const Color(0xFF0F172A)
+      ..strokeWidth = 1.5;
+    canvas.drawLine(
+      Offset(playheadX, 0),
+      Offset(playheadX, size.height),
+      playheadPaint,
+    );
+
+    final activeFrame = frames[clampedIdx];
+    for (final entry in [
+      MapEntry(activeFrame.browTension, const Color(0xFFEF4444)),
+      MapEntry(activeFrame.smileIntensity, const Color(0xFF10B981)),
+      MapEntry(activeFrame.lipDepressor, const Color(0xFFF59E0B)),
+    ]) {
+      final y = size.height * (1.0 - entry.key.clamp(0.05, 0.95));
+      canvas.drawCircle(
+        Offset(playheadX, y),
+        3.5,
+        Paint()..color = entry.value,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _ActionUnitsTimeSeriesPainter oldDelegate) {
+    return oldDelegate.frames != frames ||
+        oldDelegate.selectedIdx != selectedIdx;
   }
 }
 
@@ -712,15 +924,20 @@ class _FaceDetectionOverlayPainter extends CustomPainter {
     canvas.drawLine(Offset(right - cl, top), Offset(right, top), cornerPaint);
     canvas.drawLine(Offset(right, top), Offset(right, top + cl), cornerPaint);
     // Kiri Bawah
-    canvas.drawLine(Offset(left, bottom - cl), Offset(left, bottom), cornerPaint);
-    canvas.drawLine(Offset(left, bottom), Offset(left + cl, bottom), cornerPaint);
+    canvas.drawLine(
+        Offset(left, bottom - cl), Offset(left, bottom), cornerPaint);
+    canvas.drawLine(
+        Offset(left, bottom), Offset(left + cl, bottom), cornerPaint);
     // Kanan Bawah
-    canvas.drawLine(Offset(right - cl, bottom), Offset(right, bottom), cornerPaint);
-    canvas.drawLine(Offset(right, bottom - cl), Offset(right, bottom), cornerPaint);
+    canvas.drawLine(
+        Offset(right - cl, bottom), Offset(right, bottom), cornerPaint);
+    canvas.drawLine(
+        Offset(right, bottom - cl), Offset(right, bottom), cornerPaint);
 
     // 3. Gambar titik Landmark Wajah (Alis, Mata, Hidung, Bibir) yang bergeser sesuai Pose Euler
     final yawOffset = (frame.eulerY / 35.0).clamp(-0.3, 0.3) * rect.width * 0.2;
-    final pitchOffset = (-frame.eulerX / 35.0).clamp(-0.3, 0.3) * rect.height * 0.15;
+    final pitchOffset =
+        (-frame.eulerX / 35.0).clamp(-0.3, 0.3) * rect.height * 0.15;
 
     final lmPaint = Paint()
       ..color = const Color(0xFF5EEAD4)
@@ -745,11 +962,17 @@ class _FaceDetectionOverlayPainter extends CustomPainter {
     );
     final mouthLeft = Offset(
       center.dx - rect.width * 0.14 + yawOffset,
-      top + rect.height * 0.72 + pitchOffset + (frame.lipDepressor - frame.smileIntensity) * 6,
+      top +
+          rect.height * 0.72 +
+          pitchOffset +
+          (frame.lipDepressor - frame.smileIntensity) * 6,
     );
     final mouthRight = Offset(
       center.dx + rect.width * 0.14 + yawOffset,
-      top + rect.height * 0.72 + pitchOffset + (frame.lipDepressor - frame.smileIntensity) * 6,
+      top +
+          rect.height * 0.72 +
+          pitchOffset +
+          (frame.lipDepressor - frame.smileIntensity) * 6,
     );
     final mouthCenter = Offset(
       center.dx + yawOffset,
@@ -770,7 +993,14 @@ class _FaceDetectionOverlayPainter extends CustomPainter {
     );
 
     // Titik mata, hidung, dan garis bibir
-    for (final pt in [leftEye, rightEye, noseTip, mouthLeft, mouthRight, mouthCenter]) {
+    for (final pt in [
+      leftEye,
+      rightEye,
+      noseTip,
+      mouthLeft,
+      mouthRight,
+      mouthCenter,
+    ]) {
       canvas.drawCircle(pt, 3.2, lmPaint);
     }
 
@@ -788,4 +1018,3 @@ class _FaceDetectionOverlayPainter extends CustomPainter {
         oldDelegate.drawSimulatedFaceAvatar != drawSimulatedFaceAvatar;
   }
 }
-

@@ -5,18 +5,20 @@ class RiskBadge extends StatelessWidget {
   final String? riskCategory;
   final bool isLarge;
   final bool showIcon;
+  final bool useFullClinicalLabel;
 
   const RiskBadge({
     super.key,
     required this.riskCategory,
     this.isLarge = false,
     this.showIcon = true,
+    this.useFullClinicalLabel = false,
   });
 
   IconData _getRiskIcon(String? category) {
     switch (category?.toLowerCase()) {
       case 'low':
-        return Icons.health_and_safety_outlined;
+        return Icons.check_circle_outline_rounded;
       case 'borderline':
         return Icons.visibility_outlined;
       case 'moderate':
@@ -31,17 +33,19 @@ class RiskBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = ClinicalConstants.getRiskColor(riskCategory);
-    final label = (riskCategory ?? 'Unknown').toUpperCase();
+    final label = useFullClinicalLabel
+        ? ClinicalConstants.getRiskLabel(riskCategory)
+        : ClinicalConstants.getRiskShortBadge(riskCategory);
 
     return Container(
       padding: EdgeInsets.symmetric(
-        horizontal: isLarge ? 12 : 9,
+        horizontal: isLarge ? 11 : 8,
         vertical: isLarge ? 5 : 3.5,
       ),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: color.withValues(alpha: 0.35), width: 1.2),
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withValues(alpha: 0.40), width: 1.1),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -49,7 +53,7 @@ class RiskBadge extends StatelessWidget {
           if (showIcon) ...[
             Icon(
               _getRiskIcon(riskCategory),
-              size: isLarge ? 15 : 12,
+              size: isLarge ? 14 : 11.5,
               color: color,
             ),
             const SizedBox(width: 5),
@@ -64,13 +68,16 @@ class RiskBadge extends StatelessWidget {
             ),
             const SizedBox(width: 5),
           ],
-          Text(
-            label,
-            style: TextStyle(
-              color: color,
-              fontWeight: FontWeight.w700,
-              fontSize: isLarge ? 12 : 10.5,
-              letterSpacing: 0.4,
+          Flexible(
+            child: Text(
+              label,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: color,
+                fontWeight: FontWeight.w800,
+                fontSize: isLarge ? 11.5 : 10,
+                letterSpacing: 0.2,
+              ),
             ),
           ),
         ],

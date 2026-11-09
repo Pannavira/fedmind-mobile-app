@@ -22,20 +22,7 @@ class ModalityShapleyChart extends StatelessWidget {
       case 'audio':
         return ClinicalConstants.audioModalityColor;
       default:
-        return const Color(0xFF0F766E);
-    }
-  }
-
-  String _getModalityLabel(String modality) {
-    switch (modality.toLowerCase()) {
-      case 'text':
-        return 'Text / Transcript';
-      case 'visual':
-        return 'Visual / Expression';
-      case 'audio':
-        return 'Audio / Acoustic';
-      default:
-        return modality.toUpperCase();
+        return ClinicalConstants.clinicalTeal;
     }
   }
 
@@ -43,7 +30,7 @@ class ModalityShapleyChart extends StatelessWidget {
   Widget build(BuildContext context) {
     final ref = globalReference ??
         GlobalReferenceAttribution(
-          cohort: 'E-DAIC Test Set (N=56)',
+          cohort: 'E-DAIC Clinical Benchmark (N=56)',
           textPct: 61.8,
           visualPct: 33.8,
           audioPct: 4.4,
@@ -54,7 +41,7 @@ class ModalityShapleyChart extends StatelessWidget {
 
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(18),
+        padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -67,16 +54,16 @@ class ModalityShapleyChart extends StatelessWidget {
                     children: [
                       Icon(
                         Icons.insights_rounded,
-                        color: Color(0xFF0F766E),
-                        size: 20,
+                        color: Color(0xFF0D9488),
+                        size: 19,
                       ),
                       SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          'Modality Attribution (Exact Shapley)',
+                          'Atribusi Modalitas XAI (Exact Shapley Value)',
                           style: TextStyle(
-                            fontWeight: FontWeight.w700,
-                            fontSize: 14,
+                            fontWeight: FontWeight.w800,
+                            fontSize: 13.5,
                             color: Color(0xFF0F172A),
                           ),
                           overflow: TextOverflow.ellipsis,
@@ -86,21 +73,24 @@ class ModalityShapleyChart extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 8),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: dominantColor.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(
-                      color: dominantColor.withValues(alpha: 0.35),
+                Flexible(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: dominantColor.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: dominantColor.withValues(alpha: 0.35),
+                      ),
                     ),
-                  ),
-                  child: Text(
-                    'Dominant: ${_getModalityLabel(attribution.dominantModality)}',
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                      color: dominantColor,
+                    child: Text(
+                      'Dominan: ${ClinicalConstants.getModalityCompactName(attribution.dominantModality)}',
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.w800,
+                        color: dominantColor,
+                      ),
                     ),
                   ),
                 ),
@@ -108,14 +98,18 @@ class ModalityShapleyChart extends StatelessWidget {
             ),
             const SizedBox(height: 6),
             Text(
-              'Signal contribution weight breakdown compared against the clinical benchmark cohort (${ref.cohort}).',
-              style: const TextStyle(fontSize: 12, color: Color(0xFF64748B), height: 1.4),
+              'Komparasi bobot kontribusi sinyal pasien terhadap distribusi referensi kohort klinis (${ref.cohort}).',
+              style: const TextStyle(
+                fontSize: 11.5,
+                color: Color(0xFF64748B),
+                height: 1.4,
+              ),
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 18),
 
             // Bar Chart Perbandingan Pasien vs Global
             SizedBox(
-              height: 200,
+              height: 185,
               child: BarChart(
                 BarChartData(
                   alignment: BarChartAlignment.spaceAround,
@@ -124,14 +118,16 @@ class ModalityShapleyChart extends StatelessWidget {
                     touchTooltipData: BarTouchTooltipData(
                       getTooltipItem: (group, groupIndex, rod, rodIndex) {
                         final modalityName = groupIndex == 0
-                            ? 'Text'
-                            : (groupIndex == 1 ? 'Visual' : 'Audio');
+                            ? 'Modalitas Teks / Linguistik'
+                            : (groupIndex == 1
+                                ? 'Modalitas Visual (Facial AUs)'
+                                : 'Modalitas Akustik / Prosodi Audio');
                         final isPatient = rodIndex == 0;
                         return BarTooltipItem(
-                          '$modalityName\n${isPatient ? "Patient Session" : "Cohort Reference"}: ${rod.toY.toStringAsFixed(1)}%',
+                          '$modalityName\n${isPatient ? "Sesi Klien" : "Referensi Kohort"}: ${rod.toY.toStringAsFixed(1)}%',
                           const TextStyle(
                             color: Colors.white,
-                            fontSize: 12,
+                            fontSize: 11.5,
                             fontWeight: FontWeight.w600,
                           ),
                         );
@@ -150,18 +146,18 @@ class ModalityShapleyChart extends StatelessWidget {
 
                           switch (value.toInt()) {
                             case 0:
-                              label = 'Text';
-                              icon = Icons.text_fields_rounded;
+                              label = 'Teks / Linguistik';
+                              icon = Icons.notes_rounded;
                               col = ClinicalConstants.textModalityColor;
                               break;
                             case 1:
-                              label = 'Visual';
+                              label = 'Visual (AUs)';
                               icon = Icons.face_retouching_natural_rounded;
                               col = ClinicalConstants.visualModalityColor;
                               break;
                             case 2:
-                              label = 'Audio';
-                              icon = Icons.mic_none_rounded;
+                              label = 'Akustik / Prosodi';
+                              icon = Icons.graphic_eq_rounded;
                               col = ClinicalConstants.audioModalityColor;
                               break;
                           }
@@ -170,14 +166,14 @@ class ModalityShapleyChart extends StatelessWidget {
                             child: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                Icon(icon, size: 13, color: col),
+                                Icon(icon, size: 12, color: col),
                                 const SizedBox(width: 4),
                                 Text(
                                   label,
                                   style: const TextStyle(
-                                    fontSize: 12,
+                                    fontSize: 10.5,
                                     fontWeight: FontWeight.w700,
-                                    color: Color(0xFF334155),
+                                    color: Color(0xFF0F172A),
                                   ),
                                 ),
                               ],
@@ -196,8 +192,8 @@ class ModalityShapleyChart extends StatelessWidget {
                               '${value.toInt()}%',
                               style: const TextStyle(
                                 fontSize: 10,
-                                color: Color(0xFF94A3B8),
-                                fontWeight: FontWeight.w500,
+                                color: Color(0xFF64748B),
+                                fontWeight: FontWeight.w600,
                               ),
                             );
                           }
@@ -219,57 +215,54 @@ class ModalityShapleyChart extends StatelessWidget {
                   ),
                   borderData: FlBorderData(show: false),
                   barGroups: [
-                    // Text (index 0)
                     BarChartGroupData(
                       x: 0,
                       barRods: [
                         BarChartRodData(
                           toY: attribution.textPct,
                           color: ClinicalConstants.textModalityColor,
-                          width: 18,
-                          borderRadius: const BorderRadius.vertical(top: Radius.circular(6)),
+                          width: 16,
+                          borderRadius: const BorderRadius.vertical(top: Radius.circular(4)),
                         ),
                         BarChartRodData(
                           toY: ref.textPct,
-                          color: const Color(0xFFE2E8F0),
-                          width: 18,
-                          borderRadius: const BorderRadius.vertical(top: Radius.circular(6)),
+                          color: const Color(0xFFCBD5E1),
+                          width: 16,
+                          borderRadius: const BorderRadius.vertical(top: Radius.circular(4)),
                         ),
                       ],
                     ),
-                    // Visual (index 1)
                     BarChartGroupData(
                       x: 1,
                       barRods: [
                         BarChartRodData(
                           toY: attribution.visualPct,
                           color: ClinicalConstants.visualModalityColor,
-                          width: 18,
-                          borderRadius: const BorderRadius.vertical(top: Radius.circular(6)),
+                          width: 16,
+                          borderRadius: const BorderRadius.vertical(top: Radius.circular(4)),
                         ),
                         BarChartRodData(
                           toY: ref.visualPct,
-                          color: const Color(0xFFE2E8F0),
-                          width: 18,
-                          borderRadius: const BorderRadius.vertical(top: Radius.circular(6)),
+                          color: const Color(0xFFCBD5E1),
+                          width: 16,
+                          borderRadius: const BorderRadius.vertical(top: Radius.circular(4)),
                         ),
                       ],
                     ),
-                    // Audio (index 2)
                     BarChartGroupData(
                       x: 2,
                       barRods: [
                         BarChartRodData(
                           toY: attribution.audioPct,
                           color: ClinicalConstants.audioModalityColor,
-                          width: 18,
-                          borderRadius: const BorderRadius.vertical(top: Radius.circular(6)),
+                          width: 16,
+                          borderRadius: const BorderRadius.vertical(top: Radius.circular(4)),
                         ),
                         BarChartRodData(
                           toY: ref.audioPct,
-                          color: const Color(0xFFE2E8F0),
-                          width: 18,
-                          borderRadius: const BorderRadius.vertical(top: Radius.circular(6)),
+                          color: const Color(0xFFCBD5E1),
+                          width: 16,
+                          borderRadius: const BorderRadius.vertical(top: Radius.circular(4)),
                         ),
                       ],
                     ),
@@ -281,65 +274,65 @@ class ModalityShapleyChart extends StatelessWidget {
 
             // Color Legend
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
               decoration: BoxDecoration(
                 color: const Color(0xFFF8FAFC),
-                borderRadius: BorderRadius.circular(10),
+                borderRadius: BorderRadius.circular(8),
                 border: Border.all(color: const Color(0xFFE2E8F0)),
               ),
               child: Wrap(
                 alignment: WrapAlignment.spaceAround,
-                spacing: 8,
+                spacing: 10,
                 runSpacing: 4,
                 children: [
                   _buildLegendItem(
                     color: ClinicalConstants.textModalityColor,
-                    label: 'Patient Text',
+                    label: 'Modalitas Teks / Linguistik',
                   ),
                   _buildLegendItem(
                     color: ClinicalConstants.visualModalityColor,
-                    label: 'Patient Visual',
+                    label: 'Modalitas Visual (Facial AUs)',
                   ),
                   _buildLegendItem(
                     color: ClinicalConstants.audioModalityColor,
-                    label: 'Patient Audio',
+                    label: 'Modalitas Akustik / Prosodi',
                   ),
                   _buildLegendItem(
                     color: const Color(0xFFCBD5E1),
-                    label: 'Cohort Reference',
+                    label: 'Referensi Kohort (E-DAIC)',
                   ),
                 ],
               ),
             ),
-            const SizedBox(height: 18),
+            const SizedBox(height: 16),
 
             // Exact Shapley Decomposition Values (phi)
             const Text(
-              'Exact Shapley Attribution Values (φ):',
+              'Nilai Dekomposisi Marginal Exact Shapley (φ):',
               style: TextStyle(
-                fontWeight: FontWeight.w700,
-                fontSize: 13,
+                fontWeight: FontWeight.w800,
+                fontSize: 12.5,
                 color: Color(0xFF0F172A),
               ),
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 8),
             Row(
               children: [
                 Expanded(
                   child: _buildShapValueCard(
-                    title: 'Session Text',
-                    subtitle: 'Lexical Affect',
+                    title: 'Modalitas Teks',
+                    subtitle: 'Linguistik (768D)',
                     pct: attribution.textPct,
                     shap: attribution.shapValues.text,
                     color: ClinicalConstants.textModalityColor,
-                    icon: Icons.text_snippet_outlined,
+                    icon: Icons.notes_rounded,
                   ),
                 ),
                 const SizedBox(width: 8),
                 Expanded(
                   child: _buildShapValueCard(
-                    title: 'Session Visual',
-                    subtitle: 'Micro-Expressions',
+                    title: 'Modalitas Visual',
+                    subtitle: 'Facial AUs (75D)',
                     pct: attribution.visualPct,
                     shap: attribution.shapValues.visual,
                     color: ClinicalConstants.visualModalityColor,
@@ -349,12 +342,12 @@ class ModalityShapleyChart extends StatelessWidget {
                 const SizedBox(width: 8),
                 Expanded(
                   child: _buildShapValueCard(
-                    title: 'Session Audio',
-                    subtitle: 'Vocal Prosody',
+                    title: 'Modalitas Akustik',
+                    subtitle: 'Prosodi Audio (248D)',
                     pct: attribution.audioPct,
                     shap: attribution.shapValues.audio,
                     color: ClinicalConstants.audioModalityColor,
-                    icon: Icons.mic_none_rounded,
+                    icon: Icons.graphic_eq_rounded,
                   ),
                 ),
               ],
@@ -365,18 +358,18 @@ class ModalityShapleyChart extends StatelessWidget {
             Container(
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: const Color(0xFFF0FDFA), // Teal 50
+                color: const Color(0xFFF0FDFA),
                 borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: const Color(0xFFCCFBF1)), // Teal 100
+                border: Border.all(color: const Color(0xFFCCFBF1)),
               ),
               child: const Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Icon(Icons.info_outline, size: 15, color: Color(0xFF0F766E)),
+                  Icon(Icons.info_outline, size: 15, color: Color(0xFF0D9488)),
                   SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      'Note: Positive (+) φ values indicate features increasing depressive risk relative to baseline, whereas negative (-) values indicate protective effects (reducing score).',
+                      'Interpretasi Klinis XAI: Nilai φ positif (+) mengindikasikan fitur modalitas meningkatkan estimasi keparahan PHQ-8 terhadap baseline E[f(X)], sedangkan nilai φ negatif (−) bertindak sebagai faktor protektif penurun skor.',
                       style: TextStyle(
                         fontSize: 11,
                         color: Color(0xFF115E59),
@@ -402,13 +395,17 @@ class ModalityShapleyChart extends StatelessWidget {
           height: 9,
           decoration: BoxDecoration(
             color: color,
-            borderRadius: BorderRadius.circular(3),
+            borderRadius: BorderRadius.circular(2),
           ),
         ),
         const SizedBox(width: 5),
         Text(
           label,
-          style: const TextStyle(fontSize: 11, color: Color(0xFF64748B), fontWeight: FontWeight.w500),
+          style: const TextStyle(
+            fontSize: 10.5,
+            color: Color(0xFF475569),
+            fontWeight: FontWeight.w600,
+          ),
         ),
       ],
     );
@@ -435,14 +432,14 @@ class ModalityShapleyChart extends StatelessWidget {
         children: [
           Row(
             children: [
-              Icon(icon, size: 14, color: color),
+              Icon(icon, size: 13, color: color),
               const SizedBox(width: 4),
               Expanded(
                 child: Text(
                   title,
                   style: const TextStyle(
-                    fontWeight: FontWeight.w700,
-                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 10.5,
                     color: Color(0xFF0F172A),
                   ),
                   overflow: TextOverflow.ellipsis,
@@ -453,18 +450,18 @@ class ModalityShapleyChart extends StatelessWidget {
           const SizedBox(height: 2),
           Text(
             subtitle,
-            style: const TextStyle(fontSize: 10, color: Color(0xFF94A3B8)),
+            style: const TextStyle(fontSize: 9.5, color: Color(0xFF64748B)),
           ),
           const SizedBox(height: 6),
           Text(
             '${pct.toStringAsFixed(1)}%',
             style: TextStyle(
-              fontWeight: FontWeight.w800,
+              fontWeight: FontWeight.w900,
               fontSize: 15,
               color: color,
             ),
           ),
-          const SizedBox(height: 2),
+          const SizedBox(height: 3),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
             decoration: BoxDecoration(
@@ -476,7 +473,7 @@ class ModalityShapleyChart extends StatelessWidget {
               'φ: ${isPositive ? "+" : ""}${shap.toStringAsFixed(3)}',
               style: TextStyle(
                 fontSize: 10,
-                fontWeight: FontWeight.w700,
+                fontWeight: FontWeight.w800,
                 color: isPositive ? const Color(0xFFDC2626) : const Color(0xFF059669),
               ),
             ),

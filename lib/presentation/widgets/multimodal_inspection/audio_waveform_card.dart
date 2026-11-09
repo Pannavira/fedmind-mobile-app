@@ -20,7 +20,7 @@ class AudioWaveformCard extends StatefulWidget {
 class _AudioWaveformCardState extends State<AudioWaveformCard> {
   static const Color _brandBlue = Color(0xFF0284C7);
   static const Color _brandTeal = Color(0xFF18B2AC);
-  static const Color _slateDark = Color(0xFF0F172A);
+  static const Color _slateDark = Color(0xFF1E293B);
 
   double _scrubProgress = 0.35;
   bool _userIsScrubbing = false;
@@ -45,20 +45,20 @@ class _AudioWaveformCardState extends State<AudioWaveformCard> {
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: const Color(0xFFE2E8F0)),
-        boxShadow: [
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFFF1F5F9), width: 1.2),
+        boxShadow: const [
           BoxShadow(
-            color: const Color(0xFF0F172A).withValues(alpha: 0.04),
+            color: Color(0x0A0F172A),
             blurRadius: 16,
-            offset: const Offset(0, 6),
+            offset: Offset(0, 4),
           ),
         ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // --- HEADER MODALITAS AUDIO ---
+          // --- HEADER MODALITAS AKUSTIK / PROSODI AUDIO ---
           Padding(
             padding: const EdgeInsets.fromLTRB(18, 16, 18, 12),
             child: Row(
@@ -67,7 +67,7 @@ class _AudioWaveformCardState extends State<AudioWaveformCard> {
                   padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
                     color: _brandBlue.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(14),
+                    borderRadius: BorderRadius.circular(12),
                   ),
                   child: const Icon(
                     Icons.graphic_eq_rounded,
@@ -82,12 +82,14 @@ class _AudioWaveformCardState extends State<AudioWaveformCard> {
                     children: [
                       Row(
                         children: [
-                          const Text(
-                            '2. Modalitas Suara (Gelombang & Nada)',
-                            style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w800,
-                              color: _slateDark,
+                          const Flexible(
+                            child: Text(
+                              'Akustik & Prosodi Vokal',
+                              style: TextStyle(
+                                fontSize: 13.5,
+                                fontWeight: FontWeight.w800,
+                                color: _slateDark,
+                              ),
                             ),
                           ),
                           const SizedBox(width: 6),
@@ -101,7 +103,7 @@ class _AudioWaveformCardState extends State<AudioWaveformCard> {
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: Text(
-                              '${ins.avgPitchHz.toStringAsFixed(0)} Hz',
+                              'F0: ${ins.avgPitchHz.toStringAsFixed(0)} Hz',
                               style: const TextStyle(
                                 fontSize: 10,
                                 fontWeight: FontWeight.w800,
@@ -114,8 +116,8 @@ class _AudioWaveformCardState extends State<AudioWaveformCard> {
                       const SizedBox(height: 2),
                       Text(
                         ins.isFromRealVideo
-                            ? 'Gelombang suara PCM riil (${ins.totalAudioSamples} sampel @ ${ins.audioSampleRate}Hz)'
-                            : 'Analisis 248 fitur akustik (MFCC, Kontur Pitch F0, & Jeda Bicara)',
+                            ? 'Sinyal akustik PCM riil (${ins.totalAudioSamples} sampel @ ${ins.audioSampleRate}Hz)'
+                            : 'Ekstraksi 248 fitur prosodi vokal (Pitch F0, Jitter, Shimmer, & Pause Duration)',
                         style: const TextStyle(
                           fontSize: 11.5,
                           color: Color(0xFF64748B),
@@ -128,14 +130,14 @@ class _AudioWaveformCardState extends State<AudioWaveformCard> {
             ),
           ),
 
-          // --- VISUALISASI GELOMBANG SUARA (INTERACTIVE WAVEFORM) ---
+          // --- VISUALISASI SPEKTROGRAM / WAVEFORM AKUSTIK INTERAKTIF ---
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Container(
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
                 color: const Color(0xFF0F172A),
-                borderRadius: BorderRadius.circular(18),
+                borderRadius: BorderRadius.circular(16),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -143,33 +145,40 @@ class _AudioWaveformCardState extends State<AudioWaveformCard> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Row(
-                        children: [
-                          Container(
-                            width: 8,
-                            height: 8,
-                            decoration: BoxDecoration(
-                              color: isPauseSegment
-                                  ? const Color(0xFFFBBF24)
-                                  : const Color(0xFF38BDF8),
-                              shape: BoxShape.circle,
+                      Expanded(
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 8,
+                              height: 8,
+                              decoration: BoxDecoration(
+                                color: isPauseSegment
+                                    ? const Color(0xFFFBBF24)
+                                    : const Color(0xFF38BDF8),
+                                shape: BoxShape.circle,
+                              ),
                             ),
-                          ),
-                          const SizedBox(width: 6),
-                          Text(
-                            isPauseSegment
-                                ? 'Detik ${currentSec.toStringAsFixed(1)}s: Jeda Hening / Tarik Napas'
-                                : 'Detik ${currentSec.toStringAsFixed(1)}s: Segmen Suara Aktif (${(activeAmp * 100).toStringAsFixed(0)}% Energi)',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                isPauseSegment
+                                    ? 't=${currentSec.toStringAsFixed(1)}s: Jeda Vokal (Pause)'
+                                    : 't=${currentSec.toStringAsFixed(1)}s: Segmen Fonasi Aktif (${(activeAmp * 100).toStringAsFixed(0)}% RMS)',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
+                      const SizedBox(width: 8),
                       Text(
-                        '${ins.videoDurationSec.toStringAsFixed(1)} dtk',
+                        '${ins.videoDurationSec.toStringAsFixed(1)}s',
                         style: const TextStyle(
                           color: Color(0xFF94A3B8),
                           fontSize: 10.5,
@@ -217,27 +226,31 @@ class _AudioWaveformCardState extends State<AudioWaveformCard> {
                   const SizedBox(height: 10),
 
                   // Legenda Warna Gelombang
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Row(
+                  Wrap(
+                    alignment: WrapAlignment.spaceBetween,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    spacing: 8,
+                    runSpacing: 4,
+                    children: const [
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
                         children: [
                           _LegendDot(
                             color: Color(0xFF38BDF8),
-                            label: 'Suara Aktif',
+                            label: 'Fonasi (Voiced)',
                           ),
-                          SizedBox(width: 12),
+                          SizedBox(width: 10),
                           _LegendDot(
                             color: Color(0xFFF59E0B),
-                            label: 'Jeda Hening',
+                            label: 'Jeda (Pause)',
                           ),
                         ],
                       ),
-                      const Text(
-                        'Sentuh gelombang untuk cek waktu',
+                      Text(
+                        'Geser untuk inspeksi',
                         style: TextStyle(
                           color: Color(0xFF94A3B8),
-                          fontSize: 10,
+                          fontSize: 9.5,
                           fontStyle: FontStyle.italic,
                         ),
                       ),
@@ -248,7 +261,7 @@ class _AudioWaveformCardState extends State<AudioWaveformCard> {
             ),
           ),
 
-          // --- KONTUR NADA BICARA (PITCH F0 SPARKLINE) ---
+          // --- KONTUR FREKUENSI FUNDAMENTAL (PITCH F0 SPARKLINE) ---
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
             child: Container(
@@ -264,18 +277,21 @@ class _AudioWaveformCardState extends State<AudioWaveformCard> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text(
-                        widget.isSimpleMode
-                            ? 'Alunan Nada Suara (Naik-Turun Intonasi):'
-                            : 'Kontur Frekuensi Fundamental (Pitch F0 Contour):',
-                        style: const TextStyle(
-                          fontSize: 11.5,
-                          fontWeight: FontWeight.w700,
-                          color: _slateDark,
+                      const Expanded(
+                        child: Text(
+                          'Kontur Nada Dasar (Pitch F0):',
+                          style: TextStyle(
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w700,
+                            color: _slateDark,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                         ),
                       ),
+                      const SizedBox(width: 8),
                       Text(
-                        'Variasi: ±${ins.pitchStdHz.toStringAsFixed(1)} Hz',
+                        'SD: ±${ins.pitchStdHz.toStringAsFixed(1)} Hz',
                         style: const TextStyle(
                           fontSize: 11,
                           fontWeight: FontWeight.w700,
@@ -299,7 +315,7 @@ class _AudioWaveformCardState extends State<AudioWaveformCard> {
             ),
           ),
 
-          // --- RINGKASAN PROSODI SUARA RAMAH PENGGUNA ---
+          // --- RINGKASAN OBSERVASI PROSODI VOKAL ---
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
             child: Container(
@@ -322,7 +338,7 @@ class _AudioWaveformCardState extends State<AudioWaveformCard> {
                       const SizedBox(width: 6),
                       Expanded(
                         child: Text(
-                          'Apa yang Terdengar: ${ins.vocalProsodyTitle}',
+                          'Temuan Prosodi Klinis: ${ins.vocalProsodyTitle}',
                           style: const TextStyle(
                             fontSize: 12.5,
                             fontWeight: FontWeight.w800,
@@ -346,36 +362,34 @@ class _AudioWaveformCardState extends State<AudioWaveformCard> {
             ),
           ),
 
-          // --- METRIK AKUSTIK RINGKAS ---
+          // --- METRIK AKUSTIK KLINIS ---
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
             child: Row(
               children: [
                 Expanded(
                   child: _buildAcousticStatBox(
-                    title: 'Bicara Aktif',
+                    title: 'Voiced Ratio',
                     value: '${ins.voicedRatioPct.toStringAsFixed(0)}%',
-                    subtitle: 'Proporsi bersuara',
+                    subtitle: 'Proporsi fonasi',
                     color: _brandTeal,
                   ),
                 ),
                 const SizedBox(width: 8),
                 Expanded(
                   child: _buildAcousticStatBox(
-                    title: 'Jeda Hening',
+                    title: 'Pause Duration',
                     value: '${ins.pauseRatioPct.toStringAsFixed(0)}%',
-                    subtitle: 'Jeda antar kalimat',
+                    subtitle: 'Rasio jeda vokal',
                     color: const Color(0xFFF59E0B),
                   ),
                 ),
                 const SizedBox(width: 8),
                 Expanded(
                   child: _buildAcousticStatBox(
-                    title: widget.isSimpleMode ? 'Kestabilan' : 'Jitter / Shimmer',
-                    value: widget.isSimpleMode
-                        ? (ins.jitterPct < 2.5 ? 'Stabil' : 'Bergetar')
-                        : '${ins.jitterPct.toStringAsFixed(1)}%',
-                    subtitle: 'Getaran pita suara',
+                    title: 'Jitter / Shimmer',
+                    value: '${ins.jitterPct.toStringAsFixed(1)}%',
+                    subtitle: 'Perturbasi glotis',
                     color: _brandBlue,
                   ),
                 ),
@@ -406,8 +420,8 @@ class _AudioWaveformCardState extends State<AudioWaveformCard> {
             title,
             style: const TextStyle(
               fontSize: 10.5,
-              fontWeight: FontWeight.w600,
-              color: Color(0xFF64748B),
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF475569),
             ),
             textAlign: TextAlign.center,
           ),
@@ -425,7 +439,7 @@ class _AudioWaveformCardState extends State<AudioWaveformCard> {
             subtitle,
             style: const TextStyle(
               fontSize: 9.5,
-              color: Color(0xFF94A3B8),
+              color: Color(0xFF64748B),
             ),
             textAlign: TextAlign.center,
             maxLines: 1,
@@ -563,7 +577,8 @@ class _PitchContourPainter extends CustomPainter {
 
     for (int i = 0; i < pitchValues.length; i++) {
       final x = (i / (pitchValues.length - 1)) * size.width;
-      final normY = ((pitchValues[i] - minHz) / (maxHz - minHz)).clamp(0.05, 0.95);
+      final normY =
+          ((pitchValues[i] - minHz) / (maxHz - minHz)).clamp(0.05, 0.95);
       final y = size.height * (1.0 - normY);
 
       if (i == 0) {
@@ -604,4 +619,3 @@ class _PitchContourPainter extends CustomPainter {
     return oldDelegate.pitchValues != pitchValues;
   }
 }
-

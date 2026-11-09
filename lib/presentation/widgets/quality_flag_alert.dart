@@ -18,9 +18,9 @@ class QualityFlagAlert extends StatelessWidget {
       return Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         decoration: BoxDecoration(
-          color: const Color(0xFFF0FDF4), // Emerald 50
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: const Color(0xFFBBF7D0)), // Emerald 200
+          color: const Color(0xFFF0FDF4),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: const Color(0xFFBBF7D0)),
         ),
         child: Row(
           children: [
@@ -42,16 +42,16 @@ class QualityFlagAlert extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Multimodal Signal Integrity Valid',
+                    'Integritas Sensor Multimodal Terverifikasi (Quality Check PASS)',
                     style: TextStyle(
                       color: Color(0xFF065F46),
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w800,
                     ),
                   ),
                   SizedBox(height: 2),
                   Text(
-                    'Text transcript, vocal acoustic, and visual facial signals satisfy quality standards.',
+                    'Modalitas Visual (Facial AUs), Modalitas Akustik / Prosodi Audio, dan Modalitas Teks / Linguistik memenuhi ambang batas SNR & variansi sinyal.',
                     style: TextStyle(
                       color: Color(0xFF047857),
                       fontSize: 11,
@@ -68,22 +68,22 @@ class QualityFlagAlert extends StatelessWidget {
     final warnings = <Map<String, dynamic>>[];
     if (flags!.lowTextInformation) {
       warnings.add({
-        'title': 'Low Text Transcript Quantity',
-        'desc': 'Verbal responses are very brief or minimal affective vocabulary detected.',
-        'icon': Icons.chat_bubble_outline,
+        'title': 'Modalitas Teks / Linguistik: Densitas Token Rendah',
+        'desc': 'Respons verbal terlalu singkat atau minim indikator leksikal afektif.',
+        'icon': Icons.notes_rounded,
       });
     }
     if (flags!.poorAudioQuality) {
       warnings.add({
-        'title': 'Suboptimal Audio Signal Quality',
-        'desc': 'Low vocal energy, insufficient microphone level, or excessive background noise.',
+        'title': 'Modalitas Akustik / Prosodi Audio: SNR Suboptimal / Artefak',
+        'desc': 'Energi RMS vokal rendah, gangguan kebisingan lingkungan, atau kualitas mikrofon tidak memadai.',
         'icon': Icons.mic_off_outlined,
       });
     }
     if (flags!.poorVisualQuality) {
       warnings.add({
-        'title': 'Flat Facial Expression Dynamics',
-        'desc': 'Minimal micro-expression variance or suboptimal lighting/camera angle.',
+        'title': 'Modalitas Visual (Facial Action Units / AUs): Variansi Rendah',
+        'desc': 'Oklusi wajah, pencahayaan kurang optimal, atau dinamika FACS Action Units sangat datar.',
         'icon': Icons.videocam_off_outlined,
       });
     }
@@ -91,9 +91,9 @@ class QualityFlagAlert extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: const Color(0xFFFFFBEB), // Amber 50
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFFDE68A)), // Amber 200
+        color: const Color(0xFFFFFBEB),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFFFDE68A)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -115,11 +115,11 @@ class QualityFlagAlert extends StatelessWidget {
               const SizedBox(width: 10),
               const Expanded(
                 child: Text(
-                  'Multimodal Signal Validity Notes:',
+                  'Peringatan Audit Integritas Sensor Multimodal:',
                   style: TextStyle(
                     color: Color(0xFF92400E),
-                    fontWeight: FontWeight.w700,
-                    fontSize: 13,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 12.5,
                   ),
                 ),
               ),
@@ -146,8 +146,8 @@ class QualityFlagAlert extends StatelessWidget {
                           w['title'] as String,
                           style: const TextStyle(
                             color: Color(0xFF92400E),
-                            fontWeight: FontWeight.w600,
-                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 11.5,
                           ),
                         ),
                         Text(
@@ -173,7 +173,7 @@ class QualityFlagAlert extends StatelessWidget {
                 borderRadius: BorderRadius.circular(6),
               ),
               child: Text(
-                'Diagnostic Details: ${flags!.details}',
+                'Detail Diagnostik Sensor: ${flags!.details}',
                 style: const TextStyle(
                   color: Color(0xFF78350F),
                   fontSize: 11,
