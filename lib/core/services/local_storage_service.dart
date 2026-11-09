@@ -36,6 +36,21 @@ class LocalStorageService {
     return targetFile.path;
   }
 
+  /// Menyimpan bytes video dari asset/memory ke folder privat lokal HP
+  static Future<String> saveClinicalVideoBytes({
+    required Uint8List bytes,
+    required String participantId,
+    String fileName = 'sample_video.mp4',
+  }) async {
+    final dir = await _getRecordingsDirectory();
+    final sanitizedPid = participantId.replaceAll(RegExp(r'[^a-zA-Z0-9_\-]'), '_');
+    final targetPath = '${dir.path}/REC_${sanitizedPid}_$fileName';
+    final targetFile = File(targetPath);
+    await targetFile.writeAsBytes(bytes);
+    debugPrint('[LOCAL_STORAGE] Video bytes berhasil ditulis di: $targetPath');
+    return targetFile.path;
+  }
+
   /// Memeriksa apakah berkas video lokal ada di path yang diberikan
   static Future<bool> videoFileExists(String? filePath) async {
     if (filePath == null || filePath.isEmpty) return false;

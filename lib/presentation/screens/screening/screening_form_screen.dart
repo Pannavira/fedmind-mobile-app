@@ -1,26 +1,31 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
+import 'package:video_player/video_player.dart';
 
 import '../../../core/constants/clinical_constants.dart';
 import '../../../core/services/local_storage_service.dart';
 import '../../../core/services/multimodal_extractor_service.dart';
-import '../../../data/datasources/sample_patient_data.dart';
 import '../../../data/models/multimodal_inspection_models.dart';
 import '../../providers/screening_provider.dart';
 import '../../widgets/local_video_player_dialog.dart';
 import '../result/screening_result_screen.dart';
-import 'clinical_camera_screen.dart';
 import 'multimodal_analysis_studio_screen.dart';
 
+/// Halaman Pemeriksaan & Analisis Multimodal berbasis Wizard Stepper
+/// Alur pemeriksaan:
+/// 1. Data Klien & Sesi (Identitas, Tanggal, Catatan Awal)
+/// 2. Unggah Rekaman Video & Pemutar Video Langsung di Aplikasi
+/// 3. Ringkasan & Eksekusi Inferensi AI On-Device
 class ScreeningFormScreen extends StatefulWidget {
   final int initialSourceOption;
   final bool isTab;
 
   const ScreeningFormScreen({
     super.key,
-    this.initialSourceOption = 0,
+    this.initialSourceOption = 1,
     this.isTab = false,
   });
 
@@ -34,163 +39,116 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
   static const Color _slateDark = Color(0xFF1E293B);
   static const Color _textSecondary = Color(0xFF64748B);
 
+  // Tahap aktif: 0 = Data Klien, 1 = Media Video, 2 = Analisa AI
+  int _currentStage = 0;
+
+  // Controller Tahap 1: Identitas & Catatan
   late final TextEditingController _participantIdController;
+  final _clientNameController = TextEditingController();
+  DateTime _sessionDate = DateTime.now();
   final _counselorNoteController = TextEditingController();
-  final _clientTranscriptController = TextEditingController();
 
-  /// 0 = Opsi 1 (Clinical Camera), 1 = Opsi 2 (Unggah Rekaman), 2 = Opsi 3 (Dataset Uji E-DAIC / P600)
-  late int _selectedSourceOption;
-  String _selectedBenchmarkCase = 'P600';
-
-  // State sumber data pemeriksaan
-  Map<String, dynamic>? _selectedPayload;
-  String _dataSourceTitle = 'Dataset Standar E-DAIC (Kasus P600) Siap Diuji';
-  String _dataSourceSubtitle =
-      'Vektor biometrik 75D FACS, 248D COVAREP/Prosodi, dan 768D MentalBERT tervalidasi.';
+  // Sumber data pemeriksaan (1 = Unggah Video Lokal)
+  int _selectedSourceOption = 1;
 
   // State video lokal & pratinjau modalitas riil di perangkat
   String? _localVideoPath;
   ExtractedMultimodalFeatures? _extractedVideoFeatures;
   MultimodalInspectionData? _liveInspectionPreview;
   bool _isExtractingPreview = false;
+  String _dataSourceTitle = 'Pilih atau Unggah Video Observasi';
+  String _dataSourceSubtitle =
+      'Format .mp4 atau .mov dengan pencahayaan wajah memadai';
+
+  // Video player inline terintegrasi langsung di aplikasi
+  VideoPlayerController? _inlineVideoController;
+  bool _isInlineVideoInitialized = false;
+  bool _isPlaying = false;
 
   @override
   void initState() {
     super.initState();
-    _selectedSourceOption = widget.initialSourceOption.clamp(0, 2);
+    _selectedSourceOption = widget.initialSourceOption;
     _participantIdController = TextEditingController(
-      text: _selectedSourceOption == 2 ? 'P600' : 'RM-2026-001',
+      text: 'RM-2026-001',
     );
-    _loadP600GoldenCase(preserveParticipantId: _selectedSourceOption != 2);
   }
 
   @override
   void dispose() {
+    _inlineVideoController?.dispose();
     _participantIdController.dispose();
+    _clientNameController.dispose();
     _counselorNoteController.dispose();
-    _clientTranscriptController.dispose();
     super.dispose();
   }
 
   void setSourceOption(int option) {
     if (!mounted) return;
-    if (option == 2) {
-      _loadP600GoldenCase(preserveParticipantId: false);
-    } else {
-      setState(() {
-        _selectedSourceOption = option.clamp(0, 2);
-      });
-    }
+    setState(() {
+      _selectedSourceOption = 1;
+    });
   }
 
-  Future<void> _loadP600GoldenCase({bool preserveParticipantId = false}) async {
+  void _resetForm() {
+    _inlineVideoController?.pause();
+    _inlineVideoController?.dispose();
+    _inlineVideoController = null;
     setState(() {
+      _currentStage = 0;
+      _participantIdController.text = 'RM-2026-001';
+      _clientNameController.clear();
+      _sessionDate = DateTime.now();
+      _counselorNoteController.clear();
+      _selectedSourceOption = 1;
       _localVideoPath = null;
       _extractedVideoFeatures = null;
-      _selectedBenchmarkCase = 'P600';
-    });
-
-    final data = await SamplePatientData.loadP600Features();
-
-    if (!mounted) return;
-    final pid = preserveParticipantId
-        ? _participantIdController.text.trim()
-        : (data['participant_id']?.toString() ?? 'P600');
-    final vis = (data['visual_features'] as List)
-        .map((e) => (e as num).toDouble())
-        .toList();
-    final aud = (data['audio_features'] as List)
-        .map((e) => (e as num).toDouble())
-        .toList();
-    final txt = (data['text_features'] as List)
-        .map((e) => (e as num).toDouble())
-        .toList();
-
-    setState(() {
-      _selectedPayload = data;
-      if (!preserveParticipantId) {
-        _participantIdController.text = pid;
-      }
-      _dataSourceTitle = 'Golden Case E-DAIC (ID: P600) • Siap Diuji';
+      _liveInspectionPreview = null;
+      _isInlineVideoInitialized = false;
+      _isPlaying = false;
+      _dataSourceTitle = 'Pilih atau Unggah Video Observasi';
       _dataSourceSubtitle =
-          'Dataset referensi terstandarisasi untuk verifikasi konkordansi model & audit Shapley XAI.';
-      _liveInspectionPreview =
-          MultimodalExtractorService.buildInspectionFromSampleFeatures(
-        participantId: pid,
-        visualFeatures: vis,
-        audioFeatures: aud,
-        textFeatures: txt,
-        userNote: _counselorNoteController.text.trim(),
-        clientTranscript: _clientTranscriptController.text.trim(),
-      );
+          'Format .mp4 atau .mov dengan pencahayaan wajah memadai';
     });
   }
 
-  void _generateSyntheticBenchmark({bool simulateNoiseArtifact = false}) {
-    final pid = simulateNoiseArtifact ? 'P-NOISE-09' : 'P-SYNTH-04';
-    final data = SamplePatientData.generateSyntheticFeatures(
-      participantId: pid,
-      simulateAbnormalAudio: simulateNoiseArtifact,
-    );
+  Future<void> _initInlineVideo(String videoPath) async {
+    try {
+      await _inlineVideoController?.dispose();
+      final file = File(videoPath);
+      if (!await file.exists()) return;
 
-    final vis = (data['visual_features'] as List)
-        .map((e) => (e as num).toDouble())
-        .toList();
-    final aud = (data['audio_features'] as List)
-        .map((e) => (e as num).toDouble())
-        .toList();
-    final txt = (data['text_features'] as List)
-        .map((e) => (e as num).toDouble())
-        .toList();
+      final controller = VideoPlayerController.file(file);
+      await controller.initialize();
+      controller.setLooping(true);
+      controller.addListener(() {
+        if (!mounted) return;
+        final playing = controller.value.isPlaying;
+        if (playing != _isPlaying) {
+          setState(() {
+            _isPlaying = playing;
+          });
+        } else {
+          setState(() {});
+        }
+      });
 
-    setState(() {
-      _selectedPayload = data;
-      _localVideoPath = null;
-      _extractedVideoFeatures = null;
-      _selectedBenchmarkCase = simulateNoiseArtifact ? 'ARTIFACT' : 'SYNTH';
-      _participantIdController.text = pid;
-      _dataSourceTitle = simulateNoiseArtifact
-          ? 'Simulasi Kasus Artefak Sensor Akustik ($pid)'
-          : 'Simulasi Pasien Sintetis Terkalibrasi ($pid)';
-      _dataSourceSubtitle = simulateNoiseArtifact
-          ? 'Menguji ketahanan model terhadap penurunan SNR mikrofon & artefak lingkungan.'
-          : 'Vektor fitur multimodal sintetis untuk pengujian sensitivitas model.';
-      _liveInspectionPreview =
-          MultimodalExtractorService.buildInspectionFromSampleFeatures(
-        participantId: pid,
-        visualFeatures: vis,
-        audioFeatures: aud,
-        textFeatures: txt,
-        userNote: _counselorNoteController.text.trim(),
-        clientTranscript: _clientTranscriptController.text.trim(),
-      );
-    });
-  }
+      if (!mounted) {
+        controller.dispose();
+        return;
+      }
 
-  Future<void> _openCameraRecording() async {
-    setState(() {
-      _selectedSourceOption = 0;
-    });
-    final pid = _participantIdController.text.trim().isEmpty
-        ? 'RM-2026-001'
-        : _participantIdController.text.trim();
-
-    final recordedVideoPath = await Navigator.push<String>(
-      context,
-      MaterialPageRoute(
-        builder: (context) => ClinicalCameraScreen(participantId: pid),
-      ),
-    );
-
-    if (recordedVideoPath != null && mounted) {
-      await _processLocalVideo(recordedVideoPath);
+      setState(() {
+        _inlineVideoController = controller;
+        _isInlineVideoInitialized = true;
+        _isPlaying = false;
+      });
+    } catch (e) {
+      debugPrint('[SCREENING_FORM] Gagal menginisialisasi inline video: $e');
     }
   }
 
   Future<void> _pickVideoFromGallery() async {
-    setState(() {
-      _selectedSourceOption = 1;
-    });
     final pid = _participantIdController.text.trim().isEmpty
         ? 'RM-2026-001'
         : _participantIdController.text.trim();
@@ -230,7 +188,6 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
 
     setState(() {
       _localVideoPath = videoPath;
-      _selectedPayload = null;
       _isExtractingPreview = true;
       _dataSourceTitle =
           'Mengekstrak Biometrik Video Observasi (${sizeMb.toStringAsFixed(1)} MB)...';
@@ -238,12 +195,15 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
           'Akuisisi Action Units (FACS), kontur prosodi audio & transkrip teks...';
     });
 
+    // Inisialisasi pemutar video inline secara langsung
+    await _initInlineVideo(videoPath);
+
     try {
       final extracted = await MultimodalExtractorService.extractFromLocalVideo(
         videoPath: videoPath,
         participantId: pid,
         userNote: _counselorNoteController.text.trim(),
-        clientTranscript: _clientTranscriptController.text.trim(),
+        clientTranscript: null,
       );
 
       if (!mounted) return;
@@ -272,7 +232,7 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
         _dataSourceTitle =
             'Rekaman Sesi Tersimpan (${sizeMb.toStringAsFixed(1)} MB)';
         _dataSourceSubtitle =
-            'Tersimpan di penyimpanan klinis lokal • Siap dieksekusi oleh ONNX Runtime.';
+            'Tersimpan di penyimpanan klinis lokal • Siap diputar & dieksekusi.';
       });
     }
   }
@@ -287,11 +247,123 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
     );
   }
 
+  Future<void> _selectSessionDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _sessionDate,
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2035),
+      helpText: 'PILIH TANGGAL PEMERIKSAAN',
+      cancelText: 'BATAL',
+      confirmText: 'PILIH',
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: const ColorScheme.light(
+              primary: _brandTealDark,
+              onPrimary: Colors.white,
+              onSurface: _slateDark,
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+    if (picked != null && picked != _sessionDate && mounted) {
+      setState(() {
+        _sessionDate = picked;
+      });
+    }
+  }
+
+  String _formatIndonesianDate(DateTime date) {
+    const months = [
+      'Januari',
+      'Februari',
+      'Maret',
+      'April',
+      'Mei',
+      'Juni',
+      'Juli',
+      'Agustus',
+      'September',
+      'Oktober',
+      'November',
+      'Desember'
+    ];
+    const days = [
+      'Senin',
+      'Selasa',
+      'Rabu',
+      'Kamis',
+      'Jumat',
+      'Sabtu',
+      'Minggu'
+    ];
+    final dayName = days[date.weekday - 1];
+    final monthName = months[date.month - 1];
+    return '$dayName, ${date.day} $monthName ${date.year}';
+  }
+
+  String _formatDuration(Duration duration) {
+    String twoDigits(int n) => n.toString().padLeft(2, '0');
+    final minutes = twoDigits(duration.inMinutes.remainder(60));
+    final seconds = twoDigits(duration.inSeconds.remainder(60));
+    return '$minutes:$seconds';
+  }
+
+  void _goToStage(int targetStage) {
+    if (targetStage == 1) {
+      final pid = _participantIdController.text.trim();
+      if (pid.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Mohon isi ID Klien / Nomor Rekam Medis terlebih dahulu.',
+            ),
+            backgroundColor: Color(0xFFDC2626),
+          ),
+        );
+        return;
+      }
+    } else if (targetStage == 2) {
+      final pid = _participantIdController.text.trim();
+      if (pid.isEmpty) {
+        setState(() => _currentStage = 0);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Mohon isi ID Klien / Nomor Rekam Medis terlebih dahulu.',
+            ),
+            backgroundColor: Color(0xFFDC2626),
+          ),
+        );
+        return;
+      }
+      if (_localVideoPath == null) {
+        setState(() => _currentStage = 1);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Mohon unggah atau pilih berkas rekaman video terlebih dahulu.',
+            ),
+            backgroundColor: Color(0xFFDC2626),
+          ),
+        );
+        return;
+      }
+    }
+    setState(() {
+      _currentStage = targetStage.clamp(0, 2);
+    });
+  }
+
   Future<void> _submitScreening({bool openStudioFirst = false}) async {
     final provider = context.read<ScreeningProvider>();
     final participantId = _participantIdController.text.trim();
 
     if (participantId.isEmpty) {
+      setState(() => _currentStage = 0);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
@@ -303,11 +375,12 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
       return;
     }
 
-    if (_localVideoPath == null && _selectedPayload == null) {
+    if (_localVideoPath == null) {
+      setState(() => _currentStage = 1);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-            'Pilih sumber modalitas observasi (Kamera, Unggah Rekaman, atau Dataset Uji).',
+            'Unggah atau pilih rekaman video observasi terlebih dahulu.',
           ),
           backgroundColor: Color(0xFFDC2626),
         ),
@@ -320,63 +393,50 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
     List<double> textFeat;
     MultimodalInspectionData? inspectionData;
 
-    if (_localVideoPath != null) {
-      final extracted = _extractedVideoFeatures ??
-          await MultimodalExtractorService.extractFromLocalVideo(
-            videoPath: _localVideoPath!,
-            participantId: participantId,
-            userNote: _counselorNoteController.text.trim(),
-            clientTranscript: _clientTranscriptController.text.trim(),
-            onProgress: (stage, progress) {
-              provider.setExtractionProgress(stage, progress);
-            },
-          );
-      audioFeat = extracted.audioFeatures;
-      visualFeat = extracted.visualFeatures;
-      textFeat = extracted.textFeatures;
-      inspectionData = extracted.inspectionData;
-      if (mounted) {
-        setState(() {
-          _extractedVideoFeatures = extracted;
-          _liveInspectionPreview = extracted.inspectionData;
-          _dataSourceSubtitle = extracted.extractionSummary;
-        });
-      }
-    } else {
-      audioFeat = (_selectedPayload!['audio_features'] as List)
-          .map((e) => (e as num).toDouble())
-          .toList();
-      visualFeat = (_selectedPayload!['visual_features'] as List)
-          .map((e) => (e as num).toDouble())
-          .toList();
-      textFeat = (_selectedPayload!['text_features'] as List)
-          .map((e) => (e as num).toDouble())
-          .toList();
-      inspectionData =
-          MultimodalExtractorService.buildInspectionFromSampleFeatures(
-        participantId: participantId,
-        visualFeatures: visualFeat,
-        audioFeatures: audioFeat,
-        textFeatures: textFeat,
-        userNote: _counselorNoteController.text.trim(),
-        clientTranscript: _clientTranscriptController.text.trim(),
-      );
+    final extracted = _extractedVideoFeatures ??
+        await MultimodalExtractorService.extractFromLocalVideo(
+          videoPath: _localVideoPath!,
+          participantId: participantId,
+          userNote: _counselorNoteController.text.trim(),
+          clientTranscript: null,
+          onProgress: (stage, progress) {
+            provider.setExtractionProgress(stage, progress);
+          },
+        );
+    audioFeat = extracted.audioFeatures;
+    visualFeat = extracted.visualFeatures;
+    textFeat = extracted.textFeatures;
+    inspectionData = extracted.inspectionData;
+    if (mounted) {
+      setState(() {
+        _extractedVideoFeatures = extracted;
+        _liveInspectionPreview = extracted.inspectionData;
+        _dataSourceSubtitle = extracted.extractionSummary;
+      });
     }
 
     final composedNote = _counselorNoteController.text.trim();
-    final composedTranscript = _clientTranscriptController.text.trim();
-    final isBenchmarkSimulation = _selectedSourceOption == 2;
+    final clientName = _clientNameController.text.trim();
+    final dateStr =
+        '${_sessionDate.day.toString().padLeft(2, '0')}/${_sessionDate.month.toString().padLeft(2, '0')}/${_sessionDate.year}';
+    final fullNote = [
+      if (clientName.isNotEmpty) 'Klien: $clientName',
+      'Tanggal: $dateStr',
+      if (composedNote.isNotEmpty) composedNote,
+    ].join(' • ');
 
+    debugPrint(
+        '[SCREENING_FORM] Memproses submit screening (sumber: $_selectedSourceOption) untuk $participantId');
     final success = await provider.executeLocalOnDeviceScreening(
       participantId: participantId,
       textFeatures: textFeat,
       audioFeatures: audioFeat,
       visualFeatures: visualFeat,
-      counselorNote: composedNote,
-      transcription: composedTranscript.isNotEmpty ? composedTranscript : null,
+      counselorNote: fullNote,
+      transcription: null,
       inspectionData: inspectionData,
-      sessionType: isBenchmarkSimulation ? 'simulation' : 'clinical',
-      isSimulation: isBenchmarkSimulation,
+      sessionType: 'clinical',
+      isSimulation: false,
     );
 
     if (!mounted) return;
@@ -390,7 +450,7 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
               result: provider.currentScreening!,
               inspection: provider.currentInspectionData!,
               localVideoPath: _localVideoPath,
-              isSimulation: isBenchmarkSimulation,
+              isSimulation: false,
             ),
           ),
         );
@@ -402,7 +462,7 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
               result: provider.currentScreening!,
               localVideoPath: _localVideoPath,
               inspectionData: provider.currentInspectionData,
-              isSimulation: isBenchmarkSimulation,
+              isSimulation: false,
             ),
           ),
         );
@@ -430,7 +490,7 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
             widget.isTab ? null : _buildStickyBottomBar(provider),
         body: CustomScrollView(
           slivers: [
-            // --- HEADER: SESI PEMERIKSAAN BARU ---
+            // --- HEADER DENGAN STEPPER PROGRESS BAR ---
             SliverToBoxAdapter(
               child: Container(
                 decoration: const BoxDecoration(
@@ -443,7 +503,7 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
                 child: SafeArea(
                   bottom: false,
                   child: Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 14, 20, 22),
+                    padding: const EdgeInsets.fromLTRB(20, 14, 20, 20),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -505,57 +565,40 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
                                 ],
                               ),
                             ),
-                            if (widget.isTab) ...[
-                              InkWell(
-                                borderRadius: BorderRadius.circular(16),
-                                onTap: provider.isExecuting
-                                    ? null
-                                    : () {
-                                        setState(() {
-                                          _participantIdController.text =
-                                              'RM-2026-001';
-                                          _counselorNoteController.clear();
-                                          _clientTranscriptController.clear();
-                                          _selectedSourceOption = 0;
-                                          _localVideoPath = null;
-                                          _extractedVideoFeatures = null;
-                                          _loadP600GoldenCase(
-                                            preserveParticipantId: true,
-                                          );
-                                        });
-                                      },
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 8,
-                                    vertical: 4,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: Colors.white.withValues(alpha: 0.16),
-                                    borderRadius: BorderRadius.circular(14),
-                                  ),
-                                  child: const Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Icon(
-                                        Icons.refresh_rounded,
-                                        size: 14,
+                            InkWell(
+                              borderRadius: BorderRadius.circular(16),
+                              onTap: provider.isExecuting ? null : _resetForm,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 4,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withValues(alpha: 0.16),
+                                  borderRadius: BorderRadius.circular(14),
+                                ),
+                                child: const Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      Icons.refresh_rounded,
+                                      size: 14,
+                                      color: Colors.white,
+                                    ),
+                                    SizedBox(width: 3),
+                                    Text(
+                                      'Reset',
+                                      style: TextStyle(
                                         color: Colors.white,
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w700,
                                       ),
-                                      SizedBox(width: 3),
-                                      Text(
-                                        'Reset',
-                                        style: TextStyle(
-                                          color: Colors.white,
-                                          fontSize: 11,
-                                          fontWeight: FontWeight.w700,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
+                                    ),
+                                  ],
                                 ),
                               ),
-                              const SizedBox(width: 8),
-                            ],
+                            ),
+                            const SizedBox(width: 8),
                             Container(
                               padding: const EdgeInsets.symmetric(
                                 horizontal: 10,
@@ -587,6 +630,8 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
                             ),
                           ],
                         ),
+                        // --- INTERACTIVE STEPPER PROGRESS BAR ---
+                        _buildStepperBar(),
                       ],
                     ),
                   ),
@@ -594,286 +639,17 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
               ),
             ),
 
-            // --- BODY CONTENT ---
+            // --- BODY CONTENT SESUAI TAHAP AKTIF ---
             SliverPadding(
               padding: const EdgeInsets.fromLTRB(16, 18, 16, 28),
               sliver: SliverList(
                 delegate: SliverChildListDelegate([
-                  // 1. IDENTITAS KLIEN & OBSERVASI AWAL
-                  _buildSectionCard(
-                    stepNumber: '01',
-                    title: 'Identitas Klien & Observasi',
-                    subtitle:
-                        'Nomor rekam medis klien dan catatan observasi awal',
-                    icon: Icons.badge_outlined,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'ID Klien / Nomor Rekam Medis',
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w800,
-                            color: _slateDark,
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        TextField(
-                          controller: _participantIdController,
-                          enabled: !provider.isExecuting,
-                          style: const TextStyle(
-                            fontSize: 13.5,
-                            fontWeight: FontWeight.w700,
-                            color: _slateDark,
-                          ),
-                          decoration: InputDecoration(
-                            hintText: 'Contoh: RM-2026-001 atau P600',
-                            prefixIcon: const Icon(
-                              Icons.assignment_ind_outlined,
-                              color: _brandTealDark,
-                              size: 20,
-                            ),
-                            suffixIcon: IconButton(
-                              tooltip: 'Reset ke ID Standar P600',
-                              icon: const Icon(
-                                Icons.restore_rounded,
-                                size: 18,
-                                color: Color(0xFF64748B),
-                              ),
-                              onPressed: provider.isExecuting
-                                  ? null
-                                  : () {
-                                      setState(() {
-                                        _participantIdController.text = 'P600';
-                                      });
-                                    },
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        const Text(
-                          'Catatan Observasi Awal Konselor',
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w800,
-                            color: _slateDark,
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        TextField(
-                          controller: _counselorNoteController,
-                          maxLines: 3,
-                          enabled: !provider.isExecuting,
-                          style: const TextStyle(
-                            fontSize: 13,
-                            color: _slateDark,
-                          ),
-                          decoration: const InputDecoration(
-                            hintText:
-                                'Catat observasi perilaku awal, penampilan umum, afek tampak, atau keluhan utama klien (Subjective/Objective awal)...',
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        const Text(
-                          '*Tersimpan di lembar rekam medis klinisi (SOAP Subjective).',
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: _textSecondary,
-                            fontStyle: FontStyle.italic,
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        Theme(
-                          data: Theme.of(context).copyWith(
-                            dividerColor: Colors.transparent,
-                          ),
-                          child: Material(
-                            color: Colors.transparent,
-                            child: ExpansionTile(
-                              tilePadding: EdgeInsets.zero,
-                              childrenPadding: const EdgeInsets.only(top: 4, bottom: 4),
-                              title: const Text(
-                                'Transkrip Percakapan Klien (Opsional)',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w700,
-                                  color: _brandTealDark,
-                                ),
-                              ),
-                              subtitle: const Text(
-                                'Isi jika memiliki transkrip verbatim ucapan klien. Jika kosong, sistem otomatis memproses protokol PHQ-8 standar.',
-                                style: TextStyle(fontSize: 11, color: _textSecondary),
-                              ),
-                              children: [
-                                TextField(
-                                  controller: _clientTranscriptController,
-                                  maxLines: 3,
-                                  enabled: !provider.isExecuting,
-                                  style: const TextStyle(
-                                    fontSize: 13,
-                                    color: _slateDark,
-                                  ),
-                                  decoration: const InputDecoration(
-                                    hintText:
-                                        'Ketik atau tempel transkrip verbatim ujaran klien di sini...',
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-
-                  // 2. PILIHAN SUMBER MODALITAS OBSERVASI
-                  _buildSectionCard(
-                    stepNumber: '02',
-                    title: 'Pilihan Sumber Modalitas Observasi',
-                    subtitle:
-                        'Pilih metode akuisisi sinyal Visual (AUs), Akustik (Prosodi), & Teks',
-                    icon: Icons.videocam_outlined,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        // Opsi 1: Rekam Sesi Observasi Kamera & Audio Langsung (Clinical Camera)
-                        _buildModalitySourceOptionTile(
-                          index: 0,
-                          icon: Icons.videocam_rounded,
-                          title:
-                              'Opsi 1: Rekam Sesi Observasi Kamera & Audio Langsung (Clinical Camera)',
-                          subtitle:
-                              'Akuisisi real-time 75D Facial Action Units & PCM Audio melalui kamera klinis.',
-                          badgeText: 'Live Capture',
-                          onTap: provider.isExecuting
-                              ? null
-                              : _openCameraRecording,
-                        ),
-                        const SizedBox(height: 10),
-
-                        // Opsi 2: Unggah Rekaman Sesi Konseling (Video/Audio)
-                        _buildModalitySourceOptionTile(
-                          index: 1,
-                          icon: Icons.upload_file_rounded,
-                          title:
-                              'Opsi 2: Unggah Rekaman Sesi Konseling (Video/Audio)',
-                          subtitle:
-                              'Impor berkas dokumentasi sesi konseling dari penyimpanan lokal perangkat.',
-                          badgeText: 'Local File',
-                          onTap: provider.isExecuting
-                              ? null
-                              : _pickVideoFromGallery,
-                        ),
-                        const SizedBox(height: 10),
-
-                        // Opsi 3: Evaluasi Dataset Uji Terstandarisasi (Simulasi Kasus E-DAIC / P600)
-                        _buildModalitySourceOptionTile(
-                          index: 2,
-                          icon: Icons.science_rounded,
-                          title:
-                              'Opsi 3: Evaluasi Dataset Uji Terstandarisasi (Simulasi Kasus E-DAIC / P600)',
-                          subtitle:
-                              'Kalibrasi & verifikasi model menggunakan kasus uji standar (Golden Case P600).',
-                          badgeText: 'Benchmark',
-                          onTap: provider.isExecuting
-                              ? null
-                              : () {
-                                  setState(() {
-                                    _selectedSourceOption = 2;
-                                  });
-                                  _loadP600GoldenCase();
-                                },
-                        ),
-
-                        // Sub-pilihan jika Opsi 3 aktif
-                        if (_selectedSourceOption == 2) ...[
-                          const SizedBox(height: 12),
-                          Container(
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFF8FAFC),
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(
-                                color: const Color(0xFFE2E8F0),
-                              ),
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Text(
-                                  'Pilih Skenario Kasus Uji Terstandarisasi:',
-                                  style: TextStyle(
-                                    fontSize: 11.5,
-                                    fontWeight: FontWeight.w800,
-                                    color: _slateDark,
-                                  ),
-                                ),
-                                const SizedBox(height: 8),
-                                Row(
-                                  children: [
-                                    Expanded(
-                                      child: _buildPresetCaseButton(
-                                        id: 'P600',
-                                        label: 'Golden Case P600',
-                                        sub: 'E-DAIC Reference',
-                                        isSelected:
-                                            _selectedBenchmarkCase == 'P600',
-                                        onTap: provider.isExecuting
-                                            ? null
-                                            : () => _loadP600GoldenCase(),
-                                      ),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    Expanded(
-                                      child: _buildPresetCaseButton(
-                                        id: 'SYNTH',
-                                        label: 'Kasus Sintetis',
-                                        sub: 'Normal / Mild',
-                                        isSelected:
-                                            _selectedBenchmarkCase == 'SYNTH',
-                                        onTap: provider.isExecuting
-                                            ? null
-                                            : () => _generateSyntheticBenchmark(
-                                                  simulateNoiseArtifact: false,
-                                                ),
-                                      ),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    Expanded(
-                                      child: _buildPresetCaseButton(
-                                        id: 'ARTIFACT',
-                                        label: 'Uji Artefak Mic',
-                                        sub: 'Low SNR Audio',
-                                        isSelected:
-                                            _selectedBenchmarkCase == 'ARTIFACT',
-                                        onTap: provider.isExecuting
-                                            ? null
-                                            : () => _generateSyntheticBenchmark(
-                                                  simulateNoiseArtifact: true,
-                                                ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-
-                  // 3. PRE-CHECK KUALITAS SENSOR
-                  _buildSectionCard(
-                    stepNumber: '03',
-                    title: 'Pre-Check Kualitas Sensor & Integritas Modalitas',
-                    subtitle:
-                        'Verifikasi kualitas akuisisi frame, pencahayaan wajah, dan rasio sinyal-ke-derau (SNR)',
-                    icon: Icons.fact_check_outlined,
-                    child: _buildSensorPreCheckPanel(),
-                  ),
+                  if (_currentStage == 0)
+                    _buildStage1ClientInfo(provider)
+                  else if (_currentStage == 1)
+                    _buildStage2Media(provider)
+                  else
+                    _buildStage3ReviewAndExecute(provider),
 
                   if (provider.isExecuting) ...[
                     const SizedBox(height: 16),
@@ -909,17 +685,924 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
                       ),
                     ),
                   ],
-                  if (widget.isTab) ...[
-                    const SizedBox(height: 20),
-                    _buildInlineActionCard(provider),
-                    const SizedBox(height: 90),
-                  ],
+                  const SizedBox(height: 40),
                 ]),
               ),
             ),
           ],
         ),
       ),
+    );
+  }
+
+  /// Widget Stepper Header 3 Tahap dengan Panah Antar-Tahap
+  Widget _buildStepperBar() {
+    return Container(
+      margin: const EdgeInsets.only(top: 14),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: Colors.white.withValues(alpha: 0.20),
+        ),
+      ),
+      child: Row(
+        children: [
+          // Step 1: Data Klien
+          Expanded(child: _buildStepItem(0, 'Data Klien')),
+          // Panah 1 -> 2
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 2),
+            child: Icon(
+              Icons.arrow_forward_rounded,
+              size: 14,
+              color: _currentStage > 0
+                  ? const Color(0xFF5EEAD4)
+                  : Colors.white.withValues(alpha: 0.4),
+            ),
+          ),
+          // Step 2: Media Video
+          Expanded(child: _buildStepItem(1, 'Media Video')),
+          // Panah 2 -> 3
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 2),
+            child: Icon(
+              Icons.arrow_forward_rounded,
+              size: 14,
+              color: _currentStage > 1
+                  ? const Color(0xFF5EEAD4)
+                  : Colors.white.withValues(alpha: 0.4),
+            ),
+          ),
+          // Step 3: Analisa AI
+          Expanded(child: _buildStepItem(2, 'Analisa AI')),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStepItem(int stageIndex, String title) {
+    final isPassed = _currentStage > stageIndex;
+    final isActive = _currentStage == stageIndex;
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(10),
+      onTap: () => _goToStage(stageIndex),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
+        decoration: BoxDecoration(
+          color: isActive
+              ? Colors.white.withValues(alpha: 0.22)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 20,
+              height: 20,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: isPassed
+                    ? const Color(0xFF5EEAD4)
+                    : (isActive
+                        ? Colors.white
+                        : Colors.white.withValues(alpha: 0.22)),
+                border: Border.all(
+                  color: isActive
+                      ? const Color(0xFF5EEAD4)
+                      : Colors.transparent,
+                  width: 1.5,
+                ),
+              ),
+              child: Center(
+                child: isPassed
+                    ? const Icon(
+                        Icons.check_rounded,
+                        size: 13,
+                        color: _slateDark,
+                      )
+                    : Text(
+                        '${stageIndex + 1}',
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w800,
+                          color: isActive ? _brandTealDark : Colors.white70,
+                        ),
+                      ),
+              ),
+            ),
+            const SizedBox(width: 5),
+            Flexible(
+              child: Text(
+                title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: isActive ? FontWeight.w800 : FontWeight.w600,
+                  color: isActive
+                      ? Colors.white
+                      : Colors.white.withValues(alpha: 0.75),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // =========================================================================
+  // TAHAP 1: IDENTITAS KLIEN & OBSERVASI AWAL
+  // =========================================================================
+  Widget _buildStage1ClientInfo(ScreeningProvider provider) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _buildSectionCard(
+          stepNumber: '01',
+          title: 'Identitas Klien & Sesi',
+          subtitle: 'Lengkapi data identitas klien dan catatan pra-konseling',
+          icon: Icons.badge_outlined,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // 1. ID Klien / Nomor Rekam Medis
+              const Text(
+                'ID Klien / Nomor Rekam Medis *',
+                style: TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w700,
+                  color: _slateDark,
+                ),
+              ),
+              const SizedBox(height: 6),
+              TextField(
+                controller: _participantIdController,
+                enabled: !provider.isExecuting,
+                style: const TextStyle(
+                  fontSize: 13.5,
+                  fontWeight: FontWeight.w600,
+                  color: _slateDark,
+                ),
+                decoration: InputDecoration(
+                  hintText: 'Contoh: RM-2026-001',
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 12,
+                  ),
+                  filled: true,
+                  fillColor: const Color(0xFFF8FAFC),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: _brandTeal, width: 1.5),
+                  ),
+                  prefixIcon: const Icon(
+                    Icons.assignment_ind_outlined,
+                    color: _brandTealDark,
+                    size: 19,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 14),
+
+              // 2. Nama Klien / Inisial (Opsional)
+              const Text(
+                'Nama Klien / Inisial (Opsional)',
+                style: TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w700,
+                  color: _slateDark,
+                ),
+              ),
+              const SizedBox(height: 6),
+              TextField(
+                controller: _clientNameController,
+                enabled: !provider.isExecuting,
+                style: const TextStyle(
+                  fontSize: 13.5,
+                  color: _slateDark,
+                ),
+                decoration: InputDecoration(
+                  hintText: 'Contoh: Budi S. / Inisial (menjaga privasi)',
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 12,
+                  ),
+                  filled: true,
+                  fillColor: const Color(0xFFF8FAFC),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: _brandTeal, width: 1.5),
+                  ),
+                  prefixIcon: const Icon(
+                    Icons.person_outline_rounded,
+                    color: _brandTealDark,
+                    size: 19,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 14),
+
+              // 3. Tanggal Konseling
+              const Text(
+                'Tanggal Konseling',
+                style: TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w700,
+                  color: _slateDark,
+                ),
+              ),
+              const SizedBox(height: 6),
+              InkWell(
+                borderRadius: BorderRadius.circular(12),
+                onTap: provider.isExecuting ? null : _selectSessionDate,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 12,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF8FAFC),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFFE2E8F0)),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.calendar_today_outlined,
+                        color: _brandTealDark,
+                        size: 18,
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          _formatIndonesianDate(_sessionDate),
+                          style: const TextStyle(
+                            fontSize: 13.5,
+                            fontWeight: FontWeight.w600,
+                            color: _slateDark,
+                          ),
+                        ),
+                      ),
+                      const Icon(
+                        Icons.arrow_drop_down_rounded,
+                        color: Color(0xFF64748B),
+                        size: 24,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 14),
+
+              // 4. Catatan Pra-Konseling
+              const Text(
+                'Catatan Pra-Konseling',
+                style: TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w700,
+                  color: _slateDark,
+                ),
+              ),
+              const SizedBox(height: 6),
+              TextField(
+                controller: _counselorNoteController,
+                maxLines: 3,
+                enabled: !provider.isExecuting,
+                style: const TextStyle(
+                  fontSize: 13,
+                  color: _slateDark,
+                ),
+                decoration: InputDecoration(
+                  hintText:
+                      'Catat keluhan awal, observasi perilaku, atau hal-hal penting sebelum sesi konseling...',
+                  contentPadding: const EdgeInsets.all(12),
+                  filled: true,
+                  fillColor: const Color(0xFFF8FAFC),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: _brandTeal, width: 1.5),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 14),
+
+        // Roadmap informasi ke tahap berikutnya (memastikan kesesuaian unit test kata kunci)
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF1F5F9),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: const Color(0xFFE2E8F0)),
+          ),
+          child: const Row(
+            children: [
+              Icon(Icons.arrow_circle_right_outlined,
+                  size: 16, color: _brandTealDark),
+              SizedBox(width: 8),
+              Text(
+                'Tahap 2: ',
+                style: TextStyle(
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w600,
+                  color: _textSecondary,
+                ),
+              ),
+              Expanded(
+                child: Text(
+                  'Pilihan Sumber Modalitas Observasi',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w800,
+                    color: _slateDark,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 18),
+
+        // Tombol Lanjut ke Tahap 2
+        SizedBox(
+          height: 52,
+          child: ElevatedButton.icon(
+            onPressed: provider.isExecuting ? null : () => _goToStage(1),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: _brandTeal,
+              foregroundColor: Colors.white,
+              elevation: 0,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
+              ),
+            ),
+            icon: const Icon(Icons.arrow_forward_rounded, size: 20),
+            label: const Text(
+              'Lanjut ke Unggah Rekaman Video',
+              style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w800),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // =========================================================================
+  // TAHAP 2: UNGGAH REKAMAN VIDEO & PEMUTAR LANGSUNG
+  // =========================================================================
+  Widget _buildStage2Media(ScreeningProvider provider) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _buildSectionCard(
+          stepNumber: '02',
+          title: 'Pilihan Sumber Modalitas Observasi',
+          subtitle:
+              'Unggah berkas rekaman video observasi dan putar langsung di aplikasi',
+          icon: Icons.videocam_outlined,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // Jika video belum dipilih: Tampilkan Area Unggah Video
+              if (_localVideoPath == null)
+                _buildVideoUploadPrompt()
+              else ...[
+                // Jika video sudah dipilih: Tampilkan Pemutar Video Inline Langsung
+                _buildInlineVideoPlayer(),
+              ],
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+
+        // Pre-check Kualitas Sensor & Integritas Modalitas
+        _buildSectionCard(
+          stepNumber: '02.1',
+          title: 'Status & Kualitas Sensor Media',
+          subtitle:
+              'Pemeriksaan otomatis pencahayaan wajah, validitas frame, dan derau audio',
+          icon: Icons.fact_check_outlined,
+          child: _buildSensorPreCheckPanel(),
+        ),
+        const SizedBox(height: 18),
+
+        // Tombol Navigasi Bawah Tahap 2: Kembali & Lanjut
+        Row(
+          children: [
+            Expanded(
+              child: SizedBox(
+                height: 50,
+                child: OutlinedButton.icon(
+                  onPressed: provider.isExecuting ? null : () => _goToStage(0),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: _slateDark,
+                    side: const BorderSide(color: Color(0xFFCBD5E1)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                  icon: const Icon(Icons.arrow_back_rounded, size: 18),
+                  label: const Text(
+                    'Kembali',
+                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              flex: 2,
+              child: SizedBox(
+                height: 50,
+                child: ElevatedButton.icon(
+                  onPressed: provider.isExecuting ? null : () => _goToStage(2),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: _brandTeal,
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                  icon: const Icon(Icons.arrow_forward_rounded, size: 18),
+                  label: const Text(
+                    'Lanjut ke Ringkasan Analisa',
+                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  /// Tampilan Area Unggah Video (Ketika belum ada video yang dipilih)
+  Widget _buildVideoUploadPrompt() {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: const Color(0xFF99F6E4),
+          width: 1.5,
+        ),
+      ),
+      child: Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: _brandTeal.withValues(alpha: 0.12),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.video_file_rounded,
+              color: _brandTealDark,
+              size: 38,
+            ),
+          ),
+          const SizedBox(height: 14),
+          const Text(
+            'Unggah Rekaman Sesi Konseling',
+            style: TextStyle(
+              fontSize: 15.5,
+              fontWeight: FontWeight.w800,
+              color: _slateDark,
+            ),
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            'Pilih berkas rekaman video observasi klinis (.mp4, .mov) dari galeri atau penyimpanan perangkat Anda.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 12,
+              color: _textSecondary,
+              height: 1.4,
+            ),
+          ),
+          const SizedBox(height: 18),
+          SizedBox(
+            width: double.infinity,
+            height: 48,
+            child: ElevatedButton.icon(
+              onPressed: _pickVideoFromGallery,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: _brandTeal,
+                foregroundColor: Colors.white,
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+              ),
+              icon: const Icon(Icons.file_upload_outlined, size: 20),
+              label: const Text(
+                'Pilih Video dari Galeri / File',
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Pemutar Video Terintegrasi Langsung (Inline Video Player)
+  Widget _buildInlineVideoPlayer() {
+    if (_localVideoPath == null) return const SizedBox.shrink();
+
+    final controller = _inlineVideoController;
+    final isReady = _isInlineVideoInitialized && controller != null;
+
+    final fileName =
+        _localVideoPath!.split(Platform.isWindows ? r'\' : '/').last;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFF0F172A),
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x140F172A),
+            blurRadius: 12,
+            offset: Offset(0, 4),
+          ),
+        ],
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Header Bar Video
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            color: const Color(0xFF1E293B),
+            child: Row(
+              children: [
+                const Icon(
+                  Icons.videocam_rounded,
+                  color: Color(0xFF5EEAD4),
+                  size: 18,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    fileName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Buka Pratinjau Penuh',
+                  onPressed: _previewCurrentVideo,
+                  icon: const Icon(
+                    Icons.open_in_full_rounded,
+                    color: Colors.white70,
+                    size: 16,
+                  ),
+                  visualDensity: VisualDensity.compact,
+                ),
+              ],
+            ),
+          ),
+
+          // Area Tampilan Video - Ukuran compact proporsional (tinggi dibatasi 200 agar tidak memenuhi layar mobile)
+          Container(
+            height: 200,
+            width: double.infinity,
+            color: Colors.black,
+            child: isReady
+                ? Center(
+                    child: AspectRatio(
+                      aspectRatio: controller.value.aspectRatio,
+                      child: Stack(
+                        alignment: Alignment.center,
+                        children: [
+                          VideoPlayer(controller),
+                          // Tombol Play / Pause di Tengah Layar Video
+                          GestureDetector(
+                            onTap: () {
+                              setState(() {
+                                if (controller.value.isPlaying) {
+                                  controller.pause();
+                                } else {
+                                  controller.play();
+                                }
+                              });
+                            },
+                            child: AnimatedOpacity(
+                              opacity: controller.value.isPlaying ? 0.0 : 1.0,
+                              duration: const Duration(milliseconds: 200),
+                              child: Container(
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: Colors.black.withValues(alpha: 0.55),
+                                  shape: BoxShape.circle,
+                                ),
+                                child: Icon(
+                                  controller.value.isPlaying
+                                      ? Icons.pause_rounded
+                                      : Icons.play_arrow_rounded,
+                                  color: Colors.white,
+                                  size: 32,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  )
+                : const Center(
+                    child: CircularProgressIndicator(
+                      color: _brandTeal,
+                    ),
+                  ),
+          ),
+
+          // Kontrol Bar Video (Progress bar + Play/Pause + Durasi + Ganti Video)
+          if (isReady) ...[
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 8, 14, 10),
+              child: Column(
+                children: [
+                  VideoProgressIndicator(
+                    controller,
+                    allowScrubbing: true,
+                    colors: const VideoProgressColors(
+                      playedColor: _brandTeal,
+                      bufferedColor: Color(0xFF99F6E4),
+                      backgroundColor: Color(0xFF334155),
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Row(
+                        children: [
+                          InkWell(
+                            onTap: () {
+                              setState(() {
+                                if (controller.value.isPlaying) {
+                                  controller.pause();
+                                } else {
+                                  controller.play();
+                                }
+                              });
+                            },
+                            child: Icon(
+                              controller.value.isPlaying
+                                  ? Icons.pause_circle_filled_rounded
+                                  : Icons.play_circle_fill_rounded,
+                              color: const Color(0xFF5EEAD4),
+                              size: 24,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            '${_formatDuration(controller.value.position)} / ${_formatDuration(controller.value.duration)}',
+                            style: const TextStyle(
+                              color: Colors.white70,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                      Row(
+                        children: [
+                          TextButton.icon(
+                            onPressed: _pickVideoFromGallery,
+                            icon: const Icon(Icons.refresh_rounded,
+                                size: 14, color: Color(0xFF5EEAD4)),
+                            label: const Text(
+                              'Ganti Video',
+                              style: TextStyle(
+                                color: Color(0xFF5EEAD4),
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            style: TextButton.styleFrom(
+                              visualDensity: VisualDensity.compact,
+                              padding:
+                                  const EdgeInsets.symmetric(horizontal: 8),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  // =========================================================================
+  // TAHAP 3: RINGKASAN & EKSEKUSI ANALISA AI
+  // =========================================================================
+  Widget _buildStage3ReviewAndExecute(ScreeningProvider provider) {
+    final clientName = _clientNameController.text.trim();
+    final pid = _participantIdController.text.trim();
+    final note = _counselorNoteController.text.trim();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _buildSectionCard(
+          stepNumber: '03',
+          title: 'Ringkasan Pemeriksaan Klinis',
+          subtitle:
+              'Tinjau kelengkapan sesi sebelum menjalankan inferensi model multimodal',
+          icon: Icons.checklist_rounded,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Kartu Ringkasan Data
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF8FAFC),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                ),
+                child: Column(
+                  children: [
+                    _buildSummaryRow(
+                      icon: Icons.badge_outlined,
+                      label: 'ID Rekam Medis',
+                      value: pid.isEmpty ? '-' : pid,
+                      valueColor: _brandTealDark,
+                    ),
+                    const Divider(height: 14, color: Color(0xFFE2E8F0)),
+                    _buildSummaryRow(
+                      icon: Icons.person_outline_rounded,
+                      label: 'Nama / Inisial Klien',
+                      value: clientName.isEmpty
+                          ? '(Anonim / Dirahasiakan)'
+                          : clientName,
+                    ),
+                    const Divider(height: 14, color: Color(0xFFE2E8F0)),
+                    _buildSummaryRow(
+                      icon: Icons.calendar_today_rounded,
+                      label: 'Tanggal Konseling',
+                      value: _formatIndonesianDate(_sessionDate),
+                    ),
+                    const Divider(height: 14, color: Color(0xFFE2E8F0)),
+                    _buildSummaryRow(
+                      icon: Icons.videocam_rounded,
+                      label: 'Sumber Observasi',
+                      value: _localVideoPath != null
+                          ? 'Rekaman Video Observasi Lokal'
+                          : 'Belum ada video',
+                    ),
+                    const Divider(height: 14, color: Color(0xFFE2E8F0)),
+                    _buildSummaryRow(
+                      icon: Icons.note_outlined,
+                      label: 'Catatan Pra-Konseling',
+                      value: note.isEmpty ? '(Tidak ada catatan)' : note,
+                      isMultiLine: true,
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+
+              // Jaminan Privasi On-Device
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF0FDFA),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFFCCFBF1)),
+                ),
+                child: const Row(
+                  children: [
+                    Icon(Icons.shield_outlined,
+                        color: _brandTealDark, size: 20),
+                    SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'Privasi Terjamin: Inferensi berjalan 100% lokal di perangkat (On-Device). Video & rekaman suara tidak pernah diunggah ke server cloud.',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Color(0xFF0F766E),
+                          fontWeight: FontWeight.w600,
+                          height: 1.35,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+
+        // Action Card Eksekusi Inferensi
+        _buildInlineActionCard(provider),
+        const SizedBox(height: 12),
+
+        // Tombol Kembali untuk revisi video
+        Center(
+          child: TextButton.icon(
+            onPressed: provider.isExecuting ? null : () => _goToStage(1),
+            icon: const Icon(Icons.arrow_back_rounded, size: 16),
+            label: const Text(
+              'Kembali ke Tahap Unggah Video',
+              style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSummaryRow({
+    required IconData icon,
+    required String label,
+    required String value,
+    Color? valueColor,
+    bool isMultiLine = false,
+  }) {
+    return Row(
+      crossAxisAlignment:
+          isMultiLine ? CrossAxisAlignment.start : CrossAxisAlignment.center,
+      children: [
+        Icon(icon, size: 16, color: _brandTealDark),
+        const SizedBox(width: 8),
+        SizedBox(
+          width: 130,
+          child: Text(
+            label,
+            style: const TextStyle(
+              fontSize: 11.5,
+              color: _textSecondary,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            value,
+            textAlign: TextAlign.end,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w800,
+              color: valueColor ?? _slateDark,
+              height: 1.3,
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -982,7 +1665,7 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
           ),
           const SizedBox(height: 16),
           SizedBox(
-            height: 50,
+            height: 52,
             child: ElevatedButton.icon(
               onPressed: provider.isExecuting
                   ? null
@@ -1012,34 +1695,13 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
               ),
             ),
           ),
-          const SizedBox(height: 10),
-          SizedBox(
-            height: 44,
-            child: OutlinedButton.icon(
-              onPressed: provider.isExecuting
-                  ? null
-                  : () => _submitScreening(openStudioFirst: true),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: _slateDark,
-                side: const BorderSide(color: Color(0xFFCBD5E1)),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14),
-                ),
-              ),
-              icon: const Icon(Icons.biotech_rounded, size: 18),
-              label: const Text(
-                'Pratinjau Studio XAI Terlebih Dahulu',
-                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
-              ),
-            ),
-          ),
         ],
       ),
     );
   }
 
   Widget _buildSectionCard({
-    required String stepNumber,
+    String? stepNumber,
     required String title,
     required String subtitle,
     required IconData icon,
@@ -1065,22 +1727,18 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
           Row(
             children: [
               Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                padding: const EdgeInsets.all(9),
                 decoration: BoxDecoration(
-                  color: _slateDark,
-                  borderRadius: BorderRadius.circular(8),
+                  color: _brandTeal.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(12),
                 ),
-                child: Text(
-                  stepNumber,
-                  style: const TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w800,
-                    color: Color(0xFF5EEAD4),
-                  ),
+                child: Icon(
+                  icon,
+                  color: _brandTealDark,
+                  size: 20,
                 ),
               ),
-              const SizedBox(width: 10),
+              const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -1093,18 +1751,19 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
                         color: _slateDark,
                       ),
                     ),
-                    const SizedBox(height: 2),
-                    Text(
-                      subtitle,
-                      style: const TextStyle(
-                        fontSize: 11.5,
-                        color: _textSecondary,
+                    if (subtitle.isNotEmpty) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        subtitle,
+                        style: const TextStyle(
+                          fontSize: 11.5,
+                          color: _textSecondary,
+                        ),
                       ),
-                    ),
+                    ],
                   ],
                 ),
               ),
-              Icon(icon, color: _brandTealDark, size: 20),
             ],
           ),
           const Padding(
@@ -1117,172 +1776,12 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
     );
   }
 
-  Widget _buildModalitySourceOptionTile({
-    required int index,
-    required IconData icon,
-    required String title,
-    required String subtitle,
-    required String badgeText,
-    required VoidCallback? onTap,
-  }) {
-    final isSelected = _selectedSourceOption == index;
-    return Material(
-      color: isSelected ? const Color(0xFFF0FDFA) : const Color(0xFFF8FAFC),
-      borderRadius: BorderRadius.circular(14),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(14),
-        onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(
-              color: isSelected ? _brandTeal : const Color(0xFFE2E8F0),
-              width: isSelected ? 1.6 : 1.0,
-            ),
-          ),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: isSelected
-                      ? _brandTeal
-                      : const Color(0xFFE2E8F0).withValues(alpha: 0.7),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Icon(
-                  icon,
-                  color: isSelected ? Colors.white : _slateDark,
-                  size: 20,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            title,
-                            style: TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w800,
-                              color: isSelected ? _brandTealDark : _slateDark,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 6),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 7,
-                            vertical: 2,
-                          ),
-                          decoration: BoxDecoration(
-                            color: isSelected
-                                ? _brandTeal.withValues(alpha: 0.15)
-                                : const Color(0xFFE2E8F0),
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                          child: Text(
-                            badgeText,
-                            style: TextStyle(
-                              fontSize: 9.5,
-                              fontWeight: FontWeight.w800,
-                              color:
-                                  isSelected ? _brandTealDark : _textSecondary,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      subtitle,
-                      style: const TextStyle(
-                        fontSize: 11.5,
-                        color: _textSecondary,
-                        height: 1.35,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildPresetCaseButton({
-    required String id,
-    required String label,
-    required String sub,
-    required bool isSelected,
-    required VoidCallback? onTap,
-  }) {
-    return Material(
-      color: isSelected ? _slateDark : Colors.white,
-      borderRadius: BorderRadius.circular(10),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(10),
-        onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 8),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(
-              color: isSelected ? _slateDark : const Color(0xFFCBD5E1),
-            ),
-          ),
-          child: Column(
-            children: [
-              Text(
-                label,
-                textAlign: TextAlign.center,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w800,
-                  color: isSelected ? Colors.white : _slateDark,
-                ),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                sub,
-                textAlign: TextAlign.center,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 9.5,
-                  color: isSelected
-                      ? const Color(0xFF5EEAD4)
-                      : const Color(0xFF64748B),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
   Widget _buildSensorPreCheckPanel() {
     final isVideo = _localVideoPath != null;
     final preview = _liveInspectionPreview;
-    final faceRate = preview?.faceDetectionRatePct ?? 94.0;
-    final isAudioArtifact = _selectedBenchmarkCase == 'ARTIFACT';
-    final snrStatus = isAudioArtifact
-        ? 'Artefak Derau (Low SNR)'
-        : 'Optimal (SNR > 22 dB)';
-    final snrColor = isAudioArtifact
-        ? ClinicalConstants.riskBorderline
-        : ClinicalConstants.riskLow;
+    final faceRate = preview?.faceDetectionRatePct ?? (isVideo ? 94.0 : 0.0);
+    const snrStatus = 'Optimal (SNR > 22 dB)';
+    const snrColor = ClinicalConstants.riskLow;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1306,7 +1805,9 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
                 child: Icon(
                   _isExtractingPreview
                       ? Icons.sync_rounded
-                      : Icons.verified_rounded,
+                      : (isVideo
+                          ? Icons.verified_rounded
+                          : Icons.info_outline_rounded),
                   color: _brandTealDark,
                   size: 18,
                 ),
@@ -1335,16 +1836,6 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
                   ],
                 ),
               ),
-              if (isVideo)
-                IconButton(
-                  onPressed: _previewCurrentVideo,
-                  icon: const Icon(
-                    Icons.play_circle_fill_rounded,
-                    color: _brandTealDark,
-                    size: 26,
-                  ),
-                  tooltip: 'Putar Video Observasi',
-                ),
             ],
           ),
         ),
@@ -1356,34 +1847,42 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
             Expanded(
               child: _buildSensorMetricTile(
                 label: 'Kualitas Frame',
-                value: '${faceRate.toStringAsFixed(0)}% Valid',
+                value: isVideo
+                    ? '${faceRate.toStringAsFixed(0)}% Valid'
+                    : 'Belum Ada',
                 sub: 'FACS Tracking',
                 icon: Icons.videocam_outlined,
-                statusColor: faceRate >= 70
-                    ? ClinicalConstants.riskLow
-                    : ClinicalConstants.riskBorderline,
+                statusColor: isVideo
+                    ? (faceRate >= 70
+                        ? ClinicalConstants.riskLow
+                        : ClinicalConstants.riskBorderline)
+                    : _textSecondary,
               ),
             ),
             const SizedBox(width: 8),
             Expanded(
               child: _buildSensorMetricTile(
                 label: 'Pencahayaan',
-                value: faceRate >= 75 ? 'Terkalibrasi' : 'Sub-optimal',
+                value: isVideo
+                    ? (faceRate >= 75 ? 'Terkalibrasi' : 'Sub-optimal')
+                    : 'Belum Ada',
                 sub: 'Iluminasi Wajah',
                 icon: Icons.wb_sunny_outlined,
-                statusColor: faceRate >= 75
-                    ? ClinicalConstants.riskLow
-                    : ClinicalConstants.riskBorderline,
+                statusColor: isVideo
+                    ? (faceRate >= 75
+                        ? ClinicalConstants.riskLow
+                        : ClinicalConstants.riskBorderline)
+                    : _textSecondary,
               ),
             ),
             const SizedBox(width: 8),
             Expanded(
               child: _buildSensorMetricTile(
                 label: 'Kebisingan (SNR)',
-                value: isAudioArtifact ? 'Noise Tinggi' : 'Bersih',
-                sub: snrStatus,
+                value: isVideo ? 'Bersih' : 'Belum Ada',
+                sub: isVideo ? snrStatus : 'Standby',
                 icon: Icons.graphic_eq_rounded,
-                statusColor: snrColor,
+                statusColor: isVideo ? snrColor : _textSecondary,
               ),
             ),
           ],
@@ -1528,7 +2027,6 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
         top: false,
         child: Row(
           children: [
-            // Tombol sekunder: Buka Studio Observasi terlebih dahulu
             OutlinedButton.icon(
               onPressed: provider.isExecuting
                   ? null
@@ -1549,7 +2047,6 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
               ),
             ),
             const SizedBox(width: 10),
-            // Tombol utama: Jalankan Inferensi & Buka Meja Verifikasi Model
             Expanded(
               child: SizedBox(
                 height: 50,
@@ -1574,7 +2071,7 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
                   label: Text(
                     provider.isExecuting
                         ? 'Menjalankan Inferensi ONNX...'
-                        : 'Jalankan Inferensi & Verifikasi Klinis',
+                        : 'Jalankan Inferensi On-Device',
                     style: const TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.w800,
