@@ -236,7 +236,7 @@ class MainActivity : FlutterActivity() {
 
                 normFace.recycle()
                 faceCrop.recycle()
-                rgb565.recycle()
+                rgb565?.recycle()
                 scaled.recycle()
                 rawBitmap.recycle()
             }
@@ -327,7 +327,7 @@ class MainActivity : FlutterActivity() {
     private fun decodeAudioTrackPcm(videoPath: String, targetSampleRate: Int): Map<String, Any> {
         val extractor = MediaExtractor()
         var codec: MediaCodec? = null
-        val samplesOut = ArrayList<Double>(targetSampleRate * 45)
+        val samplesOut = ArrayList<Double>(32768)
         var sourceSampleRate = 44100
         var channelCount = 1
 
