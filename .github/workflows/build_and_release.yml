@@ -9,9 +9,9 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: 'Tag name for Release (e.g. v1.0.0 or latest)'
+        description: 'Tag name for Release (e.g. v1.0.0 or v0.1.0)'
         required: false
-        default: 'v1.0.0'
+        default: 'v0.1.0'
 
 permissions:
   contents: write
@@ -77,6 +77,12 @@ jobs:
       - name: Install Dependencies
         run: flutter pub get
 
+      - name: Install CocoaPods
+        run: |
+          cd ios
+          pod install --repo-update
+          cd ..
+
       - name: Build iOS Application (Unsigned)
         run: flutter build ios --release --no-codesign
 
@@ -100,16 +106,18 @@ jobs:
     name: Publish to GitHub Releases
     needs: [build-android, build-ios]
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
+    if: always() && !cancelled() && (needs.build-android.result == 'success' || needs.build-ios.result == 'success')
     steps:
       - name: Download Android Artifact
         uses: actions/download-artifact@v4
+        if: needs.build-android.result == 'success'
         with:
           name: fedmind-android-apk
           path: release_files
 
       - name: Download iOS Artifact
         uses: actions/download-artifact@v4
+        if: needs.build-ios.result == 'success'
         with:
           name: fedmind-ios-ipa
           path: release_files
@@ -122,7 +130,7 @@ jobs:
           elif [ -n "${{ github.event.inputs.release_tag }}" ]; then
             TAG_NAME="${{ github.event.inputs.release_tag }}"
           else
-            TAG_NAME="latest"
+            TAG_NAME="v0.1.0"
           fi
           echo "TAG=$TAG_NAME" >> $GITHUB_OUTPUT
 
@@ -136,16 +144,12 @@ jobs:
 
             Rilis resmi aplikasi prototipe FedMind Mobile untuk skrining risiko depresi multimodal on-device dengan Explainable AI (XAI).
 
-            ### 📦 File Unduhan Langsung:
-            - **Android**: [`fedmind-app-release.apk`](https://github.com/Pannavira/fedmind-mobile-app/releases/download/${{ steps.tag_info.outputs.TAG }}/fedmind-app-release.apk)
-              - *Cara pasang*: Unduh langsung di HP Android, buka file `.apk`, dan izinkan "Install from unknown sources".
-            - **iOS (iPhone/iPad)**: [`fedmind-ios.ipa`](https://github.com/Pannavira/fedmind-mobile-app/releases/download/${{ steps.tag_info.outputs.TAG }}/fedmind-ios.ipa)
-              - *Cara pasang*: Unduh file `.ipa`, pasang ke iPhone menggunakan tool sideloading gratis seperti [Sideloadly](https://sideloadly.io) atau [AltStore](https://altstore.io).
+            ### 📦 File Unduhan Tersedia:
+            - **Android (`fedmind-app-release.apk`)**: Unduh langsung di HP Android, buka file `.apk`, dan izinkan "Install from unknown sources".
+            - **iOS (`fedmind-ios.ipa`)**: Unduh file `.ipa`, pasang ke iPhone menggunakan tool sideloading gratis seperti [Sideloadly](https://sideloadly.io) atau [AltStore](https://altstore.io).
 
             ---
             *Otomatis dibangun dengan GitHub Actions (Flutter Stable, ONNX Runtime Edge Engine).*
-          files: |
-            release_files/fedmind-app-release.apk
-            release_files/fedmind-ios.ipa
+          files: release_files/*
           draft: false
           prerelease: false
