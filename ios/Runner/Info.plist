@@ -66,5 +66,11 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>NSCameraUsageDescription</key>
+	<string>Aplikasi FedMind memerlukan izin akses kamera untuk merekam ekspresi wajah dan ekstraksi biometrik visual (Action Units) pada sesi skrining depresi.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Aplikasi FedMind memerlukan izin akses mikrofon untuk merekam audio dan analisis prosodi vokal akustik pada sesi skrining depresi.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Aplikasi FedMind memerlukan izin akses galeri untuk memilih sampel video dan audio rekaman klinis.</string>
 </dict>
 </plist>
