@@ -47,12 +47,16 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
   final _clientNameController = TextEditingController();
   DateTime _sessionDate = DateTime.now();
   final _counselorNoteController = TextEditingController();
+  // Transkrip tuturan kini 100% otomatis via On-Device Whisper Base (ID ➔ EN MentalBERT)
 
   // Sumber data pemeriksaan (1 = Unggah Video Lokal)
   int _selectedSourceOption = 1;
 
   // State video lokal & pratinjau modalitas riil di perangkat
   String? _localVideoPath;
+  String? _lastExtractedVideoPath;
+  String? _lastExtractedNote;
+  String? _lastExtractedTranscript;
   ExtractedMultimodalFeatures? _extractedVideoFeatures;
   MultimodalInspectionData? _liveInspectionPreview;
   bool _isExtractingPreview = false;
@@ -64,6 +68,7 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
   VideoPlayerController? _inlineVideoController;
   bool _isInlineVideoInitialized = false;
   bool _isPlaying = false;
+  bool _isSubmitting = false;
 
   @override
   void initState() {
@@ -102,6 +107,9 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
       _counselorNoteController.clear();
       _selectedSourceOption = 1;
       _localVideoPath = null;
+      _lastExtractedVideoPath = null;
+      _lastExtractedNote = null;
+      _lastExtractedTranscript = null;
       _extractedVideoFeatures = null;
       _liveInspectionPreview = null;
       _isInlineVideoInitialized = false;
@@ -182,58 +190,75 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
 
   Future<void> _processLocalVideo(String videoPath) async {
     final sizeMb = await LocalStorageService.getFileSizeInMb(videoPath);
-    final pid = _participantIdController.text.trim().isEmpty
-        ? 'RM-2026-001'
-        : _participantIdController.text.trim();
 
     setState(() {
       _localVideoPath = videoPath;
-      _isExtractingPreview = true;
+      _extractedVideoFeatures = null;
+      _isExtractingPreview = false;
       _dataSourceTitle =
-          'Mengekstrak Biometrik Video Observasi (${sizeMb.toStringAsFixed(1)} MB)...';
+          'Rekaman Observasi Tersimpan (${sizeMb.toStringAsFixed(1)} MB)';
       _dataSourceSubtitle =
-          'Akuisisi Action Units (FACS), kontur prosodi audio & transkrip teks...';
+          'Tersimpan privat di perangkat lokal • Siap diproses on-device.';
     });
 
-    // Inisialisasi pemutar video inline secara langsung
+    // Inisialisasi pemutar video inline secara langsung tanpa komputasi berat di preview
     await _initInlineVideo(videoPath);
+  }
 
-    try {
-      final extracted = await MultimodalExtractorService.extractFromLocalVideo(
-        videoPath: videoPath,
-        participantId: pid,
-        userNote: _counselorNoteController.text.trim(),
-        clientTranscript: null,
-      );
-
-      if (!mounted) return;
-      setState(() {
-        _extractedVideoFeatures = extracted;
-        _liveInspectionPreview = extracted.inspectionData;
-        _isExtractingPreview = false;
-        _dataSourceTitle =
-            'Rekaman Observasi Tervalidasi (${sizeMb.toStringAsFixed(1)} MB)';
-        _dataSourceSubtitle = extracted.extractionSummary;
-      });
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Pre-check sensor selesai: ${extracted.facesDetected}/${extracted.framesAnalyzed} frame FACS valid & sinyal prosodi siap.',
-          ),
-          backgroundColor: _brandTealDark,
-          duration: const Duration(seconds: 3),
+  Future<void> _editTranscriptDialog() async {
+    if (_localVideoPath == null || _liveInspectionPreview == null) return;
+    final controller =
+        TextEditingController(text: _liveInspectionPreview!.fullTranscript);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text(
+          'Edit Transkrip Tuturan (Bahasa Indonesia)',
+          style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800),
         ),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _isExtractingPreview = false;
-        _dataSourceTitle =
-            'Rekaman Sesi Tersimpan (${sizeMb.toStringAsFixed(1)} MB)';
-        _dataSourceSubtitle =
-            'Tersimpan di penyimpanan klinis lokal • Siap diputar & dieksekusi.';
-      });
+        content: TextField(
+          controller: controller,
+          maxLines: 4,
+          decoration: const InputDecoration(
+            hintText: 'Sesuaikan kalimat tuturan pasien...',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Batal'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(backgroundColor: _brandTealDark),
+            child: const Text('Simpan & Selaraskan',
+                style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true && mounted) {
+      final newText = controller.text.trim();
+      if (newText.isNotEmpty) {
+        final pid = _participantIdController.text.trim().isEmpty
+            ? 'RM-2026-001'
+            : _participantIdController.text.trim();
+        final currentNote = _counselorNoteController.text.trim();
+        final reExtracted =
+            await MultimodalExtractorService.extractFromLocalVideo(
+          videoPath: _localVideoPath!,
+          participantId: pid,
+          userNote: currentNote,
+          clientTranscript: newText,
+        );
+        setState(() {
+          _extractedVideoFeatures = reExtracted;
+          _liveInspectionPreview = reExtracted.inspectionData;
+          _lastExtractedTranscript = reExtracted.inspectionData.fullTranscript;
+        });
+      }
     }
   }
 
@@ -358,11 +383,245 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
     });
   }
 
+  void _showRealtimeProgressDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        return PopScope(
+          canPop: false,
+          child: Dialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(24),
+            ),
+            elevation: 10,
+            backgroundColor: Colors.white,
+            insetPadding:
+                const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+            child: Consumer<ScreeningProvider>(
+              builder: (context, provider, _) {
+                final double progress =
+                    (provider.executionProgress ?? 0.08).clamp(0.0, 1.0);
+                final int percent = (progress * 100).toInt();
+                final String status = provider
+                        .executionStatusMessage.isNotEmpty
+                    ? provider.executionStatusMessage
+                    : 'Mempersiapkan pipeline komputasi lokal...';
+
+                return Padding(
+                  padding: const EdgeInsets.all(22.0),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // Header Badge
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: _brandTealDark.withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                            child: const Icon(
+                              Icons.psychology_outlined,
+                              color: _brandTealDark,
+                              size: 26,
+                            ),
+                          ),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'Inferensi On-Device',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w800,
+                                    color: Color(0xFF0F172A),
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  '100% Offline • Komputasi Lokal',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.grey.shade600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 10, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFCCFBF1),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Text(
+                              '$percent%',
+                              style: const TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w900,
+                                color: _brandTealDark,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 18),
+
+                      // Progress Bar
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: LinearProgressIndicator(
+                          value: progress,
+                          minHeight: 8,
+                          color: _brandTealDark,
+                          backgroundColor: const Color(0xFFE2E8F0),
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+
+                      // Status Aktif
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF8FAFC),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: const Color(0xFFE2E8F0)),
+                        ),
+                        child: Row(
+                          children: [
+                            const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: _brandTealDark,
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                status,
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: Color(0xFF1E293B),
+                                ),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+
+                      // 5 Tahap Checklist
+                      _buildProgressStepRow(
+                        title: '1. Frame Video & FACS Wajah (75D)',
+                        isDone: progress >= 0.45,
+                        isActive: progress < 0.45,
+                      ),
+                      const SizedBox(height: 8),
+                      _buildProgressStepRow(
+                        title: '2. Analisis Prosodi Akustik & MFCC (248D)',
+                        isDone: progress >= 0.65,
+                        isActive: progress >= 0.45 && progress < 0.65,
+                      ),
+                      const SizedBox(height: 8),
+                      _buildProgressStepRow(
+                        title: '3. Transkripsi Wicara Whisper On-Device',
+                        isDone: progress >= 0.85,
+                        isActive: progress >= 0.65 && progress < 0.85,
+                      ),
+                      const SizedBox(height: 8),
+                      _buildProgressStepRow(
+                        title: '4. Semantik MentalBERT 768D (Translasi)',
+                        isDone: progress >= 0.94,
+                        isActive: progress >= 0.85 && progress < 0.94,
+                      ),
+                      const SizedBox(height: 8),
+                      _buildProgressStepRow(
+                        title: '5. Eksekusi ONNX & Dekomposisi Shapley',
+                        isDone: progress >= 0.99,
+                        isActive: progress >= 0.94 && progress < 0.99,
+                      ),
+                      const SizedBox(height: 16),
+
+                      Text(
+                        'Harap tunggu sebentar, komputasi AI berjalan langsung di CPU perangkat Anda.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontStyle: FontStyle.italic,
+                          color: Colors.grey.shade500,
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildProgressStepRow({
+    required String title,
+    required bool isDone,
+    required bool isActive,
+  }) {
+    IconData icon;
+    Color color;
+    if (isDone) {
+      icon = Icons.check_circle_rounded;
+      color = const Color(0xFF10B981);
+    } else if (isActive) {
+      icon = Icons.radio_button_checked;
+      color = _brandTealDark;
+    } else {
+      icon = Icons.radio_button_unchecked;
+      color = const Color(0xFFCBD5E1);
+    }
+
+    return Row(
+      children: [
+        Icon(icon, size: 16, color: color),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            title,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight:
+                  isDone || isActive ? FontWeight.w700 : FontWeight.w500,
+              color: isDone
+                  ? const Color(0xFF0F172A)
+                  : (isActive ? _brandTealDark : const Color(0xFF94A3B8)),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   Future<void> _submitScreening({bool openStudioFirst = false}) async {
+    if (_isSubmitting) return;
+    _isSubmitting = true;
+
     final provider = context.read<ScreeningProvider>();
     final participantId = _participantIdController.text.trim();
 
     if (participantId.isEmpty) {
+      _isSubmitting = false;
       setState(() => _currentStage = 0);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -376,6 +635,7 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
     }
 
     if (_localVideoPath == null) {
+      _isSubmitting = false;
       setState(() => _currentStage = 1);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -388,94 +648,132 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
       return;
     }
 
-    List<double> audioFeat;
-    List<double> visualFeat;
-    List<double> textFeat;
-    MultimodalInspectionData? inspectionData;
+    bool dialogShown = false;
+    _showRealtimeProgressDialog(context);
+    dialogShown = true;
 
-    final extracted = _extractedVideoFeatures ??
-        await MultimodalExtractorService.extractFromLocalVideo(
-          videoPath: _localVideoPath!,
-          participantId: participantId,
-          userNote: _counselorNoteController.text.trim(),
-          clientTranscript: null,
-          onProgress: (stage, progress) {
-            provider.setExtractionProgress(stage, progress);
-          },
-        );
-    audioFeat = extracted.audioFeatures;
-    visualFeat = extracted.visualFeatures;
-    textFeat = extracted.textFeatures;
-    inspectionData = extracted.inspectionData;
-    if (mounted) {
-      setState(() {
-        _extractedVideoFeatures = extracted;
-        _liveInspectionPreview = extracted.inspectionData;
-        _dataSourceSubtitle = extracted.extractionSummary;
-      });
-    }
+    try {
+      List<double> audioFeat;
+      List<double> visualFeat;
+      List<double> textFeat;
+      MultimodalInspectionData? inspectionData;
 
-    final composedNote = _counselorNoteController.text.trim();
-    final clientName = _clientNameController.text.trim();
-    final dateStr =
-        '${_sessionDate.day.toString().padLeft(2, '0')}/${_sessionDate.month.toString().padLeft(2, '0')}/${_sessionDate.year}';
-    final fullNote = [
-      if (clientName.isNotEmpty) 'Klien: $clientName',
-      'Tanggal: $dateStr',
-      if (composedNote.isNotEmpty) composedNote,
-    ].join(' • ');
+      final currentNote = _counselorNoteController.text.trim();
+      final bool canReuseCached = _extractedVideoFeatures != null &&
+          _lastExtractedVideoPath == _localVideoPath &&
+          _lastExtractedNote == currentNote &&
+          _lastExtractedTranscript == _extractedVideoFeatures!.inspectionData.fullTranscript &&
+          _extractedVideoFeatures!.participantId == participantId;
 
-    debugPrint(
-        '[SCREENING_FORM] Memproses submit screening (sumber: $_selectedSourceOption) untuk $participantId');
-    final success = await provider.executeLocalOnDeviceScreening(
-      participantId: participantId,
-      textFeatures: textFeat,
-      audioFeatures: audioFeat,
-      visualFeatures: visualFeat,
-      counselorNote: fullNote,
-      transcription: null,
-      inspectionData: inspectionData,
-      sessionType: 'clinical',
-      isSimulation: false,
-    );
+      final extracted = canReuseCached
+          ? _extractedVideoFeatures!
+          : await MultimodalExtractorService.extractFromLocalVideo(
+              videoPath: _localVideoPath!,
+              participantId: participantId,
+              userNote: currentNote,
+              onProgress: (stage, progress) {
+                provider.setExtractionProgress(stage, progress);
+              },
+            );
+      audioFeat = extracted.audioFeatures;
+      visualFeat = extracted.visualFeatures;
+      textFeat = extracted.textFeatures;
+      inspectionData = extracted.inspectionData;
+      if (mounted) {
+        setState(() {
+          _extractedVideoFeatures = extracted;
+          _lastExtractedVideoPath = _localVideoPath;
+          _lastExtractedNote = currentNote;
+          _lastExtractedTranscript = extracted.inspectionData.fullTranscript;
+          _liveInspectionPreview = extracted.inspectionData;
+          _dataSourceSubtitle = extracted.extractionSummary;
+        });
+      }
 
-    if (!mounted) return;
+      final composedNote = _counselorNoteController.text.trim();
+      final clientName = _clientNameController.text.trim();
+      final dateStr =
+          '${_sessionDate.day.toString().padLeft(2, '0')}/${_sessionDate.month.toString().padLeft(2, '0')}/${_sessionDate.year}';
+      final fullNote = [
+        if (clientName.isNotEmpty) 'Klien: $clientName',
+        'Tanggal: $dateStr',
+        if (composedNote.isNotEmpty) composedNote,
+      ].join(' • ');
 
-    if (success && provider.currentScreening != null) {
-      if (openStudioFirst && provider.currentInspectionData != null) {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(
-            builder: (context) => MultimodalAnalysisStudioScreen(
-              result: provider.currentScreening!,
-              inspection: provider.currentInspectionData!,
-              localVideoPath: _localVideoPath,
-              isSimulation: false,
+      debugPrint(
+          '[SCREENING_FORM] Memproses submit screening (sumber: $_selectedSourceOption) untuk $participantId');
+      final success = await provider.executeLocalOnDeviceScreening(
+        participantId: participantId,
+        textFeatures: textFeat,
+        audioFeatures: audioFeat,
+        visualFeatures: visualFeat,
+        counselorNote: fullNote,
+        transcription: inspectionData.fullTranscript,
+        inspectionData: inspectionData,
+        sessionType: 'clinical',
+        isSimulation: false,
+      );
+
+      // Tutup dialog progress setelah inferensi selesai
+      if (dialogShown && mounted) {
+        Navigator.of(context, rootNavigator: true).pop();
+        dialogShown = false;
+      }
+
+      if (!mounted) return;
+
+      if (success && provider.currentScreening != null) {
+        if (openStudioFirst && provider.currentInspectionData != null) {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (context) => MultimodalAnalysisStudioScreen(
+                result: provider.currentScreening!,
+                inspection: provider.currentInspectionData!,
+                localVideoPath: _localVideoPath,
+                isSimulation: false,
+              ),
             ),
-          ),
-        );
-      } else {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(
-            builder: (context) => ScreeningResultScreen(
-              result: provider.currentScreening!,
-              localVideoPath: _localVideoPath,
-              inspectionData: provider.currentInspectionData,
-              isSimulation: false,
-              initialNavIndex: 2,
+          );
+        } else {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (context) => ScreeningResultScreen(
+                result: provider.currentScreening!,
+                localVideoPath: _localVideoPath,
+                inspectionData: provider.currentInspectionData,
+                isSimulation: false,
+                initialNavIndex: 2,
+              ),
             ),
+          );
+        }
+      } else if (provider.errorMessage != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(provider.errorMessage!),
+            backgroundColor: const Color(0xFFDC2626),
+            duration: const Duration(seconds: 5),
           ),
         );
       }
-    } else if (provider.errorMessage != null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(provider.errorMessage!),
-          backgroundColor: const Color(0xFFDC2626),
-          duration: const Duration(seconds: 5),
-        ),
-      );
+    } catch (e) {
+      if (dialogShown && mounted) {
+        Navigator.of(context, rootNavigator: true).pop();
+        dialogShown = false;
+      }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Terjadi kesalahan ekstraksi on-device: $e'),
+            backgroundColor: const Color(0xFFDC2626),
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      }
+    } finally {
+      _isSubmitting = false;
     }
   }
 
@@ -1015,6 +1313,242 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
                   ),
                 ),
               ),
+              const SizedBox(height: 14),
+
+              // 5. Modalitas Teks: Transkripsi Otomatis (Whisper Base On-Device)
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Expanded(
+                    child: Text(
+                      'Modalitas Teks: Transkripsi Otomatis',
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w700,
+                        color: _slateDark,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFD1FAE5),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: const Text(
+                      '100% Otomatis • Whisper Base',
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF065F46),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              if (_liveInspectionPreview != null) ...[
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF0FDF4),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFFBBF7D0)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(
+                            Icons.check_circle_rounded,
+                            size: 15,
+                            color: Color(0xFF16A34A),
+                          ),
+                          const SizedBox(width: 6),
+                          const Expanded(
+                            child: Text(
+                              'Tuturan Berhasil Ditranskripsikan (Bahasa Indonesia):',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w800,
+                                color: Color(0xFF166534),
+                              ),
+                            ),
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFDCFCE7),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: const Text(
+                              'On-Device Audio STT',
+                              style: TextStyle(
+                                fontSize: 9,
+                                fontWeight: FontWeight.w700,
+                                color: Color(0xFF15803D),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          InkWell(
+                            onTap: _editTranscriptDialog,
+                            borderRadius: BorderRadius.circular(4),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFE0F2FE),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: const [
+                                  Icon(Icons.edit_rounded,
+                                      size: 11, color: Color(0xFF0369A1)),
+                                  SizedBox(width: 2),
+                                  Text(
+                                    'Edit',
+                                    style: TextStyle(
+                                      fontSize: 9.5,
+                                      fontWeight: FontWeight.w700,
+                                      color: Color(0xFF0369A1),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        '"${_liveInspectionPreview!.fullTranscript}"',
+                        style: const TextStyle(
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF1E293B),
+                          height: 1.4,
+                        ),
+                      ),
+                      if (_liveInspectionPreview!.translatedTranscript.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: const Color(0xFFE2E8F0)),
+                          ),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 5,
+                                  vertical: 2,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFEEF2FF),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: const Text(
+                                  'MentalBERT (EN)',
+                                  style: TextStyle(
+                                    fontSize: 9.5,
+                                    fontWeight: FontWeight.w800,
+                                    color: Color(0xFF4338CA),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  '"${_liveInspectionPreview!.translatedTranscript}"',
+                                  style: const TextStyle(
+                                    fontSize: 11.5,
+                                    fontStyle: FontStyle.italic,
+                                    color: Color(0xFF475569),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ] else if (_isExtractingPreview) ...[
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF8FAFC),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFFE2E8F0)),
+                  ),
+                  child: const Row(
+                    children: [
+                      SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          valueColor: AlwaysStoppedAnimation<Color>(_brandTeal),
+                        ),
+                      ),
+                      SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'Whisper Base On-Device sedang mentranskripsi tuturan suara...',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Color(0xFF64748B),
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ] else ...[
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF8FAFC),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFFE2E8F0)),
+                  ),
+                  child: const Row(
+                    children: [
+                      Icon(
+                        Icons.auto_awesome_rounded,
+                        size: 18,
+                        color: Color(0xFF0D9488),
+                      ),
+                      SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'Input manual dihilangkan. Ucapan pasien dalam Bahasa Indonesia akan ditranskripsikan otomatis dari audio rekaman via Whisper Base, lalu diterjemahkan ke Bahasa Inggris untuk MentalBERT 768D.',
+                          style: TextStyle(
+                            fontSize: 11.5,
+                            color: Color(0xFF64748B),
+                            height: 1.4,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ],
           ),
         ),

@@ -46,4 +46,13 @@ app.*.map.json
 
 # Widget Preview related
 .widget_preview/
-video_test/
+video_test/
+
+# Local testing artifacts and large model weights
+assets/models/*.bin
+*.mp4
+*.wav
+*.db
+*.db-journal
+audit_bundle.txt
+

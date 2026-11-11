@@ -4,11 +4,9 @@ import 'package:fedmind_mobile_app/core/constants/constants.dart';
 
 class ApiClient {
   late final Dio dio;
-  late final Dio edgeDio;
 
   ApiClient({
     String baseUrl = ApiConstants.baseUrl,
-    String edgeBaseUrl = ApiConstants.edgeBaseUrl,
   }) {
     dio = Dio(
       BaseOptions(
@@ -22,31 +20,12 @@ class ApiClient {
       ),
     );
 
-    edgeDio = Dio(
-      BaseOptions(
-        baseUrl: edgeBaseUrl,
-        connectTimeout: ApiConstants.connectTimeout,
-        receiveTimeout: ApiConstants.edgeReceiveTimeout,
-        headers: {
-          'Accept': 'application/json',
-        },
-      ),
-    );
-
-    // Logging interceptor untuk mempermudah debugging request/response
+    // Logging interceptor untuk mempermudah debugging request/response FL
     dio.interceptors.add(
       LogInterceptor(
         requestBody: true,
         responseBody: true,
         logPrint: (obj) => debugPrint('[DIO-CENTRAL] $obj'),
-      ),
-    );
-
-    edgeDio.interceptors.add(
-      LogInterceptor(
-        requestBody: false, // Jangan dump byte video multipart ke log
-        responseBody: true,
-        logPrint: (obj) => debugPrint('[DIO-EDGE] $obj'),
       ),
     );
   }

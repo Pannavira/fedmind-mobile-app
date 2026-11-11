@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:math';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fedmind_mobile_app/core/services/multimodal_extractor_service.dart';
 import 'package:fedmind_mobile_app/core/services/local_preprocessing_service.dart';
@@ -95,6 +96,8 @@ void main() {
         expect(ins.transcriptSegments.isNotEmpty, isTrue);
         expect(ins.detectedKeywords.isNotEmpty, isTrue);
         expect(ins.actionUnitScores.length, equals(5));
+        expect(ins.translatedTranscript.isNotEmpty, isTrue);
+        expect(ins.transcriptLanguage, equals('id'));
       },
     );
 
@@ -130,7 +133,7 @@ void main() {
     );
 
     test(
-      'Different user stories/notes must produce distinct 768D Psycholinguistic Text features',
+      'Different user stories/notes (including short <4 word notes and negations) must produce distinct 768D Psycholinguistic Text features',
       () async {
         final featDistress =
             await MultimodalExtractorService.extractFromLocalVideo(
@@ -148,14 +151,81 @@ void main() {
                   'Hari ini saya merasa tenang, bersyukur, bahagia, dan bersemangat bekerja.',
             );
 
+        final featShortDistress =
+            await MultimodalExtractorService.extractFromLocalVideo(
+              videoPath: tempFileA.path,
+              participantId: 'P_NOTE',
+              userNote: 'sedih lelah cemas',
+            );
+
+        final featShortPositive =
+            await MultimodalExtractorService.extractFromLocalVideo(
+              videoPath: tempFileA.path,
+              participantId: 'P_NOTE',
+              userNote: 'tenang semangat bahagia',
+            );
+
         double textDiff = 0.0;
+        double shortNoteDiff = 0.0;
         for (int i = 0; i < 768; i++) {
           textDiff +=
               (featDistress.textFeatures[i] - featPositive.textFeatures[i])
                   .abs();
+          shortNoteDiff +=
+              (featShortDistress.textFeatures[i] -
+                      featShortPositive.textFeatures[i])
+                  .abs();
         }
 
-        expect(textDiff, greaterThan(1.0));
+        expect(textDiff, greaterThan(5.0));
+        expect(shortNoteDiff, greaterThan(5.0));
+        expect(
+          featDistress.inspectionData.emotionalValence,
+          lessThan(featPositive.inspectionData.emotionalValence),
+        );
+      },
+    );
+
+    test(
+      'Different videos without manual notes must produce distinct preprocessed tensors across all 3 modalities',
+      () async {
+        final featA = await MultimodalExtractorService.extractFromLocalVideo(
+          videoPath: tempFileA.path,
+          participantId: 'P_VID_A',
+        );
+        final featB = await MultimodalExtractorService.extractFromLocalVideo(
+          videoPath: tempFileB.path,
+          participantId: 'P_VID_B',
+        );
+
+        final preprocessor = LocalPreprocessingService();
+        final tensorsA = await preprocessor.prepareMultimodalTensors(
+          audioInput: featA.audioFeatures,
+          visualInput: featA.visualFeatures,
+          textInput: featA.textFeatures,
+        );
+        final tensorsB = await preprocessor.prepareMultimodalTensors(
+          audioInput: featB.audioFeatures,
+          visualInput: featB.visualFeatures,
+          textInput: featB.textFeatures,
+        );
+
+        double audioTensorDiff = 0.0;
+        for (int i = 0; i < 80; i++) {
+          audioTensorDiff += (tensorsA.audio[i] - tensorsB.audio[i]).abs();
+        }
+        double visualTensorDiff = 0.0;
+        for (int i = 0; i < 216; i++) {
+          visualTensorDiff += (tensorsA.visual[i] - tensorsB.visual[i]).abs();
+        }
+        double textTensorDiff = 0.0;
+        for (int i = 0; i < 768; i++) {
+          textTensorDiff += (tensorsA.text[i] - tensorsB.text[i]).abs();
+        }
+
+        expect(audioTensorDiff, greaterThan(0.5));
+        expect(visualTensorDiff, greaterThan(0.5));
+        expect(textTensorDiff, greaterThan(0.5));
       },
     );
 
@@ -202,6 +272,216 @@ void main() {
 
         expect(tensors.qualityFlags['poor_audio_quality'], isFalse);
         expect(tensors.qualityFlags['poor_visual_quality'], isFalse);
+
+        if (await realVideoFile.exists()) {
+          // Pastikan parser header MP4 (mvhd) membaca durasi asli video (~47.6 detik), bukan 4.0 detik!
+          expect(extracted.inspectionData.videoDurationSec, closeTo(47.6, 1.0));
+          expect(
+            extracted.inspectionData.transcriptSegments.last.timeRangeLabel,
+            contains('00:48'),
+          );
+          expect(extracted.inspectionData.isWhisperTranscribed, isTrue);
+          expect(extracted.inspectionData.translatedTranscript.isNotEmpty, isTrue);
+        }
+      },
+    );
+
+    test(
+      'Different videos produce distinct UI Inspection Metrics (Waktu Bicara, Waktu Jeda, Kestabilan Vokal, Nada Dasar, Timestamps, & Transkrip)',
+      () async {
+        const channel = MethodChannel('com.fedmind.edge/multimodal_extractor');
+        final binding =
+            TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+
+        // Simulasikan 2 video berbeda pada MethodChannel (sebagaimana diekstrak dari MediaExtractor/MediaMetadataRetriever)
+        binding.setMockMethodCallHandler(channel, (MethodCall call) async {
+          if (call.method != 'extractVideoMultimodal') return null;
+          final args = call.arguments as Map<dynamic, dynamic>;
+          final path = args['videoPath'] as String;
+          final isVideoA = path.endsWith('_a.mp4');
+
+          final frames = List<Map<String, double>>.generate(12, (i) {
+            if (isVideoA) {
+              // Video A (durasi 36 detik): ekspresif, senyum aktif, kontak mata stabil
+              return {
+                'timeSec': i * 3.0,
+                'faceFound': 1.0,
+                'confidence': 0.95,
+                'bboxLeft': 0.24,
+                'bboxTop': 0.16,
+                'bboxRight': 0.76,
+                'bboxBottom': 0.82,
+                'eulerX': -1.5,
+                'eulerY': 1.2,
+                'eulerZ': 0.4,
+                'browActivation': 0.30 + 0.04 * sin(i * 0.6),
+                'eyeOpenness': 0.48 + 0.05 * cos(i * 0.5),
+                'cheekActivation': 0.46 + 0.06 * sin(i * 0.7),
+                'mouthActivation': 0.58 + 0.12 * sin(i * 0.8),
+                'mouthOpenness': 0.42 + 0.10 * cos(i * 0.9),
+                'asymmetry': 0.03,
+                'motionEnergy': 0.42 + 0.08 * sin(i * 0.5),
+              };
+            } else {
+              // Video B (durasi 24 detik): dahi tegang, kepala menunduk, afek datar
+              return {
+                'timeSec': i * 2.0,
+                'faceFound': i % 4 == 0 ? 0.0 : 1.0,
+                'confidence': i % 4 == 0 ? 0.35 : 0.88,
+                'bboxLeft': 0.26,
+                'bboxTop': 0.22,
+                'bboxRight': 0.74,
+                'bboxBottom': 0.86,
+                'eulerX': -10.5,
+                'eulerY': -4.5,
+                'eulerZ': 1.8,
+                'browActivation': 0.56 + 0.02 * sin(i * 0.3),
+                'eyeOpenness': 0.28 + 0.01 * cos(i * 0.3),
+                'cheekActivation': 0.24 + 0.01 * sin(i * 0.2),
+                'mouthActivation': 0.25 + 0.01 * cos(i * 0.2),
+                'mouthOpenness': 0.20 + 0.01 * sin(i * 0.2),
+                'asymmetry': 0.11,
+                'motionEnergy': 0.11 + 0.01 * cos(i * 0.2),
+              };
+            }
+          });
+
+          const int sr = 8000;
+          const int nSamples = 32768;
+          final pcm = List<double>.filled(nSamples, 0.0);
+          double phaseA = 0.0;
+          double phaseB = 0.0;
+          for (int n = 0; n < nSamples; n++) {
+            final sec = n / sr;
+            if (isVideoA) {
+              // Video A: suara pria stabil ~115 Hz, bicara aktif ~82% waktu (jeda pendek)
+              final isSpeaking = (sec % 1.0) < 0.82;
+              final f0 = 115.0 + 2.5 * sin(2 * pi * 1.2 * sec);
+              phaseA += (2 * pi * f0) / sr;
+              if (isSpeaking) {
+                pcm[n] = 0.22 *
+                    (sin(phaseA) +
+                        0.45 * sin(2 * phaseA) +
+                        0.20 * sin(3 * phaseA));
+              } else {
+                pcm[n] = 0.008 * sin(n * 1.7);
+              }
+            } else {
+              // Video B: suara lebih tinggi ~185 Hz dengan tremor/jitter tinggi, bicara ~38% waktu (jeda panjang 62%)
+              final isSpeaking = (sec % 1.2) < 0.45;
+              final tremor =
+                  1.0 + 0.08 * sin(2 * pi * 12.5 * sec) + 0.05 * cos(n * 0.19);
+              final f0 = 185.0 * tremor;
+              phaseB += (2 * pi * f0) / sr;
+              if (isSpeaking) {
+                pcm[n] = 0.09 *
+                    (sin(phaseB) +
+                        0.35 * sin(2 * phaseB) +
+                        0.15 * sin(3 * phaseB));
+              } else {
+                pcm[n] = 0.007 * cos(n * 2.1);
+              }
+            }
+          }
+
+          return {
+            'visual': {
+              'frames': frames,
+              'facesDetectedCount': isVideoA ? 12 : 9,
+              'totalSampled': 12,
+              'durationMs': isVideoA ? 36000 : 24000,
+            },
+            'audio': {
+              'pcmSamples': pcm,
+              'sampleRate': sr,
+            },
+          };
+        });
+
+        try {
+          final featA = await MultimodalExtractorService.extractFromLocalVideo(
+            videoPath: tempFileA.path,
+            participantId: 'VID_COMPARE_A',
+          );
+          final featB = await MultimodalExtractorService.extractFromLocalVideo(
+            videoPath: tempFileB.path,
+            participantId: 'VID_COMPARE_B',
+          );
+
+          final insA = featA.inspectionData;
+          final insB = featB.inspectionData;
+
+          // 1. Durasi video & rentang waktu segmen harus berbeda sesuai metadata video
+          expect(insA.videoDurationSec, equals(36.0));
+          expect(insB.videoDurationSec, equals(24.0));
+          expect(
+            insA.transcriptSegments.first.timeRangeLabel,
+            isNot(equals(insB.transcriptSegments.first.timeRangeLabel)),
+          );
+
+          // 2. Waktu Bicara (%) dan Waktu Jeda (%) harus berbeda signifikan (bukan 58% / 42% statis)
+          expect(insA.voicedRatioPct, greaterThan(70.0));
+          expect(insB.voicedRatioPct, lessThan(50.0));
+          expect(insA.pauseRatioPct, lessThan(30.0));
+          expect(insB.pauseRatioPct, greaterThan(50.0));
+
+          // 3. Nada dasar (avgPitchHz) harus mencerminkan F0 sebenarnya (~115 Hz vs ~185 Hz), bukan konvergen ke 143 Hz
+          expect(insA.avgPitchHz, lessThan(132.0));
+          expect(insB.avgPitchHz, greaterThan(165.0));
+
+          // 4. Kestabilan Vokal (jitterPct <= 2.0 Stabil vs > 2.0 Fluktuatif) harus berbeda
+          expect(insA.jitterPct, lessThan(2.0)); // Stabil
+          expect(insB.jitterPct, greaterThan(2.0)); // Fluktuatif
+
+          // 5. Transkrip observasi, prosodyNote setiap segmen, dan kata kunci harus berbeda
+          expect(insA.fullTranscript, isNot(equals(insB.fullTranscript)));
+          expect(insA.isExplicitTranscript, isFalse);
+          expect(insB.isExplicitTranscript, isFalse);
+          expect(
+            insA.transcriptSegments[0].text,
+            isNot(equals(insB.transcriptSegments[0].text)),
+          );
+          expect(
+            insA.transcriptSegments[1].text,
+            isNot(equals(insB.transcriptSegments[1].text)),
+          );
+          expect(
+            insA.transcriptSegments[2].text,
+            isNot(equals(insB.transcriptSegments[2].text)),
+          );
+          expect(
+            insA.transcriptSegments[0].prosodyNote,
+            isNot(equals(insB.transcriptSegments[0].prosodyNote)),
+          );
+          expect(
+            insA.transcriptSegments[1].prosodyNote,
+            isNot(equals(insB.transcriptSegments[1].prosodyNote)),
+          );
+          expect(
+            insA.transcriptSegments[2].prosodyNote,
+            isNot(equals(insB.transcriptSegments[2].prosodyNote)),
+          );
+        } finally {
+          binding.setMockMethodCallHandler(channel, null);
+        }
+      },
+    );
+
+    test(
+      'Explicit clientTranscript must set isExplicitTranscript=true and use verbatim text in transcript segments',
+      () async {
+        const customTranscript =
+            'Saya merasa sangat lelah dan tidak bertenaga sejak dua minggu lalu.';
+        final feat = await MultimodalExtractorService.extractFromLocalVideo(
+          videoPath: tempFileA.path,
+          participantId: 'P_EXPLICIT',
+          clientTranscript: customTranscript,
+        );
+
+        final ins = feat.inspectionData;
+        expect(ins.isExplicitTranscript, isTrue);
+        expect(ins.fullTranscript, equals(customTranscript));
+        expect(ins.transcriptSegments.first.text, equals(customTranscript));
       },
     );
 

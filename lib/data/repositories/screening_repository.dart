@@ -53,17 +53,6 @@ class ScreeningRepository {
     }
   }
 
-  /// Cek kesehatan Local Edge Server (port 8001)
-  Future<Map<String, dynamic>> checkEdgeHealth() async {
-    try {
-      return await remoteDataSource.checkEdgeHealth();
-    } on DioException catch (e) {
-      throw _handleDioError(e);
-    } catch (e) {
-      throw 'Failed to connect to Local Edge Server: $e';
-    }
-  }
-
   /// Ambil info model
   Future<Map<String, dynamic>> getModelInfo() async {
     try {
@@ -112,27 +101,6 @@ class ScreeningRepository {
       throw _handleDioError(e);
     } catch (e) {
       throw 'Failed to execute multimodal inference: $e';
-    }
-  }
-
-  /// Kirim video rekaman klinis ke Local Edge Server (port 8001) untuk ekstraksi multimodal riil
-  Future<ScreeningResponse> processVideoViaEdge({
-    required String videoPath,
-    required String participantId,
-    String? sessionId,
-    ProgressCallback? onSendProgress,
-  }) async {
-    try {
-      return await remoteDataSource.processVideoViaEdge(
-        videoPath: videoPath,
-        participantId: participantId,
-        sessionId: sessionId,
-        onSendProgress: onSendProgress,
-      );
-    } on DioException catch (e) {
-      throw _handleDioError(e);
-    } catch (e) {
-      throw 'Failed to process video on Local Edge Server: $e';
     }
   }
 

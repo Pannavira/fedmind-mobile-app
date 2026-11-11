@@ -145,9 +145,15 @@ class LocalPreprocessingService {
     }
     double vMin = vec216.reduce(min);
     double vMax = vec216.reduce(max);
+    final double vSpan = vMax - vMin;
+    if (vSpan < 2.5) {
+      final double vMid = 0.5 * (vMin + vMax);
+      vMin = vMid - 1.25;
+      vMax = vMid + 1.25;
+    }
     if (vMax > vMin) {
       for (int i = 0; i < 216; i++) {
-        vec216[i] = (vec216[i] - vMin) / (vMax - vMin);
+        vec216[i] = ((vec216[i] - vMin) / (vMax - vMin)).clamp(0.0, 1.0);
       }
     }
     for (int t = 0; t < 512; t++) {

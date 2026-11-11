@@ -905,6 +905,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   MaterialPageRoute(
                     builder: (context) => ScreeningResultScreen(
                       result: provider.currentScreening!,
+                      inspectionData: provider.currentInspectionData,
                       initialNavIndex: 0,
                     ),
                   ),

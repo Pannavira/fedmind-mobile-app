@@ -139,65 +139,6 @@ class ScreeningProvider extends ChangeNotifier {
     }
   }
 
-  /// Menjalankan inferensi dan ekstraksi riil via Local Edge Server (Port 8001)
-  Future<bool> processVideoAtEdge({
-    required String videoPath,
-    required String participantId,
-    String? sessionId,
-  }) async {
-    _isExecuting = true;
-    _errorMessage = null;
-    _currentScreening = null;
-    _executionStatusMessage = 'Connecting to Edge Node...';
-    notifyListeners();
-
-    try {
-      final result = await repository.processVideoViaEdge(
-        videoPath: videoPath,
-        participantId: participantId,
-        sessionId: sessionId,
-        onSendProgress: (sent, total) {
-          if (total > 0) {
-            final pct = (sent / total * 100).toInt();
-            if (pct < 100) {
-              _executionStatusMessage = 'Processing video on Edge: $pct%...';
-            } else {
-              _executionStatusMessage =
-                  'Extracting multimodal features on Edge...';
-            }
-            notifyListeners();
-          }
-        },
-      );
-
-      _currentScreening = result;
-      _executionStatusMessage = 'Completed!';
-
-      // Simpan ke SQLite
-      try {
-        await repository.saveLocalScreeningRecord(
-          screening: result,
-          videoPath: videoPath,
-        );
-      } catch (e) {
-        debugPrint(
-          '[SCREENING_PROVIDER] Warning: Failed to persist edge screening to SQLite: $e',
-        );
-      }
-
-      // Refresh riwayat skrining
-      await fetchHistory();
-      return true;
-    } catch (e) {
-      _errorMessage = e.toString();
-      return false;
-    } finally {
-      _isExecuting = false;
-      _executionStatusMessage = '';
-      notifyListeners();
-    }
-  }
-
   /// Menjalankan inferensi model ONNX langsung di edge mobile (On-Device Offline)
   Future<bool> executeLocalOnDeviceScreening({
     required String participantId,
@@ -214,7 +155,7 @@ class ScreeningProvider extends ChangeNotifier {
     _isExecuting = true;
     _errorMessage = null;
     _currentScreening = null;
-    _executionProgress = null;
+    _executionProgress = 0.94;
     _executionStatusMessage =
         'Menjalankan inferensi ONNX & dekomposisi Exact Shapley (8 koalisi laten) di perangkat...';
     notifyListeners();

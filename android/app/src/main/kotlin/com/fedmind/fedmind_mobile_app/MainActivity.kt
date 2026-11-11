@@ -1,5 +1,6 @@
 package com.fedmind.fedmind_mobile_app
 
+import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.PointF
@@ -8,8 +9,13 @@ import android.media.MediaCodec
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.media.MediaMetadataRetriever
+import android.os.Build
+import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.speech.RecognitionListener
+import android.speech.RecognizerIntent
+import android.speech.SpeechRecognizer
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -26,12 +32,108 @@ class MainActivity : FlutterActivity() {
     private val executor = Executors.newSingleThreadExecutor()
     private val mainHandler = Handler(Looper.getMainLooper())
 
+    private var speechRecognizer: SpeechRecognizer? = null
+    private val liveSpeechTranscript = StringBuilder()
+    private var isRecognizingSpeech = false
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName)
             .setMethodCallHandler { call, result ->
                 when (call.method) {
+                    "isSpeechRecognitionAvailable" -> {
+                        val available = SpeechRecognizer.isRecognitionAvailable(this)
+                        val isOnDevice = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                            SpeechRecognizer.isOnDeviceRecognitionAvailable(this)
+                        } else {
+                            available
+                        }
+                        result.success(hashMapOf("available" to available, "isOnDevice" to isOnDevice))
+                    }
+                    "startLiveSpeechRecognition" -> {
+                        mainHandler.post {
+                            try {
+                                if (speechRecognizer != null) {
+                                    try { speechRecognizer?.destroy() } catch (_: Exception) {}
+                                    speechRecognizer = null
+                                }
+                                liveSpeechTranscript.clear()
+
+                                speechRecognizer = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+                                    SpeechRecognizer.isOnDeviceRecognitionAvailable(this)) {
+                                    SpeechRecognizer.createOnDeviceSpeechRecognizer(this)
+                                } else {
+                                    SpeechRecognizer.createSpeechRecognizer(this)
+                                }
+
+                                speechRecognizer?.setRecognitionListener(object : RecognitionListener {
+                                    override fun onReadyForSpeech(params: Bundle?) {}
+                                    override fun onBeginningOfSpeech() {}
+                                    override fun onRmsChanged(rmsdB: Float) {}
+                                    override fun onBufferReceived(buffer: ByteArray?) {}
+                                    override fun onEndOfSpeech() {}
+                                    override fun onError(error: Int) {
+                                        // Ignore silence or network timeouts gracefully
+                                    }
+                                    override fun onResults(results: Bundle?) {
+                                        val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                                        if (!matches.isNullOrEmpty()) {
+                                            val text = matches[0]?.trim() ?: ""
+                                            if (text.isNotBlank()) {
+                                                if (liveSpeechTranscript.isNotEmpty()) liveSpeechTranscript.append(" ")
+                                                liveSpeechTranscript.append(text)
+                                            }
+                                        }
+                                    }
+                                    override fun onPartialResults(partialResults: Bundle?) {
+                                        val matches = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                                        if (!matches.isNullOrEmpty()) {
+                                            val text = matches[0]?.trim() ?: ""
+                                            if (text.isNotBlank() && !liveSpeechTranscript.endsWith(text)) {
+                                                // Live partial update
+                                            }
+                                        }
+                                    }
+                                    override fun onEvent(eventType: Int, params: Bundle?) {}
+                                })
+
+                                val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                                    putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                                    putExtra(RecognizerIntent.EXTRA_LANGUAGE, "id-ID")
+                                    putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "id-ID")
+                                    putExtra(RecognizerIntent.EXTRA_ONLY_RETURN_LANGUAGE_PREFERENCE, "id-ID")
+                                    putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+                                    putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
+                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                        putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
+                                    }
+                                }
+
+                                speechRecognizer?.startListening(intent)
+                                isRecognizingSpeech = true
+                                result.success(true)
+                            } catch (e: Exception) {
+                                result.error("SPEECH_START_ERROR", "Failed to start on-device speech recognizer: ${e.message}", null)
+                            }
+                        }
+                    }
+                    "stopLiveSpeechRecognition" -> {
+                        mainHandler.post {
+                            try {
+                                isRecognizingSpeech = false
+                                speechRecognizer?.stopListening()
+                                mainHandler.postDelayed({
+                                    val finalTranscript = liveSpeechTranscript.toString().trim()
+                                    try { speechRecognizer?.destroy() } catch (_: Exception) {}
+                                    speechRecognizer = null
+                                    result.success(hashMapOf("transcript" to finalTranscript))
+                                }, 350)
+                            } catch (e: Exception) {
+                                result.success(hashMapOf("transcript" to liveSpeechTranscript.toString().trim()))
+                            }
+                        }
+                    }
                     "extractVideoMultimodal" -> {
                         val videoPath = call.argument<String>("videoPath")
                         val maxFrames = call.argument<Int>("maxFrames") ?: 16
@@ -88,15 +190,24 @@ class MainActivity : FlutterActivity() {
             if (durationMs <= 0L) durationMs = 5000L
 
             val safeFrames = numFrames.coerceIn(6, 24)
-            var prevFaceBitmap: IntArray? = null
+            var prevLumaFrame: DoubleArray? = null
             val normSize = 64
 
             for (i in 0 until safeFrames) {
-                val timeUs = ((durationMs * 1000L * i) / safeFrames).coerceAtLeast(0L)
-                val rawBitmap = retriever.getFrameAtTime(
-                    timeUs,
-                    MediaMetadataRetriever.OPTION_CLOSEST_SYNC
-                ) ?: retriever.getFrameAtTime(timeUs)
+                // Sampling merata dari 5% hingga 95% durasi video agar tidak terjebak di frame hitam awal/akhir
+                val progress = (i + 0.5) / safeFrames.toDouble()
+                val timeUs = ((durationMs * 1000L) * progress).toLong().coerceAtLeast(0L)
+                val rawBitmap = try {
+                    retriever.getFrameAtTime(
+                        timeUs,
+                        MediaMetadataRetriever.OPTION_CLOSEST
+                    ) ?: retriever.getFrameAtTime(
+                        timeUs,
+                        MediaMetadataRetriever.OPTION_CLOSEST_SYNC
+                    )
+                } catch (_: Throwable) {
+                    retriever.getFrameAtTime(timeUs)
+                }
 
                 if (rawBitmap == null) continue
 
@@ -121,7 +232,7 @@ class MainActivity : FlutterActivity() {
                 var eulerZ = 0.0
                 var eyeDistRatio = 0.25
 
-                // Crop bounding box wajah (atau bagian tengah frame jika wajah tertunduk/miring)
+                // Default bounding box tengah sebelum deteksi
                 var cropLeft = (targetW * 0.22).toInt()
                 var cropTop = (targetH * 0.18).toInt()
                 var cropRight = (targetW * 0.78).toInt()
@@ -137,15 +248,23 @@ class MainActivity : FlutterActivity() {
                             val face = faces[0]!!
                             facesDetectedCount++
                             faceFound = 1.0
-                            confidence = face.confidence().toDouble()
+                            confidence = face.confidence().toDouble().coerceIn(0.35, 0.99)
                             eulerX = face.pose(FaceDetector.Face.EULER_X).toDouble()
                             eulerY = face.pose(FaceDetector.Face.EULER_Y).toDouble()
                             eulerZ = face.pose(FaceDetector.Face.EULER_Z).toDouble()
 
                             val mid = PointF()
                             face.getMidPoint(mid)
-                            val eyeDist = face.eyesDistance()
-                            eyeDistRatio = (eyeDist / targetW.toFloat()).toDouble()
+                            val eyeDist = face.eyesDistance().coerceAtLeast(16f)
+                            eyeDistRatio = (eyeDist / targetW.toFloat()).toDouble().coerceIn(0.12, 0.48)
+
+                            // Jika Android FaceDetector mengembalikan 0.0 untuk pose Euler, estimasi dari posisi titik tengah mata
+                            if (abs(eulerX) < 0.01) {
+                                eulerX = ((0.40 - (mid.y / targetH.toDouble())) * 45.0).coerceIn(-28.0, 22.0)
+                            }
+                            if (abs(eulerY) < 0.01) {
+                                eulerY = (((mid.x / targetW.toDouble()) - 0.50) * 45.0).coerceIn(-30.0, 30.0)
+                            }
 
                             cropLeft = (mid.x - eyeDist * 1.15f).toInt().coerceIn(0, targetW - 16)
                             cropRight = (mid.x + eyeDist * 1.15f).toInt().coerceIn(cropLeft + 16, targetW)
@@ -153,13 +272,27 @@ class MainActivity : FlutterActivity() {
                             cropBottom = (mid.y + eyeDist * 1.65f).toInt().coerceIn(cropTop + 16, targetH)
                         }
                     } catch (_: Throwable) {
-                        // MediaTek / Android 13 fallback safe detection
-                        faceFound = 1.0
-                        confidence = 0.88
+                        // Biarkan lanjut ke evaluasi heuristik krominansi kulit di bawah
                     }
-                } else {
-                    faceFound = 1.0
-                    confidence = 0.85
+                }
+
+                // Jika FaceDetector gagal (misal wajah menunduk/miring), evaluasi distribusi piksel warna kulit
+                if (faceFound < 0.5) {
+                    val skinEst = estimateSkinFaceRegion(scaled, targetW, targetH)
+                    if (skinEst.skinRatio >= 0.16) {
+                        facesDetectedCount++
+                        faceFound = 1.0
+                        confidence = (0.48 + skinEst.skinRatio * 0.65).coerceIn(0.52, 0.82)
+                        cropLeft = skinEst.left
+                        cropTop = skinEst.top
+                        cropRight = skinEst.right
+                        cropBottom = skinEst.bottom
+                        eulerX = ((0.44 - skinEst.centerYNorm) * 48.0).coerceIn(-28.0, 20.0)
+                        eulerY = ((skinEst.centerXNorm - 0.50) * 42.0).coerceIn(-25.0, 25.0)
+                    } else {
+                        faceFound = 0.0
+                        confidence = (skinEst.skinRatio * 2.0).coerceIn(0.05, 0.35)
+                    }
                 }
 
                 val faceCrop = Bitmap.createBitmap(
@@ -183,33 +316,62 @@ class MainActivity : FlutterActivity() {
                 }
 
                 // Analisis Sub-Area Wajah (Action Unit Proxies):
-                // 1. Area Alis & Dahi (y: 8..22, x: 14..50) -> AU01/AU02/AU04
+                // 1. Area Alis & Glabella (y: 8..22, x: 14..50) -> AU01/AU02/AU04 (ketegangan dahi & kerutan antar-alis)
                 val browGrad = computeRegionGradient(luma, normSize, 14, 8, 50, 22)
+                val glabellaGrad = computeRegionGradient(luma, normSize, 24, 10, 40, 22)
+                val foreheadMean = computeRegionMean(luma, normSize, 18, 6, 46, 15)
+                val browMean = computeRegionMean(luma, normSize, 16, 15, 48, 23)
+                val browContrast = (foreheadMean - browMean).coerceAtLeast(0.0)
+                val browActivation = ((browGrad * 5.2) + (glabellaGrad * 4.5) + (browContrast * 3.8)).coerceIn(0.05, 4.0)
+
                 // 2. Area Mata Kiri & Kanan (y: 20..32) -> AU05/AU07/AU45 (Eye Aperture)
                 val leftEyeVar = computeRegionVariance(luma, normSize, 12, 20, 28, 32)
                 val rightEyeVar = computeRegionVariance(luma, normSize, 36, 20, 52, 32)
-                val eyeOpenness = ((leftEyeVar + rightEyeVar) * 0.5 * 12.0).coerceIn(0.0, 2.5)
+                val eyeGrad = (computeRegionGradient(luma, normSize, 12, 20, 28, 32) +
+                        computeRegionGradient(luma, normSize, 36, 20, 52, 32)) * 0.5
+                val eyeOpenness = (((leftEyeVar + rightEyeVar) * 6.5) + (eyeGrad * 3.2)).coerceIn(0.08, 2.5)
+
                 // 3. Area Pipi & Nasolabial (y: 30..44) -> AU06/AU09/AU10
-                val cheekGrad = computeRegionGradient(luma, normSize, 14, 30, 50, 44)
-                // 4. Area Mulut & Bibir (y: 42..58, x: 18..46) -> AU12/AU15/AU25/AU26
-                val mouthGrad = computeRegionGradient(luma, normSize, 18, 42, 46, 58)
+                val cheekGrad = computeRegionGradient(luma, normSize, 12, 29, 52, 44)
+                val upperCheekMean = computeRegionMean(luma, normSize, 12, 28, 52, 36)
+                val lowerCheekMean = computeRegionMean(luma, normSize, 14, 36, 50, 44)
+                val cheekLift = (upperCheekMean - lowerCheekMean + 0.08).coerceIn(0.0, 0.5)
+                val cheekActivation = ((cheekGrad * 5.8) + (cheekLift * 4.2)).coerceIn(0.05, 4.0)
+
+                // 4. Area Mulut & Sudut Bibir (y: 42..58, x: 16..48) -> AU12 (senyum) vs AU15 (depressor)
+                val mouthGrad = computeRegionGradient(luma, normSize, 16, 42, 48, 58)
                 val mouthOpenVar = computeRegionVariance(luma, normSize, 22, 44, 42, 56)
-                // 5. Simetri Kiri-Kanan Wajah
+                // Bandingkan sudut bibir atas-luar vs bawah-luar untuk mendeteksi tarikan senyum (AU12) vs sudut turun (AU15)
+                val upperCornerMean = (computeRegionMean(luma, normSize, 15, 43, 23, 49) +
+                        computeRegionMean(luma, normSize, 41, 43, 49, 49)) * 0.5
+                val lowerCornerMean = (computeRegionMean(luma, normSize, 15, 50, 23, 57) +
+                        computeRegionMean(luma, normSize, 41, 50, 49, 57)) * 0.5
+                val mouthCenterMean = computeRegionMean(luma, normSize, 25, 46, 39, 53)
+                val cornerLift = (lowerCornerMean - upperCornerMean) + (cheekLift * 0.5) - (mouthCenterMean - lowerCornerMean) * 0.3
+                val mouthActivation = ((mouthGrad * 6.5) + (cornerLift * 5.5) + 0.45).coerceIn(0.05, 4.0)
+                val mouthOpenness = ((mouthOpenVar * 16.0) + (mouthGrad * 2.2)).coerceIn(0.05, 4.0)
+
+                // 5. Simetri Kiri-Kanan & Ketegangan Sudut Bibir Bawah
                 val symmetryDiff = computeLeftRightAsymmetry(luma, normSize)
+                val depressorProxy = (symmetryDiff * 1.15 + (upperCornerMean - lowerCornerMean).coerceAtLeast(0.0) * 1.8).coerceIn(0.0, 1.0)
+
+                // Jika eulerX masih mendekati 0, perkaya dengan rasio pencahayaan vertikal wajah (menunduk membuat dahi lebih dominan & dagu gelap)
+                if (abs(eulerX) < 1.5) {
+                    val lowerJawMean = computeRegionMean(luma, normSize, 18, 46, 46, 60)
+                    eulerX += ((lowerJawMean - foreheadMean) * 32.0).coerceIn(-18.0, 15.0)
+                }
 
                 // 6. Aliran Gerak Antar-Frame (Optical Flow / Temporal Expression Dynamics)
                 var motionEnergy = 0.0
-                if (prevFaceBitmap != null) {
+                val prevLuma = prevLumaFrame
+                if (prevLuma != null && prevLuma.size == luma.size) {
                     var diffSum = 0.0
-                    for (p in pixels.indices) {
-                        val lPrev = ((Color.red(prevFaceBitmap[p]) * 299 +
-                                Color.green(prevFaceBitmap[p]) * 587 +
-                                Color.blue(prevFaceBitmap[p]) * 114) / 1000.0) / 255.0
-                        diffSum += abs(luma[p] - lPrev)
+                    for (p in luma.indices) {
+                        diffSum += abs(luma[p] - prevLuma[p])
                     }
-                    motionEnergy = diffSum / pixels.size
+                    motionEnergy = diffSum / luma.size
                 }
-                prevFaceBitmap = pixels
+                prevLumaFrame = luma
 
                 frameFeatures.add(
                     hashMapOf(
@@ -224,13 +386,13 @@ class MainActivity : FlutterActivity() {
                         "eulerY" to eulerY,
                         "eulerZ" to eulerZ,
                         "eyeDistRatio" to eyeDistRatio,
-                        "browActivation" to (browGrad * 8.5).coerceIn(0.0, 4.0),
+                        "browActivation" to browActivation,
                         "eyeOpenness" to eyeOpenness,
-                        "cheekActivation" to (cheekGrad * 7.5).coerceIn(0.0, 4.0),
-                        "mouthActivation" to (mouthGrad * 9.0).coerceIn(0.0, 4.0),
-                        "mouthOpenness" to (mouthOpenVar * 18.0).coerceIn(0.0, 4.0),
-                        "asymmetry" to symmetryDiff,
-                        "motionEnergy" to (motionEnergy * 10.0).coerceIn(0.0, 3.0)
+                        "cheekActivation" to cheekActivation,
+                        "mouthActivation" to mouthActivation,
+                        "mouthOpenness" to mouthOpenness,
+                        "asymmetry" to depressorProxy,
+                        "motionEnergy" to (motionEnergy * 11.5).coerceIn(0.0, 3.0)
                     )
                 )
 
@@ -320,14 +482,120 @@ class MainActivity : FlutterActivity() {
         return if (count > 0) diff / count else 0.0
     }
 
+    private fun computeRegionMean(
+        luma: DoubleArray,
+        stride: Int,
+        x0: Int,
+        y0: Int,
+        x1: Int,
+        y1: Int
+    ): Double {
+        var sum = 0.0
+        var count = 0
+        for (y in y0 until y1.coerceAtMost(stride)) {
+            for (x in x0 until x1.coerceAtMost(stride)) {
+                sum += luma[y * stride + x]
+                count++
+            }
+        }
+        return if (count > 0) sum / count else 0.0
+    }
+
+    private data class SkinRegionEstimate(
+        val skinRatio: Double,
+        val left: Int,
+        val top: Int,
+        val right: Int,
+        val bottom: Int,
+        val centerXNorm: Double,
+        val centerYNorm: Double
+    )
+
+    /**
+     * Heuristik krominansi kulit (YCbCr / RGB) untuk mendeteksi posisi kepala/wajah
+     * ketika FaceDetector gagal (misal karena wajah tertunduk atau miring).
+     */
+    private fun estimateSkinFaceRegion(
+        bitmap: Bitmap,
+        width: Int,
+        height: Int
+    ): SkinRegionEstimate {
+        var skinCount = 0
+        var totalSampled = 0
+        var sumX = 0.0
+        var sumY = 0.0
+        val marginX = (width * 0.10).toInt()
+        val marginY = (height * 0.08).toInt()
+
+        for (y in marginY until (height - marginY) step 3) {
+            for (x in marginX until (width - marginX) step 3) {
+                val c = bitmap.getPixel(x, y)
+                val r = Color.red(c)
+                val g = Color.green(c)
+                val b = Color.blue(c)
+                totalSampled++
+
+                val maxRgb = max(r, max(g, b))
+                val minRgb = min(r, min(g, b))
+                val cb = 128 - 0.168736 * r - 0.331264 * g + 0.5 * b
+                val cr = 128 + 0.5 * r - 0.418688 * g - 0.081312 * b
+
+                val isSkin = (r > 60 && g > 35 && b > 18 &&
+                        (maxRgb - minRgb) > 12 &&
+                        r > g && r > b &&
+                        cr >= 131.0 && cr <= 178.0 &&
+                        cb >= 75.0 && cb <= 132.0)
+
+                if (isSkin) {
+                    skinCount++
+                    sumX += x
+                    sumY += y
+                }
+            }
+        }
+
+        val ratio = if (totalSampled > 0) skinCount.toDouble() / totalSampled else 0.0
+        if (skinCount < 12) {
+            return SkinRegionEstimate(
+                skinRatio = ratio,
+                left = (width * 0.22).toInt(),
+                top = (height * 0.18).toInt(),
+                right = (width * 0.78).toInt(),
+                bottom = (height * 0.82).toInt(),
+                centerXNorm = 0.5,
+                centerYNorm = 0.48
+            )
+        }
+
+        val cx = sumX / skinCount
+        val cy = sumY / skinCount
+        val boxHalfW = (width * 0.27).toInt().coerceAtLeast(24)
+        val boxHalfH = (height * 0.31).toInt().coerceAtLeast(28)
+        val left = (cx.toInt() - boxHalfW).coerceIn(0, width - 32)
+        val right = (cx.toInt() + boxHalfW).coerceIn(left + 32, width)
+        val top = (cy.toInt() - boxHalfH).coerceIn(0, height - 32)
+        val bottom = (cy.toInt() + boxHalfH).coerceIn(top + 32, height)
+
+        return SkinRegionEstimate(
+            skinRatio = ratio,
+            left = left,
+            top = top,
+            right = right,
+            bottom = bottom,
+            centerXNorm = (cx / width.coerceAtLeast(1)).coerceIn(0.15, 0.85),
+            centerYNorm = (cy / height.coerceAtLeast(1)).coerceIn(0.15, 0.85)
+        )
+    }
+
     /**
      * Mendekode track audio dari file video MP4 menjadi gelombang PCM 16-bit
-     * lalu melakukan downsampling ke targetSampleRate (8000 Hz Mono) untuk analisis DSP di Dart.
+     * lalu melakukan downsampling ke targetSampleRate (8000 Hz Mono) di sepanjang durasi video.
      */
     private fun decodeAudioTrackPcm(videoPath: String, targetSampleRate: Int): Map<String, Any> {
         val extractor = MediaExtractor()
         var codec: MediaCodec? = null
-        val samplesOut = ArrayList<Double>(32768)
+        val maxOutputSamples = 480000 // Hingga 30 detik penuh @ 16000 Hz (atau 60 detik @ 8000 Hz)
+        val samplesOut = ArrayList<Double>(65536)
         var sourceSampleRate = 44100
         var channelCount = 1
 
@@ -369,6 +637,15 @@ class MainActivity : FlutterActivity() {
             channelCount = if (audioFormat.containsKey(MediaFormat.KEY_CHANNEL_COUNT)) {
                 audioFormat.getInteger(MediaFormat.KEY_CHANNEL_COUNT).coerceAtLeast(1)
             } else 1
+            val durationUs = if (audioFormat.containsKey(MediaFormat.KEY_DURATION)) {
+                audioFormat.getLong(MediaFormat.KEY_DURATION).coerceAtLeast(1000000L)
+            } else 15000000L
+
+            // Jika durasi video > 15 detik, lakukan window striding agar seluruh durasi video terwakili
+            // tanpa mengubah frekuensi sampling lokal di dalam tiap jendela STFT (2048 sampel).
+            val totalEstTargetSamples = ((durationUs / 1000000.0) * targetSampleRate).toInt().coerceAtLeast(targetSampleRate)
+            val windowStrideFactor = max(1, (totalEstTargetSamples + maxOutputSamples - 1) / maxOutputSamples)
+            val contiguousWindow = 2048
 
             codec = MediaCodec.createDecoderByType(mime)
             codec.configure(audioFormat, null, null, 0)
@@ -377,10 +654,9 @@ class MainActivity : FlutterActivity() {
             val bufferInfo = MediaCodec.BufferInfo()
             var isInputEOS = false
             var isOutputEOS = false
-            // Dibatasi ke 32.768 sampel (~4 detik akustik representatif) agar MethodChannel dan memori heap aman
-            val maxOutputSamples = 32768
-            val decimationStep = max(1, sourceSampleRate / targetSampleRate)
+            var decimationStep = max(1, sourceSampleRate / targetSampleRate)
             var sampleCounter = 0
+            var decimatedCounter = 0
 
             while (!isOutputEOS && samplesOut.size < maxOutputSamples) {
                 if (!isInputEOS) {
@@ -424,7 +700,6 @@ class MainActivity : FlutterActivity() {
 
                         var idx = 0
                         while (idx < numShorts && samplesOut.size < maxOutputSamples) {
-                            // Rata-rata kanal menjadi mono
                             var sumCh = 0.0
                             val chLimit = min(channelCount, numShorts - idx)
                             for (c in 0 until chLimit) {
@@ -433,7 +708,11 @@ class MainActivity : FlutterActivity() {
                             val monoSample = sumCh / chLimit.coerceAtLeast(1)
 
                             if (sampleCounter % decimationStep == 0) {
-                                samplesOut.add(monoSample)
+                                val windowIdx = decimatedCounter / contiguousWindow
+                                if (windowIdx % windowStrideFactor == 0) {
+                                    samplesOut.add(monoSample)
+                                }
+                                decimatedCounter++
                             }
                             sampleCounter++
                             idx += channelCount
@@ -447,6 +726,7 @@ class MainActivity : FlutterActivity() {
                     val newFormat = codec.outputFormat
                     if (newFormat.containsKey(MediaFormat.KEY_SAMPLE_RATE)) {
                         sourceSampleRate = newFormat.getInteger(MediaFormat.KEY_SAMPLE_RATE)
+                        decimationStep = max(1, sourceSampleRate / targetSampleRate)
                     }
                     if (newFormat.containsKey(MediaFormat.KEY_CHANNEL_COUNT)) {
                         channelCount = newFormat.getInteger(MediaFormat.KEY_CHANNEL_COUNT).coerceAtLeast(1)

@@ -57,10 +57,14 @@ class SpeechTranscriptCard extends StatelessWidget {
                     children: [
                       Row(
                         children: [
-                          const Flexible(
+                          Flexible(
                             child: Text(
-                              'Transkrip & Analisis Kata',
-                              style: TextStyle(
+                              inspection.isWhisperTranscribed
+                                  ? 'Transkrip Whisper & MentalBERT 768D'
+                                  : (inspection.isExplicitTranscript
+                                      ? 'Transkrip & Analisis Kata'
+                                      : 'Sintesis Tuturan & Perilaku Vokal'),
+                              style: const TextStyle(
                                 fontSize: 13.5,
                                 fontWeight: FontWeight.w800,
                                 color: _slateDark,
@@ -74,24 +78,40 @@ class SpeechTranscriptCard extends StatelessWidget {
                               vertical: 2,
                             ),
                             decoration: BoxDecoration(
-                              color: const Color(0xFFEDE9FE),
+                              color: inspection.isWhisperTranscribed
+                                  ? const Color(0xFFD1FAE5)
+                                  : (inspection.isExplicitTranscript
+                                      ? const Color(0xFFEDE9FE)
+                                      : const Color(0xFFCCFBF1)),
                               borderRadius: BorderRadius.circular(8),
                             ),
-                            child: const Text(
-                              'Pola Komunikasi',
+                            child: Text(
+                              inspection.isWhisperTranscribed
+                                  ? 'Whisper Base (ID ➔ EN)'
+                                  : (inspection.isExplicitTranscript
+                                      ? 'Verbatim'
+                                      : 'Sintesis Akustik & Visual'),
                               style: TextStyle(
                                 fontSize: 10,
                                 fontWeight: FontWeight.w800,
-                                color: _brandPurple,
+                                color: inspection.isWhisperTranscribed
+                                    ? const Color(0xFF065F46)
+                                    : (inspection.isExplicitTranscript
+                                        ? _brandPurple
+                                        : const Color(0xFF0F766E)),
                               ),
                             ),
                           ),
                         ],
                       ),
                       const SizedBox(height: 2),
-                      const Text(
-                        'Analisis kata kunci percakapan dan ekspresi semantik emosi klien',
-                        style: TextStyle(
+                      Text(
+                        inspection.isWhisperTranscribed
+                            ? 'Transkripsi tuturan Bahasa Indonesia & translasi otomatis ke Bahasa Inggris (MentalBERT)'
+                            : (inspection.isExplicitTranscript
+                                ? 'Analisis kata kunci percakapan dan ekspresi semantik emosi klien'
+                                : 'Profil observasi wicara & afek yang disintesis dari biometrik video klien'),
+                        style: const TextStyle(
                           fontSize: 11.5,
                           color: Color(0xFF64748B),
                         ),
@@ -116,18 +136,30 @@ class SpeechTranscriptCard extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Row(
+                  Row(
                     children: [
                       Icon(
-                        Icons.format_quote_rounded,
+                        inspection.isWhisperTranscribed
+                            ? Icons.record_voice_over_rounded
+                            : (inspection.isExplicitTranscript
+                                ? Icons.format_quote_rounded
+                                : Icons.graphic_eq_rounded),
                         size: 16,
-                        color: _brandPurple,
+                        color: inspection.isWhisperTranscribed
+                            ? const Color(0xFF059669)
+                            : (inspection.isExplicitTranscript
+                                ? _brandPurple
+                                : const Color(0xFF0D9488)),
                       ),
-                      SizedBox(width: 6),
+                      const SizedBox(width: 6),
                       Expanded(
                         child: Text(
-                          'Transkrip Percakapan Klien:',
-                          style: TextStyle(
+                          inspection.isWhisperTranscribed
+                              ? 'Transkrip Tuturan Klien (Whisper On-Device):'
+                              : (inspection.isExplicitTranscript
+                                  ? 'Transkrip Percakapan Klien (Verbatim):'
+                                  : 'Sintesis Tuturan & Perilaku Vokal Video:'),
+                          style: const TextStyle(
                             fontSize: 11.5,
                             fontWeight: FontWeight.w800,
                             color: _slateDark,
@@ -138,6 +170,16 @@ class SpeechTranscriptCard extends StatelessWidget {
                       ),
                     ],
                   ),
+                  if (!inspection.isExplicitTranscript) ...[
+                    const SizedBox(height: 4),
+                    const Text(
+                      'Diekstraksi secara otomatis dari fluktuasi pitch (Hz), pola jeda bicara, serta aktivasi FACS wajah.',
+                      style: TextStyle(
+                        fontSize: 10.5,
+                        color: Color(0xFF64748B),
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 10),
                   ...inspection.transcriptSegments.map((seg) {
                     return Padding(
@@ -161,15 +203,20 @@ class SpeechTranscriptCard extends StatelessWidget {
                                     vertical: 3,
                                   ),
                                   decoration: BoxDecoration(
-                                    color: _brandPurple.withValues(alpha: 0.10),
+                                    color: (inspection.isExplicitTranscript
+                                            ? _brandPurple
+                                            : const Color(0xFF0D9488))
+                                        .withValues(alpha: 0.10),
                                     borderRadius: BorderRadius.circular(6),
                                   ),
                                   child: Text(
                                     seg.timeRangeLabel,
-                                    style: const TextStyle(
+                                    style: TextStyle(
                                       fontSize: 10,
                                       fontWeight: FontWeight.w800,
-                                      color: _brandPurple,
+                                      color: inspection.isExplicitTranscript
+                                          ? _brandPurple
+                                          : const Color(0xFF0F766E),
                                     ),
                                   ),
                                 ),
@@ -188,14 +235,71 @@ class SpeechTranscriptCard extends StatelessWidget {
                             ),
                             const SizedBox(height: 7),
                             Text(
-                              '"${seg.text}"',
-                              style: const TextStyle(
+                              inspection.isExplicitTranscript
+                                  ? '"${seg.text}"'
+                                  : seg.text,
+                              style: TextStyle(
                                 fontSize: 12.5,
                                 fontWeight: FontWeight.w600,
-                                color: Color(0xFF1E293B),
+                                color: const Color(0xFF1E293B),
+                                fontStyle: inspection.isExplicitTranscript
+                                    ? FontStyle.normal
+                                    : FontStyle.italic,
                                 height: 1.45,
                               ),
                             ),
+                            if (seg.translatedText.isNotEmpty) ...[
+                              const SizedBox(height: 6),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 6,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFF1F5F9),
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                    color: const Color(0xFFE2E8F0),
+                                  ),
+                                ),
+                                child: Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 5,
+                                        vertical: 1.5,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFF6366F1)
+                                            .withValues(alpha: 0.15),
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                      child: const Text(
+                                        'MentalBERT (EN)',
+                                        style: TextStyle(
+                                          fontSize: 9,
+                                          fontWeight: FontWeight.w800,
+                                          color: Color(0xFF4338CA),
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: Text(
+                                        '"${seg.translatedText}"',
+                                        style: const TextStyle(
+                                          fontSize: 11.5,
+                                          fontWeight: FontWeight.w500,
+                                          color: Color(0xFF334155),
+                                          fontStyle: FontStyle.italic,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
                           ],
                         ),
                       ),

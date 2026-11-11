@@ -81,12 +81,14 @@ class VisualFrameInspection {
 class TranscriptSegmentItem {
   final String timeRangeLabel;
   final String text;
+  final String translatedText;
   final List<String> detectedKeywords;
   final String prosodyNote;
 
   const TranscriptSegmentItem({
     required this.timeRangeLabel,
     required this.text,
+    this.translatedText = '',
     this.detectedKeywords = const [],
     this.prosodyNote = '',
   });
@@ -94,6 +96,7 @@ class TranscriptSegmentItem {
   Map<String, dynamic> toJson() => {
     'timeRangeLabel': timeRangeLabel,
     'text': text,
+    'translatedText': translatedText,
     'detectedKeywords': detectedKeywords,
     'prosodyNote': prosodyNote,
   };
@@ -101,6 +104,7 @@ class TranscriptSegmentItem {
   factory TranscriptSegmentItem.fromJson(Map<String, dynamic> json) => TranscriptSegmentItem(
     timeRangeLabel: json['timeRangeLabel'] as String? ?? '',
     text: json['text'] as String? ?? '',
+    translatedText: json['translatedText'] as String? ?? '',
     detectedKeywords: (json['detectedKeywords'] as List<dynamic>?)
             ?.map((e) => e.toString())
             .toList() ??
@@ -183,12 +187,16 @@ class MultimodalInspectionData {
 
   // Text / Transcript & Psycholinguistics
   final String fullTranscript;
+  final String translatedTranscript;
+  final String transcriptLanguage;
   final List<TranscriptSegmentItem> transcriptSegments;
   final List<String> detectedKeywords;
   final double emotionalValence;
   final int selfPronounCount;
   final String linguisticTitle;
   final String linguisticDescription;
+  final bool isExplicitTranscript;
+  final bool isWhisperTranscribed;
 
   // Neural Feature & Shapley Calculation Transparency
   final List<double> sampleVisualVector;
@@ -227,12 +235,16 @@ class MultimodalInspectionData {
     required this.vocalProsodyTitle,
     required this.vocalProsodyDescription,
     required this.fullTranscript,
+    this.translatedTranscript = '',
+    this.transcriptLanguage = 'id',
     required this.transcriptSegments,
     required this.detectedKeywords,
     required this.emotionalValence,
     required this.selfPronounCount,
     required this.linguisticTitle,
     required this.linguisticDescription,
+    this.isExplicitTranscript = false,
+    this.isWhisperTranscribed = false,
     required this.sampleVisualVector,
     required this.sampleAudioVector,
     required this.sampleTextVector,
@@ -276,12 +288,16 @@ class MultimodalInspectionData {
       vocalProsodyTitle: vocalProsodyTitle,
       vocalProsodyDescription: vocalProsodyDescription,
       fullTranscript: fullTranscript,
+      translatedTranscript: translatedTranscript,
+      transcriptLanguage: transcriptLanguage,
       transcriptSegments: transcriptSegments,
       detectedKeywords: detectedKeywords,
       emotionalValence: emotionalValence,
       selfPronounCount: selfPronounCount,
       linguisticTitle: linguisticTitle,
       linguisticDescription: linguisticDescription,
+      isExplicitTranscript: isExplicitTranscript,
+      isWhisperTranscribed: isWhisperTranscribed,
       sampleVisualVector: sampleVisualVector,
       sampleAudioVector: sampleAudioVector,
       sampleTextVector: sampleTextVector,
@@ -323,12 +339,16 @@ class MultimodalInspectionData {
       vocalProsodyTitle: vocalProsodyTitle,
       vocalProsodyDescription: vocalProsodyDescription,
       fullTranscript: fullTranscript,
+      translatedTranscript: translatedTranscript,
+      transcriptLanguage: transcriptLanguage,
       transcriptSegments: transcriptSegments,
       detectedKeywords: detectedKeywords,
       emotionalValence: emotionalValence,
       selfPronounCount: selfPronounCount,
       linguisticTitle: linguisticTitle,
       linguisticDescription: linguisticDescription,
+      isExplicitTranscript: isExplicitTranscript,
+      isWhisperTranscribed: isWhisperTranscribed,
       sampleVisualVector: sampleVisualVector,
       sampleAudioVector: sampleAudioVector,
       sampleTextVector: sampleTextVector,
@@ -367,12 +387,16 @@ class MultimodalInspectionData {
     'vocalProsodyTitle': vocalProsodyTitle,
     'vocalProsodyDescription': vocalProsodyDescription,
     'fullTranscript': fullTranscript,
+    'translatedTranscript': translatedTranscript,
+    'transcriptLanguage': transcriptLanguage,
     'transcriptSegments': transcriptSegments.map((e) => e.toJson()).toList(),
     'detectedKeywords': detectedKeywords,
     'emotionalValence': emotionalValence,
     'selfPronounCount': selfPronounCount,
     'linguisticTitle': linguisticTitle,
     'linguisticDescription': linguisticDescription,
+    'isExplicitTranscript': isExplicitTranscript,
+    'isWhisperTranscribed': isWhisperTranscribed,
     'sampleVisualVector': sampleVisualVector,
     'sampleAudioVector': sampleAudioVector,
     'sampleTextVector': sampleTextVector,
@@ -422,6 +446,8 @@ class MultimodalInspectionData {
     vocalProsodyTitle: json['vocalProsodyTitle'] as String? ?? '',
     vocalProsodyDescription: json['vocalProsodyDescription'] as String? ?? '',
     fullTranscript: json['fullTranscript'] as String? ?? '',
+    translatedTranscript: json['translatedTranscript'] as String? ?? '',
+    transcriptLanguage: json['transcriptLanguage'] as String? ?? 'id',
     transcriptSegments: (json['transcriptSegments'] as List<dynamic>?)
             ?.map((e) => TranscriptSegmentItem.fromJson(e as Map<String, dynamic>))
             .toList() ??
@@ -434,6 +460,8 @@ class MultimodalInspectionData {
     selfPronounCount: json['selfPronounCount'] as int? ?? 0,
     linguisticTitle: json['linguisticTitle'] as String? ?? '',
     linguisticDescription: json['linguisticDescription'] as String? ?? '',
+    isExplicitTranscript: json['isExplicitTranscript'] as bool? ?? false,
+    isWhisperTranscribed: json['isWhisperTranscribed'] as bool? ?? false,
     sampleVisualVector: (json['sampleVisualVector'] as List<dynamic>?)
             ?.map((e) => (e as num).toDouble())
             .toList() ??
