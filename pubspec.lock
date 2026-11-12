@@ -266,7 +266,7 @@ packages:
     source: hosted
     version: "2.2.0"
   ffmpeg_kit_flutter_new_min:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: ffmpeg_kit_flutter_new_min
       sha256: "1fce79b73ebbcf34e1063ed84cacc4920adfbb8631877e585302e68157b0ace3"
@@ -405,6 +405,22 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "9.0.0"
+  google_mlkit_commons:
+    dependency: transitive
+    description:
+      name: google_mlkit_commons
+      sha256: "56280cf6e7bc9a3ffb11768fb33ae47c7107a052c63d616cf741241186f76550"
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.0.2"
+  google_mlkit_translation:
+    dependency: "direct main"
+    description:
+      name: google_mlkit_translation
+      sha256: "116045f54bd80e6f9a851ff9fd7c8d75f6341bd2d7254738d785cb787c2b6729"
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.0.2"
   graphs:
     dependency: transitive
     description:

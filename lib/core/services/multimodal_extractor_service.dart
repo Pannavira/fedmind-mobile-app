@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter/services.dart';
 import '../../data/models/multimodal_inspection_models.dart';
 import 'on_device_whisper_service.dart';
@@ -227,6 +228,7 @@ class MultimodalExtractorService {
     void Function(String stage, double progress)? onProgress,
   }) async {
     final file = File(videoPath);
+    final perfSw = Stopwatch()..start();
     if (!await file.exists()) {
       throw 'File video tidak ditemukan: $videoPath';
     }
@@ -242,6 +244,7 @@ class MultimodalExtractorService {
 
     List<Map<String, double>> visualFrames = [];
     List<double> pcmSamples = [];
+    String? nativeWavPath;
     int sampleRate = 8000;
     int facesDetectedCount = 0;
     double? nativeVideoDurationSec;
@@ -289,9 +292,14 @@ class MultimodalExtractorService {
 
         final audMap = result['audio'] as Map<dynamic, dynamic>?;
         if (audMap != null) {
-          sampleRate = (audMap['sampleRate'] as num?)?.toInt() ?? 8000;
+          sampleRate = (audMap['sampleRate'] as num?)?.toInt() ?? 16000;
           final rawPcm = audMap['pcmSamples'] as List<dynamic>? ?? [];
           pcmSamples = rawPcm.map((e) => (e as num).toDouble()).toList();
+          nativeWavPath = audMap['wavPath'] as String?;
+          final audDuration = (audMap['durationSec'] as num?)?.toDouble();
+          if (audDuration != null && audDuration > 0.5) {
+            nativeVideoDurationSec = audDuration;
+          }
         }
         nativeSuccess = visualFrames.isNotEmpty || pcmSamples.isNotEmpty;
       }
@@ -306,6 +314,7 @@ class MultimodalExtractorService {
       pcmSamples = parsed.pcmSamples;
       facesDetectedCount = parsed.facesDetected;
     }
+    debugPrint('[PERF] native extract (frames+audio): ${perfSw.elapsedMilliseconds} ms');
 
     // Tentukan durasi video riil (prioritaskan header MP4 mvhd -> metadata native -> timestamp frame terakhir)
     double effectiveDurationSec = mp4HeaderDurationSec ??
@@ -336,6 +345,7 @@ class MultimodalExtractorService {
       0.75,
     );
     final audioResult = _computeRealAcousticFeatures248D(pcmSamples, sampleRate);
+    debugPrint('[PERF] visual+acoustic features done at: ${perfSw.elapsedMilliseconds} ms');
 
     // Tahap 4: On-Device Whisper Speech-to-Text & Cross-Lingual Translation
     onProgress?.call(
@@ -344,6 +354,7 @@ class MultimodalExtractorService {
     );
     final whisperResult = await OnDeviceWhisperService.transcribeAndTranslate(
       videoPath: videoPath,
+      wavPath: nativeWavPath,
       pcmSamples: pcmSamples,
       sourceSampleRate: sampleRate,
       durationSec: effectiveDurationSec,
@@ -353,6 +364,7 @@ class MultimodalExtractorService {
       clientTranscript: clientTranscript,
       onProgress: onProgress,
     );
+    debugPrint('[PERF] whisper+translate done at: ${perfSw.elapsedMilliseconds} ms');
 
     final bool hasExplicitClientText = clientTranscript != null && clientTranscript.trim().isNotEmpty;
     final bool isRealWhisper = whisperResult.isWhisperModel;
@@ -363,7 +375,7 @@ class MultimodalExtractorService {
         ? clientTranscript.trim()
         : whisperResult.indonesianTranscript;
     final effectiveEnglishTranscript = hasExplicitClientText
-        ? OnDeviceWhisperService.translateIndonesianToEnglish(clientTranscript)
+        ? await OnDeviceWhisperService.translateWithMlKit(clientTranscript)
         : whisperResult.englishTranscript;
 
     // Tahap 5: Hitung 768 Fitur Semantik Teks MentalBERT dari teks Bahasa Inggris terjemahan
@@ -379,6 +391,7 @@ class MultimodalExtractorService {
     );
 
     onProgress?.call('Ekstraksi fitur video on-device selesai!', 1.0);
+    debugPrint('[PERF] TOTAL: ${perfSw.elapsedMilliseconds} ms');
 
     final inspectionData = _buildRealInspectionData(
       participantId: participantId,

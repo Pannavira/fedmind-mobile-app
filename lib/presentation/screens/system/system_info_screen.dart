@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../../providers/screening_provider.dart';
 import '../../widgets/clinical_disclaimer_dialog.dart';
+import '../../widgets/runtime_requirements_section.dart';
 
 class SystemInfoScreen extends StatelessWidget {
   const SystemInfoScreen({super.key});
@@ -178,6 +179,8 @@ class SystemInfoScreen extends StatelessWidget {
                                 'Zero Cloud Media Upload • Inferensi 100% on-device di memori ponsel',
                             highlightColor: const Color(0xFF059669),
                           ),
+                          const Divider(height: 20, color: Color(0xFFF1F5F9)),
+                          const RuntimeRequirementsSection(),
                         ],
                       ),
                       const SizedBox(height: 24),

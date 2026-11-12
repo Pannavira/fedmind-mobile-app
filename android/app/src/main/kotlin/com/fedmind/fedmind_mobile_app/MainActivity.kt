@@ -20,6 +20,7 @@ import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
+import java.io.RandomAccessFile
 import java.nio.ByteOrder
 import java.util.concurrent.Executors
 import kotlin.math.abs
@@ -588,18 +589,83 @@ class MainActivity : FlutterActivity() {
     }
 
     /**
-     * Mendekode track audio dari file video MP4 menjadi gelombang PCM 16-bit
-     * lalu melakukan downsampling ke targetSampleRate (8000 Hz Mono) di sepanjang durasi video.
+     * Menulis header WAV standar 44-byte (RIFF/WAVE 16-bit PCM Mono).
+     */
+    private fun writeWavHeader(raf: RandomAccessFile, totalAudioLen: Long, sampleRate: Int, channels: Int) {
+        val totalDataLen = totalAudioLen + 36
+        val byteRate = sampleRate * channels * 2
+        val header = ByteArray(44)
+
+        header[0] = 'R'.code.toByte()
+        header[1] = 'I'.code.toByte()
+        header[2] = 'F'.code.toByte()
+        header[3] = 'F'.code.toByte()
+        header[4] = (totalDataLen and 0xff).toByte()
+        header[5] = ((totalDataLen shr 8) and 0xff).toByte()
+        header[6] = ((totalDataLen shr 16) and 0xff).toByte()
+        header[7] = ((totalDataLen shr 24) and 0xff).toByte()
+        header[8] = 'W'.code.toByte()
+        header[9] = 'A'.code.toByte()
+        header[10] = 'V'.code.toByte()
+        header[11] = 'E'.code.toByte()
+        header[12] = 'f'.code.toByte()
+        header[13] = 'm'.code.toByte()
+        header[14] = 't'.code.toByte()
+        header[15] = ' '.code.toByte()
+        header[16] = 16
+        header[17] = 0
+        header[18] = 0
+        header[19] = 0
+        header[20] = 1 // PCM
+        header[21] = 0
+        header[22] = channels.toByte()
+        header[23] = 0
+        header[24] = (sampleRate and 0xff).toByte()
+        header[25] = ((sampleRate shr 8) and 0xff).toByte()
+        header[26] = ((sampleRate shr 16) and 0xff).toByte()
+        header[27] = ((sampleRate shr 24) and 0xff).toByte()
+        header[28] = (byteRate and 0xff).toByte()
+        header[29] = ((byteRate shr 8) and 0xff).toByte()
+        header[30] = ((byteRate shr 16) and 0xff).toByte()
+        header[31] = ((byteRate shr 24) and 0xff).toByte()
+        header[32] = (channels * 2).toByte()
+        header[33] = 0
+        header[34] = 16
+        header[35] = 0
+        header[36] = 'd'.code.toByte()
+        header[37] = 'a'.code.toByte()
+        header[38] = 't'.code.toByte()
+        header[39] = 'a'.code.toByte()
+        header[40] = (totalAudioLen and 0xff).toByte()
+        header[41] = ((totalAudioLen shr 8) and 0xff).toByte()
+        header[42] = ((totalAudioLen shr 16) and 0xff).toByte()
+        header[43] = ((totalAudioLen shr 24) and 0xff).toByte()
+
+        raf.seek(0)
+        raf.write(header)
+    }
+
+    /**
+     * Mendekode track audio dari file video MP4 menjadi gelombang PCM 16-bit 16kHz Mono penuh
+     * secara kontinu (tanpa pemotongan jendela) langsung ke berkas WAV lokal, serta mengirimkan
+     * subset sampel kontinu untuk representasi akustik DSP di Dart.
      */
     private fun decodeAudioTrackPcm(videoPath: String, targetSampleRate: Int): Map<String, Any> {
         val extractor = MediaExtractor()
         var codec: MediaCodec? = null
-        val maxOutputSamples = 480000 // Hingga 30 detik penuh @ 16000 Hz (atau 60 detik @ 8000 Hz)
-        val samplesOut = ArrayList<Double>(65536)
+        val maxDspSamples = 240000 // Hingga 15 detik sampel kontinu untuk FFT/MFCC di Dart
+        val samplesOut = ArrayList<Double>(minOf(maxDspSamples, 65536))
         var sourceSampleRate = 44100
         var channelCount = 1
 
+        val tempWavFile = File.createTempFile("extracted_16k_", ".wav", cacheDir)
+        var raf: RandomAccessFile? = null
+        var totalSamplesWritten = 0L
+
         try {
+            raf = RandomAccessFile(tempWavFile, "rw")
+            raf.write(ByteArray(44)) // Dummy header awal
+
             extractor.setDataSource(videoPath)
             var audioTrackIndex = -1
             var audioFormat: MediaFormat? = null
@@ -615,6 +681,7 @@ class MainActivity : FlutterActivity() {
             }
 
             if (audioTrackIndex < 0 || audioFormat == null) {
+                tempWavFile.delete()
                 return hashMapOf(
                     "hasAudioTrack" to false,
                     "sampleRate" to targetSampleRate,
@@ -625,6 +692,7 @@ class MainActivity : FlutterActivity() {
             extractor.selectTrack(audioTrackIndex)
             val mime = audioFormat.getString(MediaFormat.KEY_MIME) ?: ""
             if (mime.isBlank()) {
+                tempWavFile.delete()
                 return hashMapOf(
                     "hasAudioTrack" to false,
                     "sampleRate" to targetSampleRate,
@@ -637,15 +705,6 @@ class MainActivity : FlutterActivity() {
             channelCount = if (audioFormat.containsKey(MediaFormat.KEY_CHANNEL_COUNT)) {
                 audioFormat.getInteger(MediaFormat.KEY_CHANNEL_COUNT).coerceAtLeast(1)
             } else 1
-            val durationUs = if (audioFormat.containsKey(MediaFormat.KEY_DURATION)) {
-                audioFormat.getLong(MediaFormat.KEY_DURATION).coerceAtLeast(1000000L)
-            } else 15000000L
-
-            // Jika durasi video > 15 detik, lakukan window striding agar seluruh durasi video terwakili
-            // tanpa mengubah frekuensi sampling lokal di dalam tiap jendela STFT (2048 sampel).
-            val totalEstTargetSamples = ((durationUs / 1000000.0) * targetSampleRate).toInt().coerceAtLeast(targetSampleRate)
-            val windowStrideFactor = max(1, (totalEstTargetSamples + maxOutputSamples - 1) / maxOutputSamples)
-            val contiguousWindow = 2048
 
             codec = MediaCodec.createDecoderByType(mime)
             codec.configure(audioFormat, null, null, 0)
@@ -654,11 +713,35 @@ class MainActivity : FlutterActivity() {
             val bufferInfo = MediaCodec.BufferInfo()
             var isInputEOS = false
             var isOutputEOS = false
-            var decimationStep = max(1, sourceSampleRate / targetSampleRate)
-            var sampleCounter = 0
-            var decimatedCounter = 0
 
-            while (!isOutputEOS && samplesOut.size < maxOutputSamples) {
+            var resampleRatio = sourceSampleRate.toDouble() / targetSampleRate.toDouble()
+            var phase = 0.0
+            var prevMono = 0.0
+            val writeBuf = ByteArray(8192)
+            var writeBufPos = 0
+
+            fun flushWriteBuf() {
+                if (writeBufPos > 0) {
+                    raf.write(writeBuf, 0, writeBufPos)
+                    writeBufPos = 0
+                }
+            }
+
+            fun emit16kSample(sample: Double) {
+                val clamped = sample.coerceIn(-1.0, 1.0)
+                if (samplesOut.size < maxDspSamples) {
+                    samplesOut.add(clamped)
+                }
+                val intVal = (clamped * 32767.0).toInt().coerceIn(-32768, 32767).toShort()
+                writeBuf[writeBufPos++] = (intVal.toInt() and 0xff).toByte()
+                writeBuf[writeBufPos++] = ((intVal.toInt() shr 8) and 0xff).toByte()
+                if (writeBufPos >= writeBuf.size) {
+                    flushWriteBuf()
+                }
+                totalSamplesWritten++
+            }
+
+            while (!isOutputEOS) {
                 if (!isInputEOS) {
                     val inIndex = codec.dequeueInputBuffer(10000)
                     if (inIndex >= 0) {
@@ -667,21 +750,14 @@ class MainActivity : FlutterActivity() {
                             val sampleSize = extractor.readSampleData(inputBuffer, 0)
                             if (sampleSize < 0) {
                                 codec.queueInputBuffer(
-                                    inIndex,
-                                    0,
-                                    0,
-                                    0L,
+                                    inIndex, 0, 0, 0L,
                                     MediaCodec.BUFFER_FLAG_END_OF_STREAM
                                 )
                                 isInputEOS = true
                             } else {
                                 val presentationTimeUs = extractor.sampleTime
                                 codec.queueInputBuffer(
-                                    inIndex,
-                                    0,
-                                    sampleSize,
-                                    presentationTimeUs,
-                                    0
+                                    inIndex, 0, sampleSize, presentationTimeUs, 0
                                 )
                                 extractor.advance()
                             }
@@ -699,22 +775,22 @@ class MainActivity : FlutterActivity() {
                         val numShorts = shortBuffer.remaining()
 
                         var idx = 0
-                        while (idx < numShorts && samplesOut.size < maxOutputSamples) {
+                        while (idx < numShorts) {
                             var sumCh = 0.0
                             val chLimit = min(channelCount, numShorts - idx)
                             for (c in 0 until chLimit) {
                                 sumCh += shortBuffer.get(idx + c) / 32768.0
                             }
-                            val monoSample = sumCh / chLimit.coerceAtLeast(1)
+                            val currMono = sumCh / chLimit.coerceAtLeast(1)
 
-                            if (sampleCounter % decimationStep == 0) {
-                                val windowIdx = decimatedCounter / contiguousWindow
-                                if (windowIdx % windowStrideFactor == 0) {
-                                    samplesOut.add(monoSample)
-                                }
-                                decimatedCounter++
+                            while (phase < 1.0) {
+                                val interpolated = prevMono + (currMono - prevMono) * phase
+                                emit16kSample(interpolated)
+                                phase += resampleRatio
                             }
-                            sampleCounter++
+                            phase -= 1.0
+                            prevMono = currMono
+
                             idx += channelCount
                         }
                     }
@@ -726,32 +802,42 @@ class MainActivity : FlutterActivity() {
                     val newFormat = codec.outputFormat
                     if (newFormat.containsKey(MediaFormat.KEY_SAMPLE_RATE)) {
                         sourceSampleRate = newFormat.getInteger(MediaFormat.KEY_SAMPLE_RATE)
-                        decimationStep = max(1, sourceSampleRate / targetSampleRate)
+                        resampleRatio = sourceSampleRate.toDouble() / targetSampleRate.toDouble()
                     }
                     if (newFormat.containsKey(MediaFormat.KEY_CHANNEL_COUNT)) {
                         channelCount = newFormat.getInteger(MediaFormat.KEY_CHANNEL_COUNT).coerceAtLeast(1)
                     }
                 }
             }
+
+            flushWriteBuf()
+
+            if (totalSamplesWritten > 0) {
+                writeWavHeader(raf, totalSamplesWritten * 2, targetSampleRate, 1)
+            }
         } finally {
-            try {
-                codec?.stop()
-            } catch (_: Exception) {
-            }
-            try {
-                codec?.release()
-            } catch (_: Exception) {
-            }
-            try {
-                extractor.release()
-            } catch (_: Exception) {
-            }
+            try { raf?.close() } catch (_: Exception) {}
+            try { codec?.stop() } catch (_: Exception) {}
+            try { codec?.release() } catch (_: Exception) {}
+            try { extractor.release() } catch (_: Exception) {}
         }
 
-        val effectiveRate = max(1000, sourceSampleRate / max(1, sourceSampleRate / targetSampleRate))
+        if (totalSamplesWritten == 0L) {
+            tempWavFile.delete()
+            return hashMapOf(
+                "hasAudioTrack" to false,
+                "sampleRate" to targetSampleRate,
+                "pcmSamples" to emptyList<Double>()
+            )
+        }
+
+        val actualDurationSec = totalSamplesWritten.toDouble() / targetSampleRate.toDouble()
         return hashMapOf(
-            "hasAudioTrack" to samplesOut.isNotEmpty(),
-            "sampleRate" to effectiveRate,
+            "hasAudioTrack" to true,
+            "sampleRate" to targetSampleRate,
+            "wavPath" to tempWavFile.absolutePath,
+            "totalSamples" to totalSamplesWritten,
+            "durationSec" to actualDurationSec,
             "pcmSamples" to samplesOut
         )
     }
