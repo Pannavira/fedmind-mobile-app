@@ -87,7 +87,7 @@ class SpeechTranscriptCard extends StatelessWidget {
                             ),
                             child: Text(
                               inspection.isWhisperTranscribed
-                                  ? 'Whisper Base (ID ➔ EN)'
+                                  ? 'Whisper Small-ID (ID ➔ EN)'
                                   : (inspection.isExplicitTranscript
                                       ? 'Verbatim'
                                       : 'Sintesis Akustik & Visual'),

@@ -414,7 +414,7 @@ class MultimodalExtractorService {
       extractionSummary:
           'Ekstraksi Riil On-Device Selesai: Durasi ${effectiveDurationSec.toStringAsFixed(1)} dtk, '
           '${visualFrames.length} Frame Wajah ($facesDetectedCount terdeteksi), '
-          'Whisper Base On-Device: ${whisperResult.detectedKeywords.length} penanda kata klinis (ID ➔ EN MentalBERT).',
+          '${whisperResult.isWhisperModel ? (whisperResult.linguisticTitle.contains("Small-ID") ? "Whisper Small-ID" : "Whisper Base") : "DSP Audio"} On-Device: ${whisperResult.detectedKeywords.length} penanda kata klinis (ID ➔ EN MentalBERT).',
       extractedAt: DateTime.now(),
       videoSizeMb: fileSizeMb,
       framesAnalyzed: visualFrames.length,

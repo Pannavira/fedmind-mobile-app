@@ -47,7 +47,7 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
   final _clientNameController = TextEditingController();
   DateTime _sessionDate = DateTime.now();
   final _counselorNoteController = TextEditingController();
-  // Transkrip tuturan kini 100% otomatis via On-Device Whisper Base (ID ➔ EN MentalBERT)
+  // Transkrip tuturan kini 100% otomatis via On-Device Whisper Small-ID (ID ➔ EN MentalBERT)
 
   // Sumber data pemeriksaan (1 = Unggah Video Lokal)
   int _selectedSourceOption = 1;
@@ -1338,7 +1338,7 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
                       borderRadius: BorderRadius.circular(6),
                     ),
                     child: const Text(
-                      '100% Otomatis • Whisper Base',
+                      '100% Otomatis • Whisper Small-ID',
                       style: TextStyle(
                         fontSize: 10,
                         fontWeight: FontWeight.w700,
@@ -1508,7 +1508,7 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
                       SizedBox(width: 10),
                       Expanded(
                         child: Text(
-                          'Whisper Base On-Device sedang mentranskripsi tuturan suara...',
+                          'Whisper Small-ID On-Device sedang mentranskripsi tuturan suara...',
                           style: TextStyle(
                             fontSize: 12,
                             color: Color(0xFF64748B),
@@ -1537,7 +1537,7 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
                       SizedBox(width: 10),
                       Expanded(
                         child: Text(
-                          'Input manual dihilangkan. Ucapan pasien dalam Bahasa Indonesia akan ditranskripsikan otomatis dari audio rekaman via Whisper Base, lalu diterjemahkan ke Bahasa Inggris untuk MentalBERT 768D.',
+                          'Input manual dihilangkan. Ucapan pasien dalam Bahasa Indonesia akan ditranskripsikan otomatis dari audio rekaman via Whisper Small-ID (Maleo AI), lalu diterjemahkan ke Bahasa Inggris untuk MentalBERT 768D.',
                           style: TextStyle(
                             fontSize: 11.5,
                             color: Color(0xFF64748B),
