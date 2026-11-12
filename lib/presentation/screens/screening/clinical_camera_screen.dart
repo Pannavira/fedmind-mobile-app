@@ -2,7 +2,19 @@ import 'dart:async';
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:speech_to_text/speech_to_text.dart' as stt;
 import '../../../core/services/local_storage_service.dart';
+
+/// Hasil rekaman observasi klinis beserta transkrip tuturan real-time
+class ClinicalCameraResult {
+  final String videoPath;
+  final String? liveTranscript;
+
+  const ClinicalCameraResult({
+    required this.videoPath,
+    this.liveTranscript,
+  });
+}
 
 class ClinicalCameraScreen extends StatefulWidget {
   final String participantId;
@@ -26,6 +38,12 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
   bool _isRecording = false;
   String? _errorMessage;
 
+  // Real-Time Speech Recognition (Google Native SpeechRecognizer)
+  final stt.SpeechToText _speech = stt.SpeechToText();
+  bool _speechAvailable = false;
+  String _liveTranscript = '';
+  String _committedTranscript = '';
+
   Timer? _timer;
   int _secondsRecorded = 0;
   static const int _recommendedDuration = 45;
@@ -42,6 +60,9 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _timer?.cancel();
+    if (_speech.isListening) {
+      _speech.stop();
+    }
     _controller?.dispose();
     super.dispose();
   }
@@ -66,6 +87,7 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
 
       if (cameraStatus.isGranted && micStatus.isGranted) {
         await _initCamera();
+        await _initSpeech();
       } else {
         setState(() {
           _errorMessage =
@@ -76,6 +98,62 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
       setState(() {
         _errorMessage = 'Gagal meminta otorisasi sensor kamera/mikrofon: $e';
       });
+    }
+  }
+
+  Future<void> _initSpeech() async {
+    try {
+      _speechAvailable = await _speech.initialize(
+        onError: (val) {
+          debugPrint('[ClinicalCamera STT error] ${val.errorMsg}');
+        },
+        onStatus: (status) {
+          debugPrint('[ClinicalCamera STT status] $status');
+          // Jika jeda hening terjadi saat sesi masih merekam, sambung kembali listening
+          if (status == 'notListening' && _isRecording) {
+            _committedTranscript = _liveTranscript;
+            Future.delayed(const Duration(milliseconds: 250), () {
+              if (_isRecording && mounted) {
+                _startSpeechListening();
+              }
+            });
+          }
+        },
+      );
+      if (mounted) setState(() {});
+    } catch (e) {
+      debugPrint('[ClinicalCamera STT init exception] $e');
+      _speechAvailable = false;
+    }
+  }
+
+  void _startSpeechListening() {
+    if (!_speechAvailable || !_isRecording) return;
+    try {
+      _speech.listen(
+        onResult: (result) {
+          if (mounted) {
+            setState(() {
+              final words = result.recognizedWords.trim();
+              if (_committedTranscript.isEmpty) {
+                _liveTranscript = words;
+              } else {
+                _liveTranscript = '$_committedTranscript $words'.trim();
+              }
+            });
+          }
+        },
+        listenOptions: stt.SpeechListenOptions(
+          localeId: 'id_ID',
+          listenMode: stt.ListenMode.dictation,
+          listenFor: const Duration(seconds: 120),
+          pauseFor: const Duration(seconds: 10),
+          partialResults: true,
+          cancelOnError: false,
+        ),
+      );
+    } catch (e) {
+      debugPrint('[ClinicalCamera STT listen exception] $e');
     }
   }
 
@@ -128,7 +206,12 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
       setState(() {
         _isRecording = true;
         _secondsRecorded = 0;
+        _liveTranscript = '';
+        _committedTranscript = '';
       });
+
+      // Mulai transkripsi suara real-time secara paralel
+      _startSpeechListening();
 
       _timer?.cancel();
       _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
@@ -156,6 +239,10 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
 
     _timer?.cancel();
     try {
+      if (_speech.isListening) {
+        await _speech.stop();
+      }
+
       final xFile = await _controller!.stopVideoRecording();
       setState(() {
         _isRecording = false;
@@ -166,8 +253,13 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
         participantId: widget.participantId,
       );
 
+      final finalTranscript = _liveTranscript.trim();
+
       if (!mounted) return;
-      Navigator.of(context).pop(savedPath);
+      Navigator.of(context).pop(ClinicalCameraResult(
+        videoPath: savedPath,
+        liveTranscript: finalTranscript.isNotEmpty ? finalTranscript : null,
+      ));
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -427,7 +519,95 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
             ),
           ),
 
-          // 4. Tombol Akuisisi di Bawah
+          // 4. Kartu Subtitle / Transkrip Tuturan Real-Time (Google STT)
+          if (_isRecording || _liveTranscript.isNotEmpty)
+            Positioned(
+              left: 16,
+              right: 16,
+              bottom: 120,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.82),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: const Color(0xFF10B981).withValues(alpha: 0.8),
+                    width: 1.5,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFF10B981).withValues(alpha: 0.25),
+                      blurRadius: 12,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          width: 8,
+                          height: 8,
+                          decoration: BoxDecoration(
+                            color: _speech.isListening
+                                ? const Color(0xFF10B981)
+                                : const Color(0xFFF59E0B),
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        const Text(
+                          'Transkripsi Tuturan Real-Time (Google STT ID):',
+                          style: TextStyle(
+                            color: Color(0xFF5EEAD4),
+                            fontSize: 11,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const Spacer(),
+                        if (_speech.isListening)
+                          const Text(
+                            '● Mendengarkan...',
+                            style: TextStyle(
+                              color: Color(0xFF34D399),
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(maxHeight: 75),
+                      child: SingleChildScrollView(
+                        reverse: true,
+                        child: Text(
+                          _liveTranscript.isEmpty
+                              ? 'Mulai berbicara, tuturan Anda akan ditranskripsikan secara langsung...'
+                              : _liveTranscript,
+                          style: TextStyle(
+                            color: _liveTranscript.isEmpty
+                                ? Colors.white60
+                                : Colors.white,
+                            fontSize: 12.5,
+                            fontStyle: _liveTranscript.isEmpty
+                                ? FontStyle.italic
+                                : FontStyle.normal,
+                            height: 1.35,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+          // 5. Tombol Akuisisi di Bawah
           Align(
             alignment: Alignment.bottomCenter,
             child: SafeArea(

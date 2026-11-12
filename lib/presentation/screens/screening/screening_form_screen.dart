@@ -12,6 +12,7 @@ import '../../../data/models/multimodal_inspection_models.dart';
 import '../../providers/screening_provider.dart';
 import '../../widgets/local_video_player_dialog.dart';
 import '../result/screening_result_screen.dart';
+import 'clinical_camera_screen.dart';
 import 'multimodal_analysis_studio_screen.dart';
 
 /// Halaman Pemeriksaan & Analisis Multimodal berbasis Wizard Stepper
@@ -156,6 +157,37 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
     }
   }
 
+  Future<void> _openClinicalCamera() async {
+    final pid = _participantIdController.text.trim().isEmpty
+        ? 'RM-2026-001'
+        : _participantIdController.text.trim();
+
+    try {
+      final result = await Navigator.push<ClinicalCameraResult>(
+        context,
+        MaterialPageRoute(
+          builder: (_) => ClinicalCameraScreen(participantId: pid),
+        ),
+      );
+
+      if (result != null && mounted) {
+        await _processLocalVideo(
+          result.videoPath,
+          realtimeTranscript: result.liveTranscript,
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Gagal membuka sensor kamera klinis: $e'),
+          backgroundColor: const Color(0xFFDC2626),
+          duration: const Duration(seconds: 4),
+        ),
+      );
+    }
+  }
+
   Future<void> _pickVideoFromGallery() async {
     final pid = _participantIdController.text.trim().isEmpty
         ? 'RM-2026-001'
@@ -188,17 +220,23 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
     }
   }
 
-  Future<void> _processLocalVideo(String videoPath) async {
+  Future<void> _processLocalVideo(
+    String videoPath, {
+    String? realtimeTranscript,
+  }) async {
     final sizeMb = await LocalStorageService.getFileSizeInMb(videoPath);
 
     setState(() {
       _localVideoPath = videoPath;
       _extractedVideoFeatures = null;
       _isExtractingPreview = false;
+      _lastExtractedTranscript = realtimeTranscript;
       _dataSourceTitle =
           'Rekaman Observasi Tersimpan (${sizeMb.toStringAsFixed(1)} MB)';
-      _dataSourceSubtitle =
-          'Tersimpan privat di perangkat lokal • Siap diproses on-device.';
+      _dataSourceSubtitle = realtimeTranscript != null &&
+              realtimeTranscript.isNotEmpty
+          ? 'Transkrip Real-Time Terdeteksi (${realtimeTranscript.split(' ').length} kata) • Siap dieksekusi.'
+          : 'Tersimpan privat di perangkat lokal • Siap diproses on-device.';
     });
 
     // Inisialisasi pemutar video inline secara langsung tanpa komputasi berat di preview
@@ -206,9 +244,10 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
   }
 
   Future<void> _editTranscriptDialog() async {
-    if (_localVideoPath == null || _liveInspectionPreview == null) return;
-    final controller =
-        TextEditingController(text: _liveInspectionPreview!.fullTranscript);
+    final currentText = _lastExtractedTranscript ??
+        _liveInspectionPreview?.fullTranscript ??
+        '';
+    final controller = TextEditingController(text: currentText);
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -242,22 +281,29 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
     if (confirmed == true && mounted) {
       final newText = controller.text.trim();
       if (newText.isNotEmpty) {
-        final pid = _participantIdController.text.trim().isEmpty
-            ? 'RM-2026-001'
-            : _participantIdController.text.trim();
-        final currentNote = _counselorNoteController.text.trim();
-        final reExtracted =
-            await MultimodalExtractorService.extractFromLocalVideo(
-          videoPath: _localVideoPath!,
-          participantId: pid,
-          userNote: currentNote,
-          clientTranscript: newText,
-        );
         setState(() {
-          _extractedVideoFeatures = reExtracted;
-          _liveInspectionPreview = reExtracted.inspectionData;
-          _lastExtractedTranscript = reExtracted.inspectionData.fullTranscript;
+          _lastExtractedTranscript = newText;
         });
+        if (_extractedVideoFeatures != null) {
+          final pid = _participantIdController.text.trim().isEmpty
+              ? 'RM-2026-001'
+              : _participantIdController.text.trim();
+          final currentNote = _counselorNoteController.text.trim();
+          final reExtracted =
+              await MultimodalExtractorService.extractFromLocalVideo(
+            videoPath: _localVideoPath!,
+            participantId: pid,
+            userNote: currentNote,
+            clientTranscript: newText,
+          );
+          if (mounted) {
+            setState(() {
+              _extractedVideoFeatures = reExtracted;
+              _liveInspectionPreview = reExtracted.inspectionData;
+              _lastExtractedTranscript = reExtracted.inspectionData.fullTranscript;
+            });
+          }
+        }
       }
     }
   }
@@ -671,6 +717,7 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
               videoPath: _localVideoPath!,
               participantId: participantId,
               userNote: currentNote,
+              clientTranscript: _lastExtractedTranscript,
               onProgress: (stage, progress) {
                 provider.setExtractionProgress(stage, progress);
               },
@@ -1632,12 +1679,13 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // Jika video belum dipilih: Tampilkan Area Unggah Video
+              // Jika video belum dipilih: Tampilkan Area Unggah/Rekam Video
               if (_localVideoPath == null)
                 _buildVideoUploadPrompt()
               else ...[
-                // Jika video sudah dipilih: Tampilkan Pemutar Video Inline Langsung
+                // Jika video sudah dipilih: Tampilkan Pemutar Video Inline Langsung & Transkrip
                 _buildInlineVideoPlayer(),
+                _buildTranscriptPreviewCard(),
               ],
             ],
           ),
@@ -1707,7 +1755,7 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
     );
   }
 
-  /// Tampilan Area Unggah Video (Ketika belum ada video yang dipilih)
+  /// Tampilan Area Unggah/Rekam Video (Ketika belum ada video yang dipilih)
   Widget _buildVideoUploadPrompt() {
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
@@ -1728,14 +1776,14 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
               shape: BoxShape.circle,
             ),
             child: const Icon(
-              Icons.video_file_rounded,
+              Icons.videocam_rounded,
               color: _brandTealDark,
               size: 38,
             ),
           ),
           const SizedBox(height: 14),
           const Text(
-            'Unggah Rekaman Sesi Konseling',
+            'Akuisisi Rekaman Sesi Observasi',
             style: TextStyle(
               fontSize: 15.5,
               fontWeight: FontWeight.w800,
@@ -1744,7 +1792,7 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
           ),
           const SizedBox(height: 6),
           const Text(
-            'Pilih berkas rekaman video observasi klinis (.mp4, .mov) dari galeri atau penyimpanan perangkat Anda.',
+            'Rekam observasi langsung dengan transkripsi wicara real-time (Google STT), atau pilih berkas video yang sudah ada.',
             textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: 12,
@@ -1753,11 +1801,12 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
             ),
           ),
           const SizedBox(height: 18),
+          // Pilihan 1: Rekam Langsung dengan Real-Time ASR (Rekomendasi Cepat & Akurat)
           SizedBox(
             width: double.infinity,
             height: 48,
             child: ElevatedButton.icon(
-              onPressed: _pickVideoFromGallery,
+              onPressed: _openClinicalCamera,
               style: ElevatedButton.styleFrom(
                 backgroundColor: _brandTeal,
                 foregroundColor: Colors.white,
@@ -1766,14 +1815,146 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
                   borderRadius: BorderRadius.circular(14),
                 ),
               ),
-              icon: const Icon(Icons.file_upload_outlined, size: 20),
+              icon: const Icon(Icons.videocam_rounded, size: 22),
               label: const Text(
-                'Pilih Video dari Galeri / File',
-                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800),
+                'Rekam Video Langsung (Live ASR)',
+                style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w800),
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          // Pilihan 2: Pilih Video dari Galeri / File
+          SizedBox(
+            width: double.infinity,
+            height: 44,
+            child: OutlinedButton.icon(
+              onPressed: _pickVideoFromGallery,
+              style: OutlinedButton.styleFrom(
+                foregroundColor: _brandTealDark,
+                side: const BorderSide(color: Color(0xFF99F6E4), width: 1.5),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+              ),
+              icon: const Icon(Icons.file_upload_outlined, size: 19),
+              label: const Text(
+                'Atau Pilih Video dari Galeri / File',
+                style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700),
               ),
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  /// Kartu Transkrip Tuturan Terdeteksi secara Real-Time / Tersimpan
+  Widget _buildTranscriptPreviewCard() {
+    if (_lastExtractedTranscript == null || _lastExtractedTranscript!.trim().isEmpty) {
+      return const SizedBox.shrink();
+    }
+    return Container(
+      margin: const EdgeInsets.only(top: 14),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF0FDF4),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFBBF7D0)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.record_voice_over_rounded,
+                  color: Color(0xFF16A34A), size: 18),
+              const SizedBox(width: 8),
+              const Expanded(
+                child: Text(
+                  'Transkrip Tuturan Terdeteksi (Live ASR):',
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF166534),
+                  ),
+                ),
+              ),
+              InkWell(
+                onTap: _editTranscriptDialog,
+                borderRadius: BorderRadius.circular(6),
+                child: const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.edit_outlined, size: 14, color: Color(0xFF16A34A)),
+                      SizedBox(width: 4),
+                      Text(
+                        'Edit',
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF16A34A),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            _lastExtractedTranscript!,
+            style: const TextStyle(
+              fontSize: 12.5,
+              color: Color(0xFF14532D),
+              height: 1.4,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showChangeVideoOptions() {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.videocam_rounded, color: _brandTealDark),
+                title: const Text('Rekam Ulang via Kamera (Live ASR)',
+                    style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5)),
+                subtitle: const Text('Transkrip langsung terdeteksi dari mikrofon',
+                    style: TextStyle(fontSize: 11.5)),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _openClinicalCamera();
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.photo_library_outlined, color: _brandTealDark),
+                title: const Text('Pilih Berkas dari Galeri',
+                    style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5)),
+                subtitle: const Text('Gunakan rekaman video yang sudah ada',
+                    style: TextStyle(fontSize: 11.5)),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _pickVideoFromGallery();
+                },
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -1949,7 +2130,7 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
                       Row(
                         children: [
                           TextButton.icon(
-                            onPressed: _pickVideoFromGallery,
+                            onPressed: _showChangeVideoOptions,
                             icon: const Icon(Icons.refresh_rounded,
                                 size: 14, color: Color(0xFF5EEAD4)),
                             label: const Text(
