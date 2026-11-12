@@ -36,13 +36,27 @@ class MainActivity : FlutterActivity() {
     private var speechRecognizer: SpeechRecognizer? = null
     private val liveSpeechTranscript = StringBuilder()
     private var isRecognizingSpeech = false
+    private var methodChannel: MethodChannel? = null
+    private var micSession: MicSession? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName)
-            .setMethodCallHandler { call, result ->
+        micSession = MicSession(this) { event ->
+            mainHandler.post { methodChannel?.invokeMethod("onMicEvent", event) }
+        }
+        methodChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName)
+        methodChannel!!.setMethodCallHandler { call, result ->
                 when (call.method) {
+                    "startMicSession" -> {
+                        val err = micSession?.start()
+                        if (err == null) result.success(true)
+                        else result.error("MIC_SESSION_ERROR", err, null)
+                    }
+                    "stopMicSession" -> {
+                        micSession?.stop { payload -> result.success(payload) }
+                            ?: result.success(hashMapOf("transcript" to ""))
+                    }
                     "isSpeechRecognitionAvailable" -> {
                         val available = SpeechRecognizer.isRecognitionAvailable(this)
                         val isOnDevice = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -139,6 +153,7 @@ class MainActivity : FlutterActivity() {
                         val videoPath = call.argument<String>("videoPath")
                         val maxFrames = call.argument<Int>("maxFrames") ?: 16
                         val targetSampleRate = call.argument<Int>("targetSampleRate") ?: 8000
+                        val audioWavPath = call.argument<String>("audioWavPath")
 
                         if (videoPath.isNullOrBlank() || !File(videoPath).exists()) {
                             result.error("FILE_NOT_FOUND", "Video file not found: $videoPath", null)
@@ -148,7 +163,11 @@ class MainActivity : FlutterActivity() {
                         executor.execute {
                             try {
                                 val visualData = extractVisualFrames(videoPath, maxFrames)
-                                val audioData = decodeAudioTrackPcm(videoPath, targetSampleRate)
+                                val audioData = if (!audioWavPath.isNullOrBlank() && File(audioWavPath).exists()) {
+                                    loadWavPcm(audioWavPath)
+                                } else {
+                                    decodeAudioTrackPcm(videoPath, targetSampleRate)
+                                }
 
                                 val payload = hashMapOf<String, Any>(
                                     "visual" to visualData,
@@ -839,6 +858,34 @@ class MainActivity : FlutterActivity() {
             "totalSamples" to totalSamplesWritten,
             "durationSec" to actualDurationSec,
             "pcmSamples" to samplesOut
+        )
+    }
+
+    /** Memuat WAV PCM16 mono hasil MicSession (header 44 byte) sebagai sampel DSP. */
+    private fun loadWavPcm(path: String): Map<String, Any> {
+        val f = File(path)
+        val rate = 16000
+        val maxDspSamples = 240000
+        val total = ((f.length() - 44) / 2).coerceAtLeast(0)
+        val out = ArrayList<Double>(minOf(maxDspSamples.toLong(), total).toInt())
+        java.io.BufferedInputStream(java.io.FileInputStream(f), 65536).use { ins ->
+            ins.skip(44)
+            val b = ByteArray(2)
+            while (out.size < maxDspSamples && ins.read(b) == 2) {
+                val v = ((b[1].toInt() shl 8) or (b[0].toInt() and 0xff)).toShort()
+                out.add(v / 32768.0)
+            }
+        }
+        if (total == 0L) {
+            return hashMapOf("hasAudioTrack" to false, "sampleRate" to rate, "pcmSamples" to emptyList<Double>())
+        }
+        return hashMapOf(
+            "hasAudioTrack" to true,
+            "sampleRate" to rate,
+            "wavPath" to path,
+            "totalSamples" to total,
+            "durationSec" to total.toDouble() / rate,
+            "pcmSamples" to out
         )
     }
 }

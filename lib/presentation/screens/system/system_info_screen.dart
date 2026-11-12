@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+
 import '../../providers/screening_provider.dart';
 import '../../widgets/clinical_disclaimer_dialog.dart';
 import '../../widgets/runtime_requirements_section.dart';
@@ -168,15 +169,13 @@ class SystemInfoScreen extends StatelessWidget {
                           _buildDetailRow(
                             icon: Icons.layers_outlined,
                             title: 'Dimensi Vektor Fitur',
-                            subtitle:
-                                'Visual: 75D FACS • Audio: 248D COVAREP • Teks: 768D MentalBERT',
+                            subtitle: 'Visual: 75D FACS • Audio: 248D COVAREP • Teks: 768D MentalBERT',
                           ),
                           const Divider(height: 20, color: Color(0xFFF1F5F9)),
                           _buildDetailRow(
                             icon: Icons.security_rounded,
                             title: 'Privasi & Keamanan',
-                            subtitle:
-                                'Zero Cloud Media Upload • Inferensi 100% on-device di memori ponsel',
+                            subtitle: 'Zero Cloud Media Upload • Inferensi 100% on-device di memori ponsel',
                             highlightColor: const Color(0xFF059669),
                           ),
                           const Divider(height: 20, color: Color(0xFFF1F5F9)),
@@ -249,16 +248,19 @@ class SystemInfoScreen extends StatelessWidget {
                                   : () async {
                                       await provider.checkServerHealth();
                                       if (context.mounted) {
-                                        ScaffoldMessenger.of(context).showSnackBar(
-                                          SnackBar(
-                                            content: Text(
-                                              provider.isServerOnline
-                                                  ? 'Koneksi server normal.'
-                                                  : 'Server pusat tidak merespons. Mode On-Device aktif.',
-                                            ),
-                                            duration: const Duration(seconds: 2),
-                                          ),
-                                        );
+                                        ScaffoldMessenger.of(context)
+                                            .showSnackBar(
+                                              SnackBar(
+                                                content: Text(
+                                                  provider.isServerOnline
+                                                      ? 'Koneksi server normal.'
+                                                      : 'Server pusat tidak merespons. Mode On-Device aktif.',
+                                                ),
+                                                duration: const Duration(
+                                                  seconds: 2,
+                                                ),
+                                              ),
+                                            );
                                       }
                                     },
                               icon: provider.isCheckingHealth
@@ -278,7 +280,9 @@ class SystemInfoScreen extends StatelessWidget {
                               ),
                               style: OutlinedButton.styleFrom(
                                 foregroundColor: _brandTealDark,
-                                side: const BorderSide(color: Color(0xFFCBD5E1)),
+                                side: const BorderSide(
+                                  color: Color(0xFFCBD5E1),
+                                ),
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(12),
                                 ),
@@ -290,7 +294,9 @@ class SystemInfoScreen extends StatelessWidget {
                       const SizedBox(height: 24),
 
                       // SECTION 3: Pedoman CDSS & Etika Klinis
-                      _buildSectionTitle('Etika & Protokol Keputusan Klinis (CDSS)'),
+                      _buildSectionTitle(
+                        'Etika & Protokol Keputusan Klinis (CDSS)',
+                      ),
                       const SizedBox(height: 8),
                       _buildCard(
                         children: [
@@ -325,17 +331,41 @@ class SystemInfoScreen extends StatelessWidget {
                             ),
                           ),
                           const SizedBox(height: 10),
-                          _buildPhqScaleRow('0 – 4', 'Minimal / Normal', const Color(0xFF10B981)),
-                          _buildPhqScaleRow('5 – 9', 'Gejala Ringan (Borderline)', const Color(0xFF0284C7)),
-                          _buildPhqScaleRow('10 – 14', 'Depresi Sedang', const Color(0xFFF59E0B)),
-                          _buildPhqScaleRow('15 – 19', 'Sedang - Berat', const Color(0xFFEA580C)),
-                          _buildPhqScaleRow('20 – 24', 'Depresi Berat (Kritis)', const Color(0xFFEF4444)),
+                          _buildPhqScaleRow(
+                            '0 – 4',
+                            'Minimal / Normal',
+                            const Color(0xFF10B981),
+                          ),
+                          _buildPhqScaleRow(
+                            '5 – 9',
+                            'Gejala Ringan (Borderline)',
+                            const Color(0xFF0284C7),
+                          ),
+                          _buildPhqScaleRow(
+                            '10 – 14',
+                            'Depresi Sedang',
+                            const Color(0xFFF59E0B),
+                          ),
+                          _buildPhqScaleRow(
+                            '15 – 19',
+                            'Sedang - Berat',
+                            const Color(0xFFEA580C),
+                          ),
+                          _buildPhqScaleRow(
+                            '20 – 24',
+                            'Depresi Berat (Kritis)',
+                            const Color(0xFFEF4444),
+                          ),
                           const SizedBox(height: 16),
                           SizedBox(
                             width: double.infinity,
                             child: ElevatedButton.icon(
-                              onPressed: () => ClinicalDisclaimerDialog.show(context),
-                              icon: const Icon(Icons.gpp_good_outlined, size: 18),
+                              onPressed: () =>
+                                  ClinicalDisclaimerDialog.show(context),
+                              icon: const Icon(
+                                Icons.gpp_good_outlined,
+                                size: 18,
+                              ),
                               label: const Text('Buka Lembar Protokol Lengkap'),
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: _brandTeal,
@@ -403,11 +433,8 @@ class SystemInfoScreen extends StatelessWidget {
                             ),
                             const SizedBox(height: 4),
                             const Text(
-                              'Versi 0.0.1+1 (Prototype Penelitian Skripsi/Tesis)',
-                              style: TextStyle(
-                                fontSize: 11,
-                                color: _textMuted,
-                              ),
+                              'Versi 0.0.1+1 (Prototype)',
+                              style: TextStyle(fontSize: 11, color: _textMuted),
                             ),
                           ],
                         ),
@@ -494,7 +521,9 @@ class SystemInfoScreen extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 11.5,
                   color: highlightColor ?? _textSecondary,
-                  fontWeight: highlightColor != null ? FontWeight.w600 : FontWeight.w400,
+                  fontWeight: highlightColor != null
+                      ? FontWeight.w600
+                      : FontWeight.w400,
                   height: 1.35,
                 ),
               ),
@@ -513,10 +542,7 @@ class SystemInfoScreen extends StatelessWidget {
           Container(
             width: 8,
             height: 8,
-            decoration: BoxDecoration(
-              color: color,
-              shape: BoxShape.circle,
-            ),
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
           ),
           const SizedBox(width: 10),
           SizedBox(

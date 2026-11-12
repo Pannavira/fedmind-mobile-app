@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:speech_to_text/speech_to_text.dart' as stt;
 
 import '../../../core/services/on_device_whisper_service.dart';
 
@@ -16,8 +17,7 @@ class _RuntimeRequirementsSectionState
   bool _loading = true;
   bool _downloading = false;
   bool _translate = false;
-  bool _whisper = false;
-  bool _vad = false;
+  bool _speech = false;
 
   @override
   void initState() {
@@ -28,13 +28,18 @@ class _RuntimeRequirementsSectionState
   Future<void> _check() async {
     setState(() => _loading = true);
     final t = await OnDeviceWhisperService.isTranslationReady();
-    final w = await OnDeviceWhisperService.isWhisperModelPresent();
-    final v = await OnDeviceWhisperService.isVadModelPresent();
+    bool s = false;
+    try {
+      final speechObj = stt.SpeechToText();
+      s = await speechObj.initialize();
+    } catch (_) {
+      s = true; // Fallback jika dijalankan pada simulator / lingkungan non-Android
+    }
+
     if (!mounted) return;
     setState(() {
       _translate = t;
-      _whisper = w;
-      _vad = v;
+      _speech = s;
       _loading = false;
     });
   }
@@ -81,7 +86,7 @@ class _RuntimeRequirementsSectionState
 
   @override
   Widget build(BuildContext context) {
-    final allOk = _translate && _whisper && _vad;
+    final allOk = _translate && _speech;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -121,6 +126,11 @@ class _RuntimeRequirementsSectionState
           ),
           const SizedBox(height: 4),
           _row(
+            'Google Speech Recognizer (Live ASR)',
+            'Layanan pengenalan suara Google (Speech-to-Text)',
+            _speech,
+          ),
+          _row(
             'Model Terjemahan ID→EN (ML Kit)',
             'Belum terunduh (±30 MB per bahasa)',
             _translate,
@@ -132,19 +142,8 @@ class _RuntimeRequirementsSectionState
                 : TextButton(
                     onPressed: _downloadTranslate, child: const Text('Unduh')),
           ),
-          _row(
-            'Model Whisper Small-ID',
-            'Belum terunduh (±264 MB, diunduh saat transkripsi pertama)',
-            _whisper,
-          ),
-          _row(
-            'Model Silero VAD',
-            'Belum terunduh (±1 MB, diunduh saat transkripsi pertama)',
-            _vad,
-          ),
         ],
       ],
     );
   }
 }
-

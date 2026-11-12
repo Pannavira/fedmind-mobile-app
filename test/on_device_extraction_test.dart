@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fedmind_mobile_app/core/services/multimodal_extractor_service.dart';
 import 'package:fedmind_mobile_app/core/services/local_preprocessing_service.dart';
+import 'package:fedmind_mobile_app/core/services/on_device_whisper_service.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -482,6 +483,33 @@ void main() {
         expect(ins.isExplicitTranscript, isTrue);
         expect(ins.fullTranscript, equals(customTranscript));
         expect(ins.transcriptSegments.first.text, equals(customTranscript));
+      },
+    );
+
+    test(
+      'Without a live transcript, the result must be empty (no synthesized fallback text)',
+      () async {
+        final samples = List<double>.generate(
+          16000,
+          (i) => 0.003 * sin(i / 18.0),
+        );
+
+        final result = await OnDeviceWhisperService.transcribeAndTranslate(
+          videoPath: tempFileA.path,
+          pcmSamples: samples,
+          sourceSampleRate: 16000,
+          durationSec: 10.0,
+          audioSummary: {
+            'rmsMean': 0.0025,
+            'pitchMean': 145.0,
+            'pauseRatio': 0.30,
+          },
+        );
+
+        expect(result.isSuccess, isFalse);
+        expect(result.isWhisperModel, isFalse);
+        expect(result.indonesianTranscript, isEmpty);
+        expect(result.segments, isEmpty);
       },
     );
 

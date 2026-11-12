@@ -381,14 +381,6 @@ packages:
     description: flutter
     source: sdk
     version: "0.0.0"
-  freezed_annotation:
-    dependency: transitive
-    description:
-      name: freezed_annotation
-      sha256: "7294967ff0a6d98638e7acb774aac3af2550777accd8149c90af5b014e6d44d8"
-      url: "https://pub.dev"
-    source: hosted
-    version: "3.1.0"
   glob:
     dependency: transitive
     description:
@@ -1050,14 +1042,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.4.0"
-  universal_io:
-    dependency: transitive
-    description:
-      name: universal_io
-      sha256: f63cbc48103236abf48e345e07a03ce5757ea86285ed313a6a032596ed9301e2
-      url: "https://pub.dev"
-    source: hosted
-    version: "2.3.1"
   vector_math:
     dependency: transitive
     description:
@@ -1146,14 +1130,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "3.0.3"
-  whisper_ggml:
-    dependency: "direct main"
-    description:
-      name: whisper_ggml
-      sha256: "2b478898f3db902104e6d02b66bffa4b38422ba050f227cf1c3318570bd94fd8"
-      url: "https://pub.dev"
-    source: hosted
-    version: "2.9.0"
   xdg_directories:
     dependency: transitive
     description:

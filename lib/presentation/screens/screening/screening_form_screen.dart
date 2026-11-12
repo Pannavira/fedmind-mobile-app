@@ -1,8 +1,9 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:image_picker/image_picker.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
+import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:video_player/video_player.dart';
 
 import '../../../core/constants/clinical_constants.dart';
@@ -18,7 +19,7 @@ import 'multimodal_analysis_studio_screen.dart';
 /// Halaman Pemeriksaan & Analisis Multimodal berbasis Wizard Stepper
 /// Alur pemeriksaan:
 /// 1. Data Klien & Sesi (Identitas, Tanggal, Catatan Awal)
-/// 2. Unggah Rekaman Video & Pemutar Video Langsung di Aplikasi
+/// 2. Rekaman Video Observasi & Pemutar Video Langsung di Aplikasi
 /// 3. Ringkasan & Eksekusi Inferensi AI On-Device
 class ScreeningFormScreen extends StatefulWidget {
   final int initialSourceOption;
@@ -48,9 +49,9 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
   final _clientNameController = TextEditingController();
   DateTime _sessionDate = DateTime.now();
   final _counselorNoteController = TextEditingController();
-  // Transkrip tuturan kini 100% otomatis via On-Device Whisper Small-ID (ID ➔ EN MentalBERT)
+  // Transkrip tuturan kini 100% langsung via Google Native SpeechRecognizer (Live ASR ID ➔ EN MentalBERT)
 
-  // Sumber data pemeriksaan (1 = Unggah Video Lokal)
+  // Sumber data pemeriksaan (1 = Rekaman Video Lokal)
   int _selectedSourceOption = 1;
 
   // State video lokal & pratinjau modalitas riil di perangkat
@@ -71,6 +72,13 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
   bool _isPlaying = false;
   bool _isSubmitting = false;
 
+  // Real-time mic test / voice typing for live transcript validation
+  final stt.SpeechToText _voiceTester = stt.SpeechToText();
+  bool _voiceTesterAvailable = false;
+  bool _isVoiceTesting = false;
+  String _voiceTestTranscript = '';
+  String _voiceTestStatus = 'Siap mendengarkan. Tekan tombol mikrofon.';
+
   @override
   void initState() {
     super.initState();
@@ -82,6 +90,9 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
 
   @override
   void dispose() {
+    if (_voiceTester.isListening) {
+      _voiceTester.stop();
+    }
     _inlineVideoController?.dispose();
     _participantIdController.dispose();
     _clientNameController.dispose();
@@ -94,6 +105,109 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
     setState(() {
       _selectedSourceOption = 1;
     });
+  }
+
+  Future<void> _initializeVoiceTester() async {
+    final micStatus = await Permission.microphone.request();
+    if (!mounted || !micStatus.isGranted) {
+      setState(() {
+        _voiceTesterAvailable = false;
+        _voiceTestStatus = 'Mikrofon belum diizinkan. Beri izin akses mikrofon.';
+      });
+      return;
+    }
+
+    try {
+      _voiceTesterAvailable = await _voiceTester.initialize(
+        onError: (error) {
+          debugPrint('[VOICE_TEST] STT error: ${error.errorMsg}');
+          if (mounted) {
+            setState(() {
+              _isVoiceTesting = false;
+              _voiceTestStatus = 'Error speech recognition: ${error.errorMsg}';
+            });
+          }
+        },
+        onStatus: (status) {
+          debugPrint('[VOICE_TEST] status: $status');
+          if (mounted && status == 'notListening' && _isVoiceTesting) {
+            setState(() {
+              _voiceTestStatus = 'Mendengarkan kembali...';
+            });
+          }
+        },
+      );
+    } catch (e) {
+      debugPrint('[VOICE_TEST] initialize exception: $e');
+      _voiceTesterAvailable = false;
+    }
+
+    if (mounted) {
+      setState(() {
+        _voiceTestStatus = _voiceTesterAvailable
+            ? 'Siap mendengarkan. Tekan tombol mikrofon.'
+            : 'Speech recognition tidak tersedia di perangkat ini.';
+      });
+    }
+  }
+
+  Future<void> _toggleVoiceTest() async {
+    if (!_voiceTesterAvailable) {
+      await _initializeVoiceTester();
+    }
+
+    if (!_voiceTesterAvailable) {
+      return;
+    }
+
+    if (_voiceTester.isListening) {
+      await _voiceTester.stop();
+      if (mounted) {
+        setState(() {
+          _isVoiceTesting = false;
+          _voiceTestStatus = 'Transkripsi suara dihentikan.';
+        });
+      }
+      return;
+    }
+
+    if (mounted) {
+      setState(() {
+        _isVoiceTesting = true;
+        _voiceTestStatus = 'Mendengarkan...';
+      });
+    }
+
+    try {
+      await _voiceTester.listen(
+        localeId: 'id_ID',
+        listenMode: stt.ListenMode.dictation,
+        listenFor: const Duration(seconds: 30),
+        pauseFor: const Duration(seconds: 2),
+        partialResults: true,
+        cancelOnError: false,
+        onResult: (result) {
+          if (!mounted) return;
+          setState(() {
+            _voiceTestTranscript = result.recognizedWords.trim();
+            _voiceTestStatus = result.finalResult
+                ? 'Transkripsi selesai.'
+                : 'Mendengarkan...';
+            if (result.finalResult && _voiceTestTranscript.isNotEmpty) {
+              _isVoiceTesting = false;
+            }
+          });
+        },
+      );
+    } catch (e) {
+      debugPrint('[VOICE_TEST] listen exception: $e');
+      if (mounted) {
+        setState(() {
+          _isVoiceTesting = false;
+          _voiceTestStatus = 'Gagal memulai transkripsi suara.';
+        });
+      }
+    }
   }
 
   void _resetForm() {
@@ -115,6 +229,10 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
       _liveInspectionPreview = null;
       _isInlineVideoInitialized = false;
       _isPlaying = false;
+      _voiceTestTranscript = '';
+      _voiceTestStatus = 'Siap mendengarkan. Tekan tombol mikrofon.';
+      _isVoiceTesting = false;
+      _voiceTesterAvailable = false;
       _dataSourceTitle = 'Pilih atau Unggah Video Observasi';
       _dataSourceSubtitle =
           'Format .mp4 atau .mov dengan pencahayaan wajah memadai';
@@ -175,44 +293,36 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
           result.videoPath,
           realtimeTranscript: result.liveTranscript,
         );
+
+        if (!mounted) return;
+        final fileName =
+            result.videoPath.split(Platform.isWindows ? r'\' : '/').last;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.check_circle_rounded,
+                    color: Colors.white, size: 20),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Rekaman observasi klinis tersimpan ($fileName)',
+                    style: const TextStyle(
+                        fontSize: 12.5, fontWeight: FontWeight.w600),
+                  ),
+                ),
+              ],
+            ),
+            backgroundColor: const Color(0xFF0F766E),
+            duration: const Duration(seconds: 4),
+          ),
+        );
       }
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Gagal membuka sensor kamera klinis: $e'),
-          backgroundColor: const Color(0xFFDC2626),
-          duration: const Duration(seconds: 4),
-        ),
-      );
-    }
-  }
-
-  Future<void> _pickVideoFromGallery() async {
-    final pid = _participantIdController.text.trim().isEmpty
-        ? 'RM-2026-001'
-        : _participantIdController.text.trim();
-
-    try {
-      final picker = ImagePicker();
-      final pickedFile = await picker.pickVideo(
-        source: ImageSource.gallery,
-        maxDuration: const Duration(minutes: 5),
-      );
-
-      if (pickedFile == null || !mounted) return;
-
-      final savedPath = await LocalStorageService.saveClinicalVideo(
-        sourceFilePath: pickedFile.path,
-        participantId: pid,
-      );
-
-      await _processLocalVideo(savedPath);
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Gagal memuat rekaman sesi konseling: $e'),
           backgroundColor: const Color(0xFFDC2626),
           duration: const Duration(seconds: 4),
         ),
@@ -582,7 +692,7 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
                       ),
                       const SizedBox(height: 8),
                       _buildProgressStepRow(
-                        title: '3. Transkripsi Wicara Whisper On-Device',
+                        title: '3. Transkripsi Wicara (Google Live ASR)',
                         isDone: progress >= 0.85,
                         isActive: progress >= 0.65 && progress < 0.85,
                       ),
@@ -1362,7 +1472,7 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
               ),
               const SizedBox(height: 14),
 
-              // 5. Modalitas Teks: Transkripsi Otomatis (Whisper Base On-Device)
+              // 5. Modalitas Teks: Transkripsi Otomatis (Google Live ASR)
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -1385,7 +1495,7 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
                       borderRadius: BorderRadius.circular(6),
                     ),
                     child: const Text(
-                      '100% Otomatis • Whisper Small-ID',
+                      '100% Otomatis • Google Live ASR',
                       style: TextStyle(
                         fontSize: 10,
                         fontWeight: FontWeight.w700,
@@ -1555,7 +1665,7 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
                       SizedBox(width: 10),
                       Expanded(
                         child: Text(
-                          'Whisper Small-ID On-Device sedang mentranskripsi tuturan suara...',
+                          'Google Speech-to-Text mentranskripsikan tuturan suara...',
                           style: TextStyle(
                             fontSize: 12,
                             color: Color(0xFF64748B),
@@ -1584,7 +1694,7 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
                       SizedBox(width: 10),
                       Expanded(
                         child: Text(
-                          'Input manual dihilangkan. Ucapan pasien dalam Bahasa Indonesia akan ditranskripsikan otomatis dari audio rekaman via Whisper Small-ID (Maleo AI), lalu diterjemahkan ke Bahasa Inggris untuk MentalBERT 768D.',
+                          'Input manual dihilangkan. Ucapan pasien dalam Bahasa Indonesia ditranskripsikan langsung melalui Google Speech-to-Text mikrofon, lalu diterjemahkan ke Bahasa Inggris untuk MentalBERT 768D.',
                           style: TextStyle(
                             fontSize: 11.5,
                             color: Color(0xFF64748B),
@@ -1693,6 +1803,9 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
         const SizedBox(height: 16),
 
         // Pre-check Kualitas Sensor & Integritas Modalitas
+        const SizedBox(height: 16),
+        _buildVoiceTestCard(),
+        const SizedBox(height: 16),
         _buildSectionCard(
           stepNumber: '02.1',
           title: 'Status & Kualitas Sensor Media',
@@ -1755,6 +1868,84 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
     );
   }
 
+  Widget _buildVoiceTestCard() {
+    final transcriptText = _voiceTestTranscript.trim().isEmpty
+        ? 'Tekan tombol mikrofon lalu ucapkan kalimat percakapan pasien. Transkrip akan tampil secara real-time seperti Android voice typing.'
+        : _voiceTestTranscript;
+
+    return _buildSectionCard(
+      stepNumber: '02.1',
+      title: 'Uji Transkripsi Suara Langsung',
+      subtitle: 'Tes mikrofon dan transkripsi real-time sebelum rekaman final',
+      icon: Icons.mic_none_rounded,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  _voiceTestStatus,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: _textSecondary,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              ElevatedButton.icon(
+                onPressed: _toggleVoiceTest,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: _isVoiceTesting
+                      ? const Color(0xFFEF4444)
+                      : _brandTeal,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                icon: Icon(
+                  _isVoiceTesting ? Icons.stop_rounded : Icons.mic_rounded,
+                  size: 18,
+                ),
+                label: Text(
+                  _isVoiceTesting ? 'Stop' : 'Coba Suara',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Container(
+            width: double.infinity,
+            constraints: const BoxConstraints(minHeight: 96),
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF8FAFC),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: const Color(0xFFE2E8F0)),
+            ),
+            child: Text(
+              transcriptText,
+              style: TextStyle(
+                fontSize: 13,
+                color: _voiceTestTranscript.trim().isEmpty
+                    ? _textSecondary
+                    : _slateDark,
+                height: 1.5,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   /// Tampilan Area Unggah/Rekam Video (Ketika belum ada video yang dipilih)
   Widget _buildVideoUploadPrompt() {
     return Container(
@@ -1783,7 +1974,7 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
           ),
           const SizedBox(height: 14),
           const Text(
-            'Akuisisi Rekaman Sesi Observasi',
+            'Rekam Sesi Observasi Klinis',
             style: TextStyle(
               fontSize: 15.5,
               fontWeight: FontWeight.w800,
@@ -1792,7 +1983,7 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
           ),
           const SizedBox(height: 6),
           const Text(
-            'Rekam observasi langsung dengan transkripsi wicara real-time (Google STT), atau pilih berkas video yang sudah ada.',
+            'Rekam observasi langsung melalui kamera dengan transkripsi wicara real-time (Google Speech-to-Text). Rekaman akan disimpan secara lokal di perangkat.',
             textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: 12,
@@ -1801,7 +1992,6 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
             ),
           ),
           const SizedBox(height: 18),
-          // Pilihan 1: Rekam Langsung dengan Real-Time ASR (Rekomendasi Cepat & Akurat)
           SizedBox(
             width: double.infinity,
             height: 48,
@@ -1817,29 +2007,8 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
               ),
               icon: const Icon(Icons.videocam_rounded, size: 22),
               label: const Text(
-                'Rekam Video Langsung (Live ASR)',
+                'Buka Kamera & Mulai Rekam (Live ASR)',
                 style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w800),
-              ),
-            ),
-          ),
-          const SizedBox(height: 10),
-          // Pilihan 2: Pilih Video dari Galeri / File
-          SizedBox(
-            width: double.infinity,
-            height: 44,
-            child: OutlinedButton.icon(
-              onPressed: _pickVideoFromGallery,
-              style: OutlinedButton.styleFrom(
-                foregroundColor: _brandTealDark,
-                side: const BorderSide(color: Color(0xFF99F6E4), width: 1.5),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14),
-                ),
-              ),
-              icon: const Icon(Icons.file_upload_outlined, size: 19),
-              label: const Text(
-                'Atau Pilih Video dari Galeri / File',
-                style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700),
               ),
             ),
           ),
@@ -1918,45 +2087,34 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
     );
   }
 
-  void _showChangeVideoOptions() {
-    showModalBottomSheet(
+  Future<void> _confirmReRecord() async {
+    final confirm = await showDialog<bool>(
       context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (ctx) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ListTile(
-                leading: const Icon(Icons.videocam_rounded, color: _brandTealDark),
-                title: const Text('Rekam Ulang via Kamera (Live ASR)',
-                    style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5)),
-                subtitle: const Text('Transkrip langsung terdeteksi dari mikrofon',
-                    style: TextStyle(fontSize: 11.5)),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  _openClinicalCamera();
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.photo_library_outlined, color: _brandTealDark),
-                title: const Text('Pilih Berkas dari Galeri',
-                    style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5)),
-                subtitle: const Text('Gunakan rekaman video yang sudah ada',
-                    style: TextStyle(fontSize: 11.5)),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  _pickVideoFromGallery();
-                },
-              ),
-            ],
-          ),
+      builder: (ctx) => AlertDialog(
+        title: const Text('Rekam Ulang Observasi?'),
+        content: const Text(
+          'Rekaman observasi dan transkrip tuturan saat ini akan digantikan dengan rekaman baru. Lanjutkan?',
         ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Batal'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: _brandTeal,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Rekam Ulang'),
+          ),
+        ],
       ),
     );
+
+    if (confirm == true && mounted) {
+      await _openClinicalCamera();
+    }
   }
 
   /// Pemutar Video Terintegrasi Langsung (Inline Video Player)
@@ -2130,11 +2288,11 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
                       Row(
                         children: [
                           TextButton.icon(
-                            onPressed: _showChangeVideoOptions,
+                            onPressed: _confirmReRecord,
                             icon: const Icon(Icons.refresh_rounded,
                                 size: 14, color: Color(0xFF5EEAD4)),
                             label: const Text(
-                              'Ganti Video',
+                              'Rekam Ulang',
                               style: TextStyle(
                                 color: Color(0xFF5EEAD4),
                                 fontSize: 11,

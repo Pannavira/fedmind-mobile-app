@@ -1,10 +1,8 @@
-import 'dart:io';
 import 'dart:math';
-import 'package:dio/dio.dart';
+
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart' show rootBundle;
 import 'package:google_mlkit_translation/google_mlkit_translation.dart';
-import 'package:whisper_ggml/whisper_ggml.dart';
+
 import '../../data/models/multimodal_inspection_models.dart';
 
 /// Hasil transkripsi tuturan otomatis On-Device Whisper Small-ID (Maleo AI / Multilingual)
@@ -67,186 +65,6 @@ class OnDeviceWhisperService {
   static const int whisperSampleRate = 16000;
   static const int melBins = 80;
 
-  /// URL resmi bobot model Whisper Small-ID terkuantisasi (Q8_0 ~264MB) dari Maleo AI (Hugging Face)
-  static const String maleoWhisperSmallIdUrl =
-      'https://huggingface.co/maleo-ai/whisper-small-id/resolve/main/ggml-small-id-q8_0.bin';
-
-  /// Memastikan model Whisper GGML siap digunakan secara offline di penyimpanan lokal
-  static Future<bool> ensureWhisperModelReady([
-    WhisperModel model = WhisperModel.small,
-  ]) async {
-    try {
-      final controller = WhisperController();
-      final destinationPath = await controller.getPath(model);
-      final destFile = File(destinationPath);
-      if (await destFile.exists() && await destFile.length() > 40000000) {
-        return true;
-      }
-
-      // 1. Cek apakah model tersedia di berkas lokal assets/models/
-      final assetLocalFile = File('assets/models/ggml-${model.modelName}.bin');
-      if (await assetLocalFile.exists() && await assetLocalFile.length() > 40000000) {
-        await destFile.parent.create(recursive: true);
-        await assetLocalFile.copy(destinationPath);
-        return true;
-      }
-
-      // Khusus model small, periksa juga nama alias alternatif ggml-small-id-q8_0.bin
-      if (model == WhisperModel.small) {
-        final altSmallAsset = File('assets/models/ggml-small-id-q8_0.bin');
-        if (await altSmallAsset.exists() && await altSmallAsset.length() > 40000000) {
-          await destFile.parent.create(recursive: true);
-          await altSmallAsset.copy(destinationPath);
-          return true;
-        }
-      }
-
-      // 2. Cek bundle Flutter rootBundle (APK assets)
-      try {
-        final byteData = await rootBundle.load('assets/models/ggml-${model.modelName}.bin');
-        if (byteData.lengthInBytes > 40000000) {
-          await destFile.parent.create(recursive: true);
-          await destFile.writeAsBytes(
-            byteData.buffer.asUint8List(byteData.offsetInBytes, byteData.lengthInBytes),
-          );
-          return true;
-        }
-      } catch (_) {}
-
-      // 3. Fallback bertingkat: Siapkan model cadangan jika tersedia di lokal
-      if (model == WhisperModel.small) {
-        for (final fallback in [WhisperModel.base, WhisperModel.tiny]) {
-          final fbAsset = File('assets/models/ggml-${fallback.modelName}.bin');
-          if (await fbAsset.exists() && await fbAsset.length() > 40000000) {
-            final fbDestPath = await controller.getPath(fallback);
-            final fbDest = File(fbDestPath);
-            if (!await fbDest.exists()) {
-              await fbDest.parent.create(recursive: true);
-              await fbAsset.copy(fbDest.path);
-            }
-          }
-        }
-      }
-
-      // 4. Unduh model ke penyimpanan lokal jika belum ada
-      if (model == WhisperModel.small) {
-        // Unduh model Maleo AI Whisper Small-ID (Q8_0 ~264MB)
-        final downloaded = await _downloadMaleoWhisperSmallId(destFile);
-        if (downloaded) return true;
-      }
-
-      final downloadedPath = await controller.downloadModel(model);
-      return File(downloadedPath).existsSync();
-    } catch (e) {
-      debugPrint('ensureWhisperModelReady notice: $e');
-      return false;
-    }
-  }
-
-  /// Mengunduh bobot model Maleo AI Whisper Small-ID langsung dari Hugging Face ke penyimpanan lokal
-  static Future<bool> _downloadMaleoWhisperSmallId(
-    File destFile, {
-    void Function(double progress)? onProgress,
-  }) async {
-    final tempFile = File('${destFile.path}.tmp');
-    try {
-      await destFile.parent.create(recursive: true);
-      if (await tempFile.exists()) {
-        await tempFile.delete();
-      }
-
-      final dio = Dio(
-        BaseOptions(
-          connectTimeout: const Duration(seconds: 30),
-          receiveTimeout: const Duration(minutes: 10),
-          followRedirects: true,
-          maxRedirects: 5,
-        ),
-      );
-
-      await dio.download(
-        maleoWhisperSmallIdUrl,
-        tempFile.path,
-        onReceiveProgress: (received, total) {
-          if (total > 0 && onProgress != null) {
-            onProgress(received / total);
-          }
-        },
-      );
-
-      if (await tempFile.exists() && await tempFile.length() > 200000000) {
-        if (await destFile.exists()) {
-          await destFile.delete();
-        }
-        await tempFile.rename(destFile.path);
-        return true;
-      }
-      return false;
-    } catch (e) {
-      debugPrint('_downloadMaleoWhisperSmallId notice: $e');
-      if (await tempFile.exists()) {
-        try {
-          await tempFile.delete();
-        } catch (_) {}
-      }
-      return false;
-    }
-  }
-
-  /// Sakelar uji performa: false = nonaktifkan Silero VAD (eksperimen waktu)
-  static const bool enableVad = false;
-
-  /// Cek (tanpa mengunduh) apakah berkas model Whisper Small-ID sudah ada di perangkat
-  static Future<bool> isWhisperModelPresent() async {
-    try {
-      final f = File(await WhisperController().getPath(WhisperModel.small));
-      return await f.exists() && await f.length() > 200000000;
-    } catch (_) {
-      return false;
-    }
-  }
-
-  /// Cek (tanpa mengunduh) apakah model Silero VAD sudah ada di perangkat
-  static Future<bool> isVadModelPresent() async {
-    try {
-      final modelPath = await WhisperController().getPath(WhisperModel.small);
-      final f = File('${File(modelPath).parent.path}/ggml-silero-v5.1.2.bin');
-      return await f.exists() && await f.length() > 100000;
-    } catch (_) {
-      return false;
-    }
-  }
-
-  /// URL model Silero VAD (~1 MB) untuk memangkas bagian hening sebelum dekode Whisper
-  static const String sileroVadUrl =
-      'https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v5.1.2.bin';
-
-  /// Memastikan model Silero VAD tersedia lokal. Mengembalikan null bila gagal
-  /// (transkripsi tetap berjalan tanpa VAD).
-  static Future<String?> _ensureSileroVad(WhisperController controller) async {
-    try {
-      final modelPath = await controller.getPath(WhisperModel.small);
-      final vadFile = File('${File(modelPath).parent.path}/ggml-silero-v5.1.2.bin');
-      if (await vadFile.exists() && await vadFile.length() > 100000) {
-        return vadFile.path;
-      }
-      await vadFile.parent.create(recursive: true);
-      final tmp = File('${vadFile.path}.tmp');
-      await Dio(BaseOptions(
-        connectTimeout: const Duration(seconds: 20),
-        receiveTimeout: const Duration(minutes: 2),
-        followRedirects: true,
-      )).download(sileroVadUrl, tmp.path);
-      if (await tmp.exists() && await tmp.length() > 100000) {
-        await tmp.rename(vadFile.path);
-        return vadFile.path;
-      }
-    } catch (e) {
-      debugPrint('_ensureSileroVad notice: $e');
-    }
-    return null;
-  }
-
   /// Memproses rekaman video menjadi transkrip riil dwibahasa (ID & EN) secara offline on-device
   static Future<WhisperTranscriptionResult> transcribeAndTranslate({
     String? videoPath,
@@ -262,46 +80,38 @@ class OnDeviceWhisperService {
   }) async {
     final effectiveDuration = durationSec > 0.5 ? durationSec : 30.0;
 
-    // 1. Jika terdapat transkrip langsung (dari SpeechRecognizer native Android atau input wicara riil)
-    final explicitText = clientTranscript?.trim() ?? counselorNote?.trim() ?? '';
-    if (explicitText.isNotEmpty) {
-      return _retranslateWithMlKit(_buildSegmentedResultFromText(
-        text: explicitText,
+    // Satu-satunya sumber transkrip: dictation live (SpeechRecognizer Android)
+    // yang berjalan paralel saat perekaman. Tanpa fallback / teks buatan.
+    final spokenText = clientTranscript?.trim() ?? '';
+    if (spokenText.isEmpty) {
+      return _buildEmptyResult();
+    }
+    return _retranslateWithMlKit(
+      _buildSegmentedResultFromText(
+        text: spokenText,
         durationSec: effectiveDuration,
         audioSummary: audioSummary,
         confidence: 0.98,
-      ));
-    }
-
-    // 2. Evaluasi Voice Activity Detection (VAD) & Energi Audio
-    final samples16k = _resampleTo16k(pcmSamples, sourceSampleRate);
-    final double rmsEnergy =
-        audioSummary?['rmsMean'] ?? _calculateRms(samples16k);
-    final bool hasAudibleVoice = rmsEnergy > 0.008 && samples16k.isNotEmpty;
-
-    if (!hasAudibleVoice && (pcmSamples.isNotEmpty || videoPath == null)) {
-      return _buildSilentResult(effectiveDuration);
-    }
-
-    // 4. Jalankan inferensi riil model Whisper (Tiny/Base) on-device via whisper_ggml
-    final whisperOutput = await _transcribeWithWhisperGgml(
-      videoPath: videoPath,
-      wavPath: wavPath,
-      pcmSamples: samples16k,
-      effectiveDuration: effectiveDuration,
-      audioSummary: audioSummary,
-      onProgress: onProgress,
+      ),
     );
-    if (whisperOutput != null) {
-      return whisperOutput;
-    }
+  }
 
-    // 5. Fallback jika inference native Whisper tidak tersedia (misal lingkungan headless test)
-    return _retranslateWithMlKit(_buildDynamicOnDeviceObservationResult(
-      durationSec: effectiveDuration,
-      audioSummary: audioSummary,
-      counselorNote: counselorNote,
-    ));
+  /// Hasil kosong apa adanya bila tidak ada tuturan yang dikenali
+  static WhisperTranscriptionResult _buildEmptyResult() {
+    return const WhisperTranscriptionResult(
+      indonesianTranscript: '',
+      englishTranscript: '',
+      segments: [],
+      detectedKeywords: [],
+      emotionalValence: 0.0,
+      selfPronounCount: 0,
+      linguisticTitle: 'Tidak Ada Transkrip',
+      linguisticDescription:
+          'Pengenalan suara tidak menghasilkan teks pada rekaman ini.',
+      confidence: 0.0,
+      isWhisperModel: false,
+      isSuccess: false,
+    );
   }
 
   /// Mengganti terjemahan hasil builder sinkron dengan terjemahan ML Kit
@@ -310,13 +120,15 @@ class OnDeviceWhisperService {
   ) async {
     final segs = <TranscriptSegmentItem>[];
     for (final s in r.segments) {
-      segs.add(TranscriptSegmentItem(
-        timeRangeLabel: s.timeRangeLabel,
-        text: s.text,
-        translatedText: await translateWithMlKit(s.text),
-        detectedKeywords: s.detectedKeywords,
-        prosodyNote: s.prosodyNote,
-      ));
+      segs.add(
+        TranscriptSegmentItem(
+          timeRangeLabel: s.timeRangeLabel,
+          text: s.text,
+          translatedText: await translateWithMlKit(s.text),
+          detectedKeywords: s.detectedKeywords,
+          prosodyNote: s.prosodyNote,
+        ),
+      );
     }
     return WhisperTranscriptionResult(
       indonesianTranscript: r.indonesianTranscript,
@@ -332,475 +144,6 @@ class OnDeviceWhisperService {
       confidence: r.confidence,
       isWhisperModel: r.isWhisperModel,
       isSuccess: r.isSuccess,
-    );
-  }
-
-  /// Eksekusi inferensi riil whisper.cpp pada audio wicara lokal dengan pemotongan per segmen (~23s)
-  /// untuk mencegah sliding window cascading loop dan non-linear scaling O(N^2)
-  static Future<WhisperTranscriptionResult?> _transcribeWithWhisperGgml({
-    String? videoPath,
-    String? wavPath,
-    required List<double> pcmSamples,
-    required double effectiveDuration,
-    Map<String, double>? audioSummary,
-    void Function(String stage, double progress)? onProgress,
-  }) async {
-    try {
-      final controller = WhisperController();
-
-      // Prioritas 1: Whisper Small-ID (~244M parameter fine-tuned Indo ASR oleh Maleo AI)
-      // Prioritas 2: Fallback ke Whisper Base (74M parameter) jika Small belum tersedia
-      // Prioritas 3: Fallback ke Whisper Tiny (39M parameter)
-      final sw = Stopwatch()..start();
-      WhisperModel selectedModel = WhisperModel.small;
-      bool modelReady = await ensureWhisperModelReady(WhisperModel.small);
-      if (!modelReady) {
-        selectedModel = WhisperModel.base;
-        modelReady = await ensureWhisperModelReady(WhisperModel.base);
-      }
-      if (!modelReady) {
-        selectedModel = WhisperModel.tiny;
-        modelReady = await ensureWhisperModelReady(WhisperModel.tiny);
-      }
-      if (!modelReady) {
-        return null;
-      }
-
-      File? masterWavFile;
-      File? tempCreatedWav;
-
-      // 1. Prioritaskan berkas WAV 16kHz mono kontinu langsung dari MediaCodec Android
-      if (wavPath != null && File(wavPath).existsSync() && File(wavPath).lengthSync() > 1000) {
-        masterWavFile = File(wavPath);
-      } else if (pcmSamples.isNotEmpty) {
-        // Fallback: buat WAV dari buffer pcmSamples
-        final tempDir = Directory.systemTemp;
-        final genPath =
-            '${tempDir.path}/whisper_input_${DateTime.now().millisecondsSinceEpoch}.wav';
-        tempCreatedWav = await writePcmToWavFile(
-          pcmSamples: _normalizeAudio(pcmSamples),
-          sampleRate: whisperSampleRate,
-          targetPath: genPath,
-        );
-        masterWavFile = tempCreatedWav;
-      } else if (videoPath != null && File(videoPath).existsSync()) {
-        masterWavFile = File(videoPath);
-      } else {
-        return null;
-      }
-
-      final modelDisplayName = selectedModel == WhisperModel.small
-          ? 'Small-ID (Maleo AI)'
-          : selectedModel.modelName.toUpperCase();
-
-      onProgress?.call(
-        'Menyiapkan Whisper $modelDisplayName On-Device...',
-        0.70,
-      );
-
-      final vadPath = enableVad ? await _ensureSileroVad(controller) : null;
-      debugPrint('[PERF] whisper: model+VAD ready at ${sw.elapsedMilliseconds} ms (vad=${vadPath != null})');
-
-      Uint8List? wavBytes;
-      int sampleCount = 0;
-      final chunks = <_AudioChunkRange>[];
-
-      // Periksa apakah berkas adalah WAV 16kHz valid untuk chunking
-      final isWav = masterWavFile.path.toLowerCase().endsWith('.wav');
-      if (isWav) {
-        try {
-          wavBytes = await masterWavFile.readAsBytes();
-          if (wavBytes.lengthInBytes > 44) {
-            sampleCount = (wavBytes.lengthInBytes - 44) ~/ 2;
-          }
-        } catch (_) {}
-      }
-
-      // Jika durasi audio > 26 detik, bagi ke dalam potongan ~23 detik di titik jeda hening / nafas
-      // untuk mencegah non-linear scaling O(N^2) dan repetition loop pada sliding window whisper.cpp
-      if (wavBytes != null && sampleCount > 26 * whisperSampleRate) {
-        int currentStart = 0;
-        final pcmData = ByteData.sublistView(wavBytes, 44);
-
-        while (currentStart < sampleCount) {
-          final remaining = sampleCount - currentStart;
-          if (remaining <= 26 * whisperSampleRate) {
-            chunks.add(_AudioChunkRange(currentStart, sampleCount));
-            break;
-          }
-
-          final targetSplit = currentStart + 23 * whisperSampleRate;
-          final searchStart =
-              (currentStart + 19 * whisperSampleRate).clamp(currentStart, sampleCount - 1);
-          final searchEnd =
-              (currentStart + 25 * whisperSampleRate).clamp(currentStart, sampleCount - 1);
-
-          int minEnergy = 0x7FFFFFFFFFFFFFFF;
-          int bestSplit = targetSplit;
-
-          for (int pos = searchStart; pos + 3200 <= searchEnd; pos += 1600) {
-            int sumEnergy = 0;
-            for (int k = 0; k < 3200; k += 8) {
-              final sampleVal = pcmData.getInt16((pos + k) * 2, Endian.little);
-              sumEnergy += sampleVal < 0 ? -sampleVal : sampleVal;
-            }
-            if (sumEnergy < minEnergy) {
-              minEnergy = sumEnergy;
-              bestSplit = pos + 1600;
-            }
-          }
-
-          chunks.add(_AudioChunkRange(currentStart, bestSplit));
-          currentStart = bestSplit;
-        }
-      } else {
-        chunks.add(_AudioChunkRange(0, sampleCount));
-      }
-
-      final accumulatedSegments = <TranscriptSegmentItem>[];
-      final rawTexts = <String>[];
-      final tempDir = Directory.systemTemp;
-
-      for (int i = 0; i < chunks.length; i++) {
-        final chunk = chunks[i];
-        final chunkOffsetSec = chunk.startSample / whisperSampleRate;
-        File? chunkFile;
-        String chunkInputPath;
-
-        if (chunks.length == 1) {
-          chunkInputPath = masterWavFile.path;
-        } else {
-          final chunkWavPath =
-              '${tempDir.path}/whisper_chunk_${DateTime.now().millisecondsSinceEpoch}_$i.wav';
-          final subBytes = wavBytes!.sublist(
-            44 + chunk.startSample * 2,
-            44 + chunk.endSample * 2,
-          );
-          chunkFile = await _writeRawBytesToWav(
-            rawPcmBytes: subBytes,
-            sampleRate: whisperSampleRate,
-            targetPath: chunkWavPath,
-          );
-          chunkInputPath = chunkFile.path;
-        }
-
-        try {
-          final chunkNum = i + 1;
-          onProgress?.call(
-            'Mentranskripsi tuturan suara (Bagian $chunkNum/${chunks.length})...',
-            0.70 + (0.16 * (i / chunks.length)),
-          );
-
-          final transcribeResult = await controller.transcribe(
-            model: selectedModel,
-            vadModelPath: vadPath,
-            vadSpeechPadMs: 150,
-            keepModelLoaded: true,
-            audioPath: chunkInputPath,
-            lang: 'id',
-            initialPrompt: 'Wawancara konseling dalam Bahasa Indonesia.',
-            withSegments: true,
-            noContext: true,
-            maxContext: 0,
-            suppressNonSpeechTokens: true,
-            onProgress: (percent) {
-              final p = ((i + (percent / 100.0)) / chunks.length).clamp(0.0, 1.0);
-              onProgress?.call(
-                'Mentranskripsi tuturan suara (Whisper $modelDisplayName ${(p * 100).toInt()}%)...',
-                0.70 + (0.16 * p),
-              );
-            },
-          );
-
-          if (transcribeResult != null) {
-            final t = transcribeResult.transcription.text.trim();
-            if (t.isNotEmpty) rawTexts.add(t);
-
-            if (transcribeResult.transcription.segments != null) {
-              for (final s in transcribeResult.transcription.segments!) {
-                final segText = s.text.trim();
-                if (segText.isEmpty || isAsrHallucinationOrGibberish(segText)) continue;
-                final cleanedTokens = cleanGibberishTokens(segText);
-                if (cleanedTokens.trim().isEmpty) continue;
-                final normalizedText = normalizeIndonesianAsrText(cleanedTokens);
-                if (normalizedText.trim().isEmpty) continue;
-
-                final startSec = (chunkOffsetSec + s.fromTs.inSeconds).round();
-                final endSec = max(startSec + 1, (chunkOffsetSec + s.toTs.inSeconds).round());
-                final timeLabel = '${_fmtSec(startSec)} - ${_fmtSec(endSec)}';
-                final segEn = await translateWithMlKit(normalizedText);
-
-                accumulatedSegments.add(
-                  TranscriptSegmentItem(
-                    timeRangeLabel: timeLabel,
-                    text: normalizedText,
-                    translatedText: segEn,
-                    detectedKeywords: _extractKeywords(normalizedText),
-                    prosodyNote: _deriveProsodyNote(
-                      startSec,
-                      endSec,
-                      effectiveDuration,
-                      audioSummary,
-                    ),
-                  ),
-                );
-              }
-            }
-          }
-        } finally {
-          if (chunkFile != null && await chunkFile.exists()) {
-            try {
-              await chunkFile.delete();
-            } catch (_) {}
-          }
-        }
-      }
-
-      // Bersihkan berkas WAV induk sementara
-      if (tempCreatedWav != null && await tempCreatedWav.exists()) {
-        try {
-          await tempCreatedWav.delete();
-        } catch (_) {}
-      }
-      if (wavPath != null && File(wavPath).existsSync()) {
-        try {
-          await File(wavPath).delete();
-        } catch (_) {}
-      }
-
-      final combinedRaw = rawTexts.join(' ').trim();
-      debugPrint('[PERF] whisper: transcribe() done at ${sw.elapsedMilliseconds} ms (chunks=${chunks.length})');
-      debugPrint('[PERF] whisper: raw segments=${accumulatedSegments.length} textLen=${combinedRaw.length} totalSamples=$sampleCount');
-      debugPrint('[PERF] whisper text: $combinedRaw');
-
-      // Deduplikasi segmen berturut-turut untuk mencegah repetisi pada batas potongan
-      final segments = <TranscriptSegmentItem>[];
-      String? previousNormalized;
-
-      for (final item in accumulatedSegments) {
-        final normalized = item.text
-            .toLowerCase()
-            .replaceAll(RegExp(r'[^\w\s]'), '')
-            .replaceAll(RegExp(r'\s+'), ' ')
-            .trim();
-
-        if (normalized == previousNormalized && normalized.isNotEmpty) {
-          continue;
-        }
-        previousNormalized = normalized;
-        segments.add(item);
-      }
-
-      if (segments.isEmpty && combinedRaw.isEmpty) {
-        return _buildSilentResult(effectiveDuration);
-      }
-
-      final cleanRaw = normalizeIndonesianAsrText(combinedRaw);
-      final fullId = segments.isNotEmpty
-          ? segments.map((e) => e.text).join(' ')
-          : _deduplicateRepeatedPhrases(cleanRaw);
-      final fullEn = segments.isNotEmpty
-          ? segments.map((e) => e.translatedText).join(' ')
-          : await translateWithMlKit(fullId);
-
-      return WhisperTranscriptionResult(
-        indonesianTranscript: fullId,
-        englishTranscript: fullEn,
-        segments: segments,
-        detectedKeywords: _extractKeywords(fullId),
-        emotionalValence: _computeValence(fullId),
-        selfPronounCount: _countPronouns(fullId),
-        linguisticTitle: selectedModel == WhisperModel.small
-            ? 'Transkripsi Tuturan Pasien (Whisper Small-ID On-Device)'
-            : 'Transkripsi Tuturan Pasien (Whisper ${selectedModel.modelName.toUpperCase()} On-Device)',
-        linguisticDescription: selectedModel == WhisperModel.small
-            ? 'Model Whisper Small-ID (Maleo AI) mengekstrak tuturan wicara asli Bahasa Indonesia secara offline on-device, diterjemahkan otomatis ke Bahasa Inggris untuk representasi MentalBERT 768D.'
-            : 'Model Whisper ${selectedModel.modelName.toUpperCase()} mengekstrak tuturan wicara asli pasien secara offline on-device, diterjemahkan otomatis ke Bahasa Inggris untuk representasi MentalBERT 768D.',
-        confidence: selectedModel == WhisperModel.small ? 0.98 : 0.96,
-        isWhisperModel: true,
-        isSuccess: true,
-      );
-    } catch (e) {
-      debugPrint('Whisper GGML on-device error: $e');
-      return null;
-    }
-  }
-
-  /// Normalisasi: buang DC offset, pertahankan puncak ke ~0.9 (penguatan maks 8x)
-  static List<double> _normalizeAudio(List<double> s) {
-    if (s.isEmpty) return s;
-    final mean = s.reduce((a, b) => a + b) / s.length;
-    double peak = 0;
-    for (final v in s) {
-      peak = max(peak, (v - mean).abs());
-    }
-    if (peak < 1e-4) return s;
-    final gain = min(8.0, 0.9 / peak);
-    return [for (final v in s) ((v - mean) * gain).clamp(-1.0, 1.0)];
-  }
-
-  /// Memfilter repetisi berulang pada teks mentah (misal akibat halusinasi jeda pada decoder)
-  static String _deduplicateRepeatedPhrases(String text) {
-    if (text.trim().isEmpty) return '';
-    final sentences = text.split(RegExp(r'(?<=[.!?])\s+'));
-    final unique = <String>[];
-    String? prevNorm;
-    for (final s in sentences) {
-      final trimmed = s.trim();
-      if (trimmed.isEmpty) continue;
-      final norm =
-          trimmed.toLowerCase().replaceAll(RegExp(r'[^\w\s]'), '').trim();
-      if (norm != prevNorm) {
-        unique.add(trimmed);
-        prevNorm = norm;
-      }
-    }
-    return unique.isNotEmpty ? unique.join(' ') : text;
-  }
-
-  /// Menulis sampel audio PCM menjadi berkas WAV 16-bit 16kHz mono standar (RIFF/WAVE)
-  static Future<File> writePcmToWavFile({
-    required List<double> pcmSamples,
-    required int sampleRate,
-    required String targetPath,
-  }) async {
-    final byteData = ByteData(44 + pcmSamples.length * 2);
-
-    // RIFF header
-    byteData.setUint8(0, 0x52); // 'R'
-    byteData.setUint8(1, 0x49); // 'I'
-    byteData.setUint8(2, 0x46); // 'F'
-    byteData.setUint8(3, 0x46); // 'F'
-    byteData.setUint32(4, 36 + pcmSamples.length * 2, Endian.little);
-    byteData.setUint8(8, 0x57); // 'W'
-    byteData.setUint8(9, 0x41); // 'A'
-    byteData.setUint8(10, 0x56); // 'V'
-    byteData.setUint8(11, 0x45); // 'E'
-
-    // fmt sub-chunk
-    byteData.setUint8(12, 0x66); // 'f'
-    byteData.setUint8(13, 0x6D); // 'm'
-    byteData.setUint8(14, 0x74); // 't'
-    byteData.setUint8(15, 0x20); // ' '
-    byteData.setUint32(16, 16, Endian.little); // chunk size
-    byteData.setUint16(20, 1, Endian.little); // PCM format = 1
-    byteData.setUint16(22, 1, Endian.little); // 1 channel (mono)
-    byteData.setUint32(24, sampleRate, Endian.little); // sample rate
-    byteData.setUint32(28, sampleRate * 2, Endian.little); // byte rate
-    byteData.setUint16(32, 2, Endian.little); // block align
-    byteData.setUint16(34, 16, Endian.little); // bits per sample
-
-    // data sub-chunk
-    byteData.setUint8(36, 0x64); // 'd'
-    byteData.setUint8(37, 0x61); // 'a'
-    byteData.setUint8(38, 0x74); // 't'
-    byteData.setUint8(39, 0x61); // 'a'
-    byteData.setUint32(40, pcmSamples.length * 2, Endian.little);
-
-    int offset = 44;
-    for (final s in pcmSamples) {
-      final clamped = (s * 32767.0).clamp(-32768.0, 32767.0).toInt();
-      byteData.setInt16(offset, clamped, Endian.little);
-      offset += 2;
-    }
-
-    final file = File(targetPath);
-    await file.writeAsBytes(byteData.buffer.asUint8List());
-    return file;
-  }
-
-  /// Menulis potongan byte PCM 16-bit 16kHz mono langsung menjadi berkas WAV standar (RIFF/WAVE)
-  static Future<File> _writeRawBytesToWav({
-    required List<int> rawPcmBytes,
-    required int sampleRate,
-    required String targetPath,
-  }) async {
-    final header = ByteData(44);
-    final totalAudioLen = rawPcmBytes.length;
-    final totalDataLen = totalAudioLen + 36;
-    final byteRate = sampleRate * 2;
-
-    header.setUint8(0, 0x52); // 'R'
-    header.setUint8(1, 0x49); // 'I'
-    header.setUint8(2, 0x46); // 'F'
-    header.setUint8(3, 0x46); // 'F'
-    header.setUint32(4, totalDataLen, Endian.little);
-    header.setUint8(8, 0x57); // 'W'
-    header.setUint8(9, 0x41); // 'A'
-    header.setUint8(10, 0x56); // 'V'
-    header.setUint8(11, 0x45); // 'E'
-    header.setUint8(12, 0x66); // 'f'
-    header.setUint8(13, 0x6D); // 'm'
-    header.setUint8(14, 0x74); // 't'
-    header.setUint8(15, 0x20); // ' '
-    header.setUint32(16, 16, Endian.little);
-    header.setUint16(20, 1, Endian.little); // PCM
-    header.setUint16(22, 1, Endian.little); // mono
-    header.setUint32(24, sampleRate, Endian.little);
-    header.setUint32(28, byteRate, Endian.little);
-    header.setUint16(32, 2, Endian.little); // block align
-    header.setUint16(34, 16, Endian.little); // 16-bit
-    header.setUint8(36, 0x64); // 'd'
-    header.setUint8(37, 0x61); // 'a'
-    header.setUint8(38, 0x74); // 't'
-    header.setUint8(39, 0x61); // 'a'
-    header.setUint32(40, totalAudioLen, Endian.little);
-
-    final file = File(targetPath);
-    final raf = await file.open(mode: FileMode.write);
-    await raf.writeFrom(header.buffer.asUint8List(0, 44));
-    await raf.writeFrom(rawPcmBytes);
-    await raf.close();
-    return file;
-  }
-
-  /// Menghasilkan catatan prosodi wicara berdasarkan posisi waktu dan karakteristik akustik
-  static String _deriveProsodyNote(
-    int startSec,
-    int endSec,
-    double totalDuration,
-    Map<String, double>? audioSummary,
-  ) {
-    final avgPitch =
-        audioSummary?['pitchMean'] ?? audioSummary?['avgPitch'] ?? 135.0;
-    final pauseRatio = audioSummary?['pauseRatio'] ?? 0.35;
-    final posRatio = startSec / (totalDuration > 0 ? totalDuration : 30.0);
-
-    if (posRatio < 0.33) {
-      return 'Awal sesi • Nada dasar ${avgPitch.toStringAsFixed(0)} Hz • Artikulasi vokal pembuka';
-    } else if (posRatio > 0.66) {
-      return 'Akhir sesi • Penurunan modulasi • Jeda hening ${(pauseRatio * 100).toStringAsFixed(0)}%';
-    } else {
-      return 'Tengah sesi • Ritme bicara teratur • Penuturan kontekstual';
-    }
-  }
-
-  /// Hasil jika rekaman audio tidak menangkap tuturan suara
-  static WhisperTranscriptionResult _buildSilentResult(double effectiveDuration) {
-    const idText =
-        'Sesi rekaman tidak menangkap tuturan suara yang jelas. Sinyal audio didominasi jeda hening.';
-    const enText =
-        'The session recording did not capture clear vocal speech. Audio signal is predominantly silent pauses.';
-    return WhisperTranscriptionResult(
-      indonesianTranscript: idText,
-      englishTranscript: enText,
-      segments: [
-        TranscriptSegmentItem(
-          timeRangeLabel: '00:00 - ${_formatTime(effectiveDuration)}',
-          text: idText,
-          translatedText: enText,
-          prosodyNote: 'Sinyal suara hening / VAD tidak aktif',
-        ),
-      ],
-      detectedKeywords: const ['hening', 'jeda', 'silent'],
-      emotionalValence: 0.0,
-      selfPronounCount: 0,
-      linguisticTitle: 'Sinyal Audio Rendah / Minim Tuturan Vokal',
-      linguisticDescription:
-          'Model Whisper on-device mendeteksi energi vokal di bawah ambang aktivasi bicara.',
-      confidence: 0.60,
-      isWhisperModel: true,
-      isSuccess: true,
     );
   }
 
@@ -876,104 +219,9 @@ class OnDeviceWhisperService {
       emotionalValence: _computeValence(fullId),
       selfPronounCount: _countPronouns(fullId),
       linguisticTitle: 'Transkripsi Tuturan Pasien On-Device',
-      linguisticDescription:
-          'Tuturan wicara Bahasa Indonesia berhasil ditranskripsikan dan diselaraskan ke Bahasa Inggris untuk ekstraksi MentalBERT 768D.',
+      linguisticDescription: 'Tuturan wicara Bahasa Indonesia berhasil ditranskripsikan dan diselaraskan ke Bahasa Inggris untuk ekstraksi MentalBERT 768D.',
       confidence: confidence,
       isWhisperModel: true,
-      isSuccess: true,
-    );
-  }
-
-
-
-  /// Observasi prosodi akustik on-device untuk lingkungan pengujian tanpa library native
-  static WhisperTranscriptionResult _buildDynamicOnDeviceObservationResult({
-    required double durationSec,
-    Map<String, double>? audioSummary,
-    String? counselorNote,
-  }) {
-    final note = counselorNote?.trim() ?? '';
-    if (note.isNotEmpty) {
-      return _buildSegmentedResultFromText(
-        text: note,
-        durationSec: durationSec,
-        audioSummary: audioSummary,
-        confidence: 0.95,
-      );
-    }
-
-    final t1 = max(4, (durationSec * 0.32).round());
-    final t2 = max(t1 + 4, (durationSec * 0.68).round());
-    final t3 = max(t2 + 3, durationSec.round());
-
-    final avgPitch =
-        audioSummary?['pitchMean'] ?? audioSummary?['avgPitch'] ?? 140.0;
-    final pauseRatio = audioSummary?['pauseRatio'] ?? 0.35;
-    final bool isHighModulationProfile = avgPitch > 150.0 || pauseRatio > 0.45;
-
-    final segments = <TranscriptSegmentItem>[
-      TranscriptSegmentItem(
-        timeRangeLabel: '00:00 - ${_fmtSec(t1)}',
-        text: isHighModulationProfile
-            ? 'Klien menyampaikan tuturan pembuka dengan modulasi nada tinggi (${avgPitch.toStringAsFixed(0)} Hz) dan jeda bicara terukur.'
-            : 'Klien menyampaikan tuturan pembuka dengan nada bicara terkontrol (${avgPitch.toStringAsFixed(0)} Hz) dan artikulasi wicara stabil.',
-        translatedText: isHighModulationProfile
-            ? 'Client delivers opening speech with higher pitch modulation (${avgPitch.toStringAsFixed(0)} Hz) and measured pauses.'
-            : 'Client delivers opening speech with controlled pitch (${avgPitch.toStringAsFixed(0)} Hz) and stable vocal articulation.',
-        detectedKeywords: isHighModulationProfile
-            ? const ['modulasi', 'nada tinggi', 'jeda', 'pitch', 'pause']
-            : const ['nada terkontrol', 'stabil', 'artikulasi', 'controlled', 'stable'],
-        prosodyNote: isHighModulationProfile
-            ? 'Awal sesi • Nada tinggi (${avgPitch.toStringAsFixed(0)} Hz) • Artikulasi vokal aktif'
-            : 'Awal sesi • Nada terkontrol (${avgPitch.toStringAsFixed(0)} Hz) • Artikulasi stabil',
-      ),
-      TranscriptSegmentItem(
-        timeRangeLabel: '${_fmtSec(t1)} - ${_fmtSec(t2)}',
-        text: isHighModulationProfile
-            ? 'Pada bagian tengah, pola wicara memperlihatkan interval hening ${(pauseRatio * 100).toStringAsFixed(0)}% dengan tempo bicara bervariasi.'
-            : 'Pada bagian tengah, tuturan berlangsung konsisten dengan proporsi jeda ${(pauseRatio * 100).toStringAsFixed(0)}% dan ritme teratur.',
-        translatedText: isHighModulationProfile
-            ? 'In the middle segment, speech pattern displays ${(pauseRatio * 100).toStringAsFixed(0)}% silent pauses with varied cadence.'
-            : 'In the middle segment, speech continues consistently with ${(pauseRatio * 100).toStringAsFixed(0)}% pause ratio and regular rhythm.',
-        detectedKeywords: isHighModulationProfile
-            ? const ['interval hening', 'tempo bervariasi', 'pause interval', 'cadence']
-            : const ['konsisten', 'ritme teratur', 'proporsi jeda', 'consistent', 'rhythm'],
-        prosodyNote: isHighModulationProfile
-            ? 'Tengah sesi • Jeda hening ${(pauseRatio * 100).toStringAsFixed(0)}% • Penuturan dinamis'
-            : 'Tengah sesi • Artikulasi konsisten • Ritme wicara teratur',
-      ),
-      TranscriptSegmentItem(
-        timeRangeLabel: '${_fmtSec(t2)} - ${_fmtSec(t3)}',
-        text: isHighModulationProfile
-            ? 'Pada bagian penutup, modulasi vokal diselesaikan dengan intonasi menurun dan jeda stabil.'
-            : 'Pada bagian penutup, tuturan diakhiri dengan intonasi tenang dan regulasi napas terkontrol.',
-        translatedText: isHighModulationProfile
-            ? 'In the concluding segment, vocal modulation concludes with descending intonation and stable pauses.'
-            : 'In the concluding segment, speech finishes with calm intonation and controlled breath regulation.',
-        detectedKeywords: isHighModulationProfile
-            ? const ['penutup', 'intonasi menurun', 'jeda stabil', 'descending intonation']
-            : const ['penutup', 'intonasi tenang', 'regulasi terkontrol', 'calm intonation'],
-        prosodyNote: isHighModulationProfile
-            ? 'Akhir sesi • Penurunan modulasi • Penutupan reflektif'
-            : 'Akhir sesi • Penutupan terkontrol • Regulasi intonasi tenang',
-      ),
-    ];
-
-    final idFull = segments.map((s) => s.text).join(' ');
-    final enFull = segments.map((s) => s.translatedText).join(' ');
-
-    return WhisperTranscriptionResult(
-      indonesianTranscript: idFull,
-      englishTranscript: enFull,
-      segments: segments,
-      detectedKeywords: _extractKeywords(idFull),
-      emotionalValence: isHighModulationProfile ? -0.10 : 0.05,
-      selfPronounCount: 0,
-      linguisticTitle: 'Observasi Wicara On-Device & Profil Akustik Prosodi',
-      linguisticDescription:
-          'Analisis prosodi akustik dan pola artikulasi suara terekstraksi on-device selaras dengan representasi multimodal MentalBERT.',
-      confidence: 0.92,
-      isWhisperModel: false,
       isSuccess: true,
     );
   }
@@ -986,14 +234,26 @@ class OnDeviceWhisperService {
 
     // 1. Pola halusinasi dataset Whisper pada jeda hening / desah latar
     final hallucinationPatterns = [
-      RegExp(r'\bterima\s+kasih\s+(kerana|sudah|telah)?\s*(menonton|menyaksikan)!?\b', caseSensitive: false),
-      RegExp(r'\bjangan\s+lupa\s+(untuk\s+)?(like|subscribe|komen|berlangganan)\b', caseSensitive: false),
-      RegExp(r'\bsampai\s+jumpa\s+(lagi\s+)?di\s+video\b', caseSensitive: false),
+      RegExp(
+        r'\bterima\s+kasih\s+(kerana|sudah|telah)?\s*(menonton|menyaksikan)!?\b',
+        caseSensitive: false,
+      ),
+      RegExp(
+        r'\bjangan\s+lupa\s+(untuk\s+)?(like|subscribe|komen|berlangganan)\b',
+        caseSensitive: false,
+      ),
+      RegExp(
+        r'\bsampai\s+jumpa\s+(lagi\s+)?di\s+video\b',
+        caseSensitive: false,
+      ),
       RegExp(r'\btonton\s+video\s+kami\b', caseSensitive: false),
       RegExp(r'\bsubtitle\s+(ini\s+)?dibuat\s+oleh\b', caseSensitive: false),
       RegExp(r'\bditerjemahkan\s+oleh\b', caseSensitive: false),
       RegExp(r'\b(to be continued|bersambung)\b', caseSensitive: false),
-      RegExp(r'\b(thank\s+you\s+for\s+watching|thanks\s+for\s+watching)\b', caseSensitive: false),
+      RegExp(
+        r'\b(thank\s+you\s+for\s+watching|thanks\s+for\s+watching)\b',
+        caseSensitive: false,
+      ),
       RegExp(r'\bmohon\s+maaf\s+atas\s+kesalahan\b', caseSensitive: false),
     ];
 
@@ -1003,7 +263,18 @@ class OnDeviceWhisperService {
 
     // 2. Token huruf kapital acak (gibberish BPE token seperti MOLALKS, PELOBALS)
     const allowedAcronyms = {
-      'PHQ', 'GAD', 'PTSD', 'BDI', 'FACS', 'EEG', 'EKG', 'WHO', 'DSM', 'ICD', 'AI', 'ID'
+      'PHQ',
+      'GAD',
+      'PTSD',
+      'BDI',
+      'FACS',
+      'EEG',
+      'EKG',
+      'WHO',
+      'DSM',
+      'ICD',
+      'AI',
+      'ID',
     };
     final capsWords = RegExp(r'\b[A-Z]{3,}\b')
         .allMatches(trimmed)
@@ -1022,12 +293,24 @@ class OnDeviceWhisperService {
   /// Membersihkan token huruf kapital acak dari teks
   static String cleanGibberishTokens(String text) {
     const allowedAcronyms = {
-      'PHQ', 'GAD', 'PTSD', 'BDI', 'FACS', 'EEG', 'EKG', 'WHO', 'DSM', 'ICD', 'AI', 'ID'
+      'PHQ',
+      'GAD',
+      'PTSD',
+      'BDI',
+      'FACS',
+      'EEG',
+      'EKG',
+      'WHO',
+      'DSM',
+      'ICD',
+      'AI',
+      'ID',
     };
     final words = text.split(RegExp(r'\s+'));
     final cleaned = words.where((w) {
       final alphaOnly = w.replaceAll(RegExp(r'[^A-Za-z]'), '');
-      if (RegExp(r'^[A-Z]{3,}$').hasMatch(alphaOnly) && !allowedAcronyms.contains(alphaOnly)) {
+      if (RegExp(r'^[A-Z]{3,}$').hasMatch(alphaOnly) &&
+          !allowedAcronyms.contains(alphaOnly)) {
         return false;
       }
       return true;
@@ -1045,10 +328,14 @@ class OnDeviceWhisperService {
       RegExp(r'\bmengurungi\b', caseSensitive: false): 'mengurangi',
       RegExp(r'\bakhir-akhirnya\b', caseSensitive: false): 'akhir-akhir ini',
       RegExp(r'\bkan\s+ada\b', caseSensitive: false): 'ada',
-      RegExp(r'\bperasaan\s+saya\s+dan\s+pikiran\s+saya\b', caseSensitive: false): 'perasaan dan pikiran saya',
+      RegExp(
+        r'\bperasaan\s+saya\s+dan\s+pikiran\s+saya\b',
+        caseSensitive: false,
+      ): 'perasaan dan pikiran saya',
       RegExp(r'\bjenu\b', caseSensitive: false): 'jenuh',
       RegExp(r'\bstres\w*\b', caseSensitive: false): 'stres',
-      RegExp(r'\b(bangun\s+lumayan|lumayan)\s+bagi\b', caseSensitive: false): r'$1 pagi',
+      RegExp(r'\b(bangun\s+lumayan|lumayan)\s+bagi\b', caseSensitive: false):
+          r'$1 pagi',
       RegExp(r'\bkalem\s*pus\b', caseSensitive: false): 'kampus',
       RegExp(r'\bmelancutkan\b', caseSensitive: false): 'melanjutkan',
       RegExp(r'\bnantuk\b', caseSensitive: false): 'ngantuk',
@@ -1058,11 +345,16 @@ class OnDeviceWhisperService {
       RegExp(r'\bmata\s+berat\b', caseSensitive: false): 'mata terasa berat',
       RegExp(r'\bdorasi\b', caseSensitive: false): 'durasi',
       RegExp(r'\bperkerjaan\b', caseSensitive: false): 'pekerjaan',
-      RegExp(r'\bdisel saykan\b|\bdiselsaykan\b|\bdiselesaikn\b', caseSensitive: false): 'diselesaikan',
+      RegExp(
+        r'\bdisel saykan\b|\bdiselsaykan\b|\bdiselesaikn\b',
+        caseSensitive: false,
+      ): 'diselesaikan',
       RegExp(r'\bmembebahan ini\b', caseSensitive: false): 'membebani ini',
       RegExp(r'\bmembebahan\b|\bmembebah\b', caseSensitive: false): 'membebani',
-      RegExp(r'\bkecilan energi\b|\bkecilkan energi\b', caseSensitive: false): 'kehilangan energi',
-      RegExp(r'\btanpa perkerjaan\b', caseSensitive: false): 'tuntutan pekerjaan',
+      RegExp(r'\bkecilan energi\b|\bkecilkan energi\b', caseSensitive: false):
+          'kehilangan energi',
+      RegExp(r'\btanpa perkerjaan\b', caseSensitive: false):
+          'tuntutan pekerjaan',
       RegExp(r'\brumayan\b', caseSensitive: false): 'lumayan',
       RegExp(r'\bberasaan\b', caseSensitive: false): 'perasaan',
       RegExp(r'\bstitor\b', caseSensitive: false): 'tidur',
@@ -1103,7 +395,10 @@ class OnDeviceWhisperService {
   static Future<bool> downloadTranslationModels() async {
     try {
       final m = OnDeviceTranslatorModelManager();
-      for (final lang in [TranslateLanguage.indonesian, TranslateLanguage.english]) {
+      for (final lang in [
+        TranslateLanguage.indonesian,
+        TranslateLanguage.english,
+      ]) {
         if (!await m.isModelDownloaded(lang.bcpCode)) {
           await m.downloadModel(lang.bcpCode, isWifiRequired: false);
         }
@@ -1136,7 +431,8 @@ class OnDeviceWhisperService {
     if (indonesianText.trim().isEmpty) return '';
 
     // 1. Normalisasi fonetik terlebih dahulu
-    String normalized = normalizeIndonesianAsrText(indonesianText).toLowerCase();
+    String normalized = normalizeIndonesianAsrText(indonesianText)
+        .toLowerCase();
 
     // 2. Terjemahan frasa multi-kata (diproses terlebih dahulu secara descending panjang string)
     const phrasalDictionary = <String, String>{
@@ -1154,7 +450,8 @@ class OnDeviceWhisperService {
       'jam 10 malam sudah tidur': 'was already asleep by 10 PM',
       'jam 12 malam': '12 AM midnight',
       'sudah tidur': 'already asleep',
-      'pada saat banyak kerjaan dengan atasan': 'during a heavy workload with my supervisor',
+      'pada saat banyak kerjaan dengan atasan':
+          'during a heavy workload with my supervisor',
       'banyak kerjaan dengan atasan': 'heavy workload with my supervisor',
       'dengan atasan': 'with my supervisor',
       'banyak kerjaan': 'heavy workload',
@@ -1164,7 +461,8 @@ class OnDeviceWhisperService {
       'melanjutkan projek dari kampus': 'continuing a project from campus',
       'projek dari kampus': 'campus project',
       'dari kampus': 'from campus',
-      'di mana saya melanjutkan projek tersebut': 'where I continued working on the project',
+      'di mana saya melanjutkan projek tersebut':
+          'where I continued working on the project',
       'melanjutkan projek tersebut': 'continued working on the project',
       'projek tersebut': 'the project',
       'melanjutkan projek': 'continue the project',
@@ -1174,7 +472,8 @@ class OnDeviceWhisperService {
       'dan untuk perasaan saya': 'and as for my feelings',
       'untuk perasaan saya': 'regarding my feelings',
       'perasaan saya': 'my feelings',
-      'selain lelah saya juga ngantuk': 'besides feeling tired I am also sleepy',
+      'selain lelah saya juga ngantuk':
+          'besides feeling tired I am also sleepy',
       'selain lelah': 'besides feeling exhausted',
       'saya juga ngantuk': 'I am also sleepy',
       'juga ngantuk': 'also sleepy',
@@ -1440,14 +739,38 @@ class OnDeviceWhisperService {
 
     // 4. Perbaiki tata bahasa pronoun pasca-substitusi
     String translated = normalized
-        .replaceAll(RegExp(r'\bmy feeling\b', caseSensitive: false), 'my feelings')
-        .replaceAll(RegExp(r'\bI feeling\b', caseSensitive: false), 'my feeling')
-        .replaceAll(RegExp(r'\bI thoughts\b', caseSensitive: false), 'my thoughts')
+        .replaceAll(
+          RegExp(r'\bmy feeling\b', caseSensitive: false),
+          'my feelings',
+        )
+        .replaceAll(
+          RegExp(r'\bI feeling\b', caseSensitive: false),
+          'my feeling',
+        )
+        .replaceAll(
+          RegExp(r'\bI thoughts\b', caseSensitive: false),
+          'my thoughts',
+        )
         .replaceAll(RegExp(r'\bI sleep\b', caseSensitive: false), 'my sleep')
-        .replaceAll(RegExp(r'\bmy sleep quality for sleep duration\b', caseSensitive: false), 'my sleep quality, the sleep duration is')
-        .replaceAll(RegExp(r'\bfor that\b', caseSensitive: false), 'regarding that')
-        .replaceAll(RegExp(r'\bfor this\b', caseSensitive: false), 'regarding this')
-        .replaceAll(RegExp(r'\balso slightly also\b', caseSensitive: false), 'also slightly')
+        .replaceAll(
+          RegExp(
+            r'\bmy sleep quality for sleep duration\b',
+            caseSensitive: false,
+          ),
+          'my sleep quality, the sleep duration is',
+        )
+        .replaceAll(
+          RegExp(r'\bfor that\b', caseSensitive: false),
+          'regarding that',
+        )
+        .replaceAll(
+          RegExp(r'\bfor this\b', caseSensitive: false),
+          'regarding this',
+        )
+        .replaceAll(
+          RegExp(r'\balso slightly also\b', caseSensitive: false),
+          'also slightly',
+        )
         .replaceAll(RegExp(r'\bfor I\b', caseSensitive: false), 'for me')
         .replaceAll(RegExp(r'\s+'), ' ')
         .trim();
@@ -1554,11 +877,4 @@ class OnDeviceWhisperService {
     final s = sec % 60;
     return '${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
   }
-}
-
-/// Rentang sampel audio untuk eksekusi Whisper per potongan (~23 detik)
-class _AudioChunkRange {
-  final int startSample;
-  final int endSample;
-  const _AudioChunkRange(this.startSample, this.endSample);
 }

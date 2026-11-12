@@ -60,7 +60,7 @@ class SpeechTranscriptCard extends StatelessWidget {
                           Flexible(
                             child: Text(
                               inspection.isWhisperTranscribed
-                                  ? 'Transkrip Whisper & MentalBERT 768D'
+                                  ? 'Transkrip Wicara & MentalBERT 768D'
                                   : (inspection.isExplicitTranscript
                                       ? 'Transkrip & Analisis Kata'
                                       : 'Sintesis Tuturan & Perilaku Vokal'),
@@ -87,7 +87,7 @@ class SpeechTranscriptCard extends StatelessWidget {
                             ),
                             child: Text(
                               inspection.isWhisperTranscribed
-                                  ? 'Whisper Small-ID (ID ➔ EN)'
+                                  ? 'Google Live ASR (ID ➔ EN)'
                                   : (inspection.isExplicitTranscript
                                       ? 'Verbatim'
                                       : 'Sintesis Akustik & Visual'),
@@ -95,10 +95,10 @@ class SpeechTranscriptCard extends StatelessWidget {
                                 fontSize: 10,
                                 fontWeight: FontWeight.w800,
                                 color: inspection.isWhisperTranscribed
-                                    ? const Color(0xFF065F46)
-                                    : (inspection.isExplicitTranscript
-                                        ? _brandPurple
-                                        : const Color(0xFF0F766E)),
+                                  ? const Color(0xFF065F46)
+                                  : (inspection.isExplicitTranscript
+                                      ? _brandPurple
+                                      : const Color(0xFF0F766E)),
                               ),
                             ),
                           ),
@@ -107,7 +107,7 @@ class SpeechTranscriptCard extends StatelessWidget {
                       const SizedBox(height: 2),
                       Text(
                         inspection.isWhisperTranscribed
-                            ? 'Transkripsi tuturan Bahasa Indonesia & translasi otomatis ke Bahasa Inggris (MentalBERT)'
+                            ? 'Transkripsi tuturan wicara Google STT & translasi on-device ke Bahasa Inggris (MentalBERT)'
                             : (inspection.isExplicitTranscript
                                 ? 'Analisis kata kunci percakapan dan ekspresi semantik emosi klien'
                                 : 'Profil observasi wicara & afek yang disintesis dari biometrik video klien'),
@@ -155,7 +155,7 @@ class SpeechTranscriptCard extends StatelessWidget {
                       Expanded(
                         child: Text(
                           inspection.isWhisperTranscribed
-                              ? 'Transkrip Tuturan Klien (Whisper On-Device):'
+                              ? 'Transkrip Tuturan Klien (Google Live ASR):'
                               : (inspection.isExplicitTranscript
                                   ? 'Transkrip Percakapan Klien (Verbatim):'
                                   : 'Sintesis Tuturan & Perilaku Vokal Video:'),

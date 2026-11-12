@@ -1,9 +1,10 @@
-import 'dart:async';
+﻿import 'dart:async';
+import 'dart:io';
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:speech_to_text/speech_to_text.dart' as stt;
 import '../../../core/services/local_storage_service.dart';
+import '../../../core/services/mic_session_service.dart';
 
 /// Hasil rekaman observasi klinis beserta transkrip tuturan real-time
 class ClinicalCameraResult {
@@ -34,15 +35,29 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
 
   CameraController? _controller;
   List<CameraDescription> _availableCameras = [];
+  int _selectedCameraIndex = 0;
   bool _isCameraInitialized = false;
+  bool _isSwitchingCamera = false;
   bool _isRecording = false;
   String? _errorMessage;
 
+  CameraLensDirection? get _currentLensDirection {
+    if (_availableCameras.isEmpty ||
+        _selectedCameraIndex >= _availableCameras.length) {
+      return null;
+    }
+    return _availableCameras[_selectedCameraIndex].lensDirection;
+  }
+
+  bool get _isFrontCamera =>
+      _currentLensDirection == CameraLensDirection.front;
+  bool get _isBackCamera =>
+      _currentLensDirection == CameraLensDirection.back;
+  bool get _canSwitchCamera =>
+      _availableCameras.length > 1 && !_isRecording && !_isSwitchingCamera;
+
   // Real-Time Speech Recognition (Google Native SpeechRecognizer)
-  final stt.SpeechToText _speech = stt.SpeechToText();
-  bool _speechAvailable = false;
   String _liveTranscript = '';
-  String _committedTranscript = '';
 
   Timer? _timer;
   int _secondsRecorded = 0;
@@ -60,8 +75,8 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _timer?.cancel();
-    if (_speech.isListening) {
-      _speech.stop();
+    if (_isRecording) {
+      MicSessionService.stop();
     }
     _controller?.dispose();
     super.dispose();
@@ -76,7 +91,7 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
     if (state == AppLifecycleState.inactive) {
       cameraController.dispose();
     } else if (state == AppLifecycleState.resumed) {
-      _initCamera();
+      _initCamera(_selectedCameraIndex);
     }
   }
 
@@ -87,7 +102,6 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
 
       if (cameraStatus.isGranted && micStatus.isGranted) {
         await _initCamera();
-        await _initSpeech();
       } else {
         setState(() {
           _errorMessage =
@@ -101,65 +115,11 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
     }
   }
 
-  Future<void> _initSpeech() async {
+  Future<void> _initCamera([int? targetIndex]) async {
     try {
-      _speechAvailable = await _speech.initialize(
-        onError: (val) {
-          debugPrint('[ClinicalCamera STT error] ${val.errorMsg}');
-        },
-        onStatus: (status) {
-          debugPrint('[ClinicalCamera STT status] $status');
-          // Jika jeda hening terjadi saat sesi masih merekam, sambung kembali listening
-          if (status == 'notListening' && _isRecording) {
-            _committedTranscript = _liveTranscript;
-            Future.delayed(const Duration(milliseconds: 250), () {
-              if (_isRecording && mounted) {
-                _startSpeechListening();
-              }
-            });
-          }
-        },
-      );
-      if (mounted) setState(() {});
-    } catch (e) {
-      debugPrint('[ClinicalCamera STT init exception] $e');
-      _speechAvailable = false;
-    }
-  }
-
-  void _startSpeechListening() {
-    if (!_speechAvailable || !_isRecording) return;
-    try {
-      _speech.listen(
-        onResult: (result) {
-          if (mounted) {
-            setState(() {
-              final words = result.recognizedWords.trim();
-              if (_committedTranscript.isEmpty) {
-                _liveTranscript = words;
-              } else {
-                _liveTranscript = '$_committedTranscript $words'.trim();
-              }
-            });
-          }
-        },
-        listenOptions: stt.SpeechListenOptions(
-          localeId: 'id_ID',
-          listenMode: stt.ListenMode.dictation,
-          listenFor: const Duration(seconds: 120),
-          pauseFor: const Duration(seconds: 10),
-          partialResults: true,
-          cancelOnError: false,
-        ),
-      );
-    } catch (e) {
-      debugPrint('[ClinicalCamera STT listen exception] $e');
-    }
-  }
-
-  Future<void> _initCamera() async {
-    try {
-      _availableCameras = await availableCameras();
+      if (_availableCameras.isEmpty) {
+        _availableCameras = await availableCameras();
+      }
       if (_availableCameras.isEmpty) {
         setState(() {
           _errorMessage = 'Perangkat sensor kamera tidak terdeteksi.';
@@ -167,30 +127,111 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
         return;
       }
 
-      CameraDescription selectedCamera = _availableCameras.first;
-      for (final cam in _availableCameras) {
-        if (cam.lensDirection == CameraLensDirection.front) {
-          selectedCamera = cam;
-          break;
-        }
+      if (targetIndex != null &&
+          targetIndex >= 0 &&
+          targetIndex < _availableCameras.length) {
+        _selectedCameraIndex = targetIndex;
+      } else {
+        // Konselor merekam klien: prioritaskan kamera belakang jika tersedia
+        final backIndex = _availableCameras.indexWhere(
+          (cam) => cam.lensDirection == CameraLensDirection.back,
+        );
+        _selectedCameraIndex = backIndex != -1 ? backIndex : 0;
       }
 
-      _controller = CameraController(
-        selectedCamera,
+      final oldController = _controller;
+      _controller = null;
+      if (oldController != null) {
+        await oldController.dispose();
+      }
+
+      final newController = CameraController(
+        _availableCameras[_selectedCameraIndex],
         ResolutionPreset.medium,
-        enableAudio: true,
+        enableAudio: false, // mikrofon dipegang MicSession (satu pemegang) agar tidak berebut dengan dictation
       );
 
-      await _controller!.initialize();
-      if (!mounted) return;
+      await newController.initialize();
+      if (!mounted) {
+        await newController.dispose();
+        return;
+      }
 
       setState(() {
+        _controller = newController;
         _isCameraInitialized = true;
+        _isSwitchingCamera = false;
       });
     } catch (e) {
-      setState(() {
-        _errorMessage = 'Gagal menginisialisasi sensor kamera klinis: $e';
-      });
+      if (mounted) {
+        setState(() {
+          _isSwitchingCamera = false;
+          _errorMessage = 'Gagal menginisialisasi sensor kamera klinis: $e';
+        });
+      }
+    }
+  }
+
+  Future<void> _switchCamera() async {
+    if (!_canSwitchCamera) return;
+
+    final targetLens = _isFrontCamera
+        ? CameraLensDirection.back
+        : CameraLensDirection.front;
+    await _selectCameraLens(targetLens);
+  }
+
+  Future<void> _selectCameraLens(CameraLensDirection targetDirection) async {
+    if (!_canSwitchCamera) return;
+    if (_currentLensDirection == targetDirection) return;
+
+    int targetIndex = _availableCameras.indexWhere(
+      (c) => c.lensDirection == targetDirection,
+    );
+    if (targetIndex == -1) {
+      targetIndex = (_selectedCameraIndex + 1) % _availableCameras.length;
+    }
+
+    setState(() {
+      _isSwitchingCamera = true;
+    });
+
+    await _initCamera(targetIndex);
+
+    if (mounted) {
+      final lensName = _isBackCamera
+          ? 'Kamera Belakang (Observasi Klien)'
+          : 'Kamera Depan (Wicara Mandiri)';
+      ScaffoldMessenger.of(context).removeCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          duration: const Duration(milliseconds: 1400),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: const Color(0xFF0F172A),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          content: Row(
+            children: [
+              Icon(
+                _isBackCamera
+                    ? Icons.camera_alt_outlined
+                    : Icons.person_outline_rounded,
+                color: const Color(0xFF5EEAD4),
+                size: 18,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                'Menggunakan $lensName',
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.white,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
     }
   }
 
@@ -202,16 +243,32 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
     }
 
     try {
-      await _controller!.startVideoRecording();
+      // 1) Mikrofon tunggal (WAV + dictation) dimulai lebih dulu agar menutupi seluruh video
+      await MicSessionService.start(
+        onTranscript: (text) {
+          if (!mounted) return;
+          setState(() => _liveTranscript = text);
+        },
+        onProblem: (msg) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(msg), backgroundColor: Colors.orange),
+          );
+        },
+      );
+
+      // 2) Video tanpa audio (audio ditangani MicSession)
+      try {
+        await _controller!.startVideoRecording();
+      } catch (e) {
+        await MicSessionService.stop();
+        rethrow;
+      }
       setState(() {
         _isRecording = true;
         _secondsRecorded = 0;
         _liveTranscript = '';
-        _committedTranscript = '';
       });
-
-      // Mulai transkripsi suara real-time secara paralel
-      _startSpeechListening();
 
       _timer?.cancel();
       _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
@@ -239,11 +296,12 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
 
     _timer?.cancel();
     try {
-      if (_speech.isListening) {
-        await _speech.stop();
-      }
-
-      final xFile = await _controller!.stopVideoRecording();
+      final results = await Future.wait([
+        _controller!.stopVideoRecording(),
+        MicSessionService.stop(),
+      ]);
+      final xFile = results[0] as XFile;
+      final mic = results[1] as ({String transcript, String? wavPath});
       setState(() {
         _isRecording = false;
       });
@@ -253,7 +311,13 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
         participantId: widget.participantId,
       );
 
-      final finalTranscript = _liveTranscript.trim();
+      // Audio asli dari mikrofon disimpan berdampingan dengan video
+      if (mic.wavPath != null) {
+        await File(mic.wavPath!).copy(MicSessionService.sidecarWavPath(savedPath));
+      }
+
+      final finalTranscript =
+          mic.transcript.isNotEmpty ? mic.transcript : _liveTranscript.trim();
 
       if (!mounted) return;
       Navigator.of(context).pop(ClinicalCameraResult(
@@ -335,6 +399,29 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
             child: CameraPreview(_controller!),
           ),
 
+          // Indikator Transisi Pengalihan Lensa Kamera
+          if (_isSwitchingCamera)
+            Container(
+              color: Colors.black54,
+              child: const Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    CircularProgressIndicator(color: _brandTeal),
+                    SizedBox(height: 12),
+                    Text(
+                      'Mengalihkan Sensor Kamera...',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
           // 2. Panduan Kalibrasi Wajah FACS
           IgnorePointer(
             child: Center(
@@ -367,7 +454,9 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
                       child: Text(
                         _isRecording
                             ? 'FACS ROI Terkunci • Akuisisi Aktif'
-                            : 'Kalibrasi Wajah Klien pada Zona FACS',
+                            : (_isBackCamera
+                                ? 'Arahkan Kamera ke Wajah Klien (Zona FACS)'
+                                : 'Kalibrasi Wajah Klien pada Zona FACS'),
                         style: const TextStyle(
                           color: Colors.white,
                           fontSize: 11,
@@ -454,9 +543,89 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
                             ],
                           ),
                         ),
-                        const SizedBox(width: 40),
+
+                        // Tombol Cepat Pengalihan Kamera (Depan / Belakang)
+                        Material(
+                          color: Colors.black45,
+                          borderRadius: BorderRadius.circular(12),
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(12),
+                            onTap: _canSwitchCamera ? _switchCamera : null,
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 8,
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    Icons.flip_camera_ios_rounded,
+                                    color: _canSwitchCamera
+                                        ? Colors.white
+                                        : Colors.white38,
+                                    size: 18,
+                                  ),
+                                  const SizedBox(width: 5),
+                                  Text(
+                                    _isBackCamera ? 'Belakang' : 'Depan',
+                                    style: TextStyle(
+                                      color: _canSwitchCamera
+                                          ? Colors.white
+                                          : Colors.white38,
+                                      fontSize: 11.5,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
                       ],
                     ),
+
+                    // Selector Pilihan Mode Kamera (Konselor / Klien)
+                    if (!_isRecording && _availableCameras.length > 1) ...[
+                      const SizedBox(height: 10),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 4,
+                          vertical: 3,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.72),
+                          borderRadius: BorderRadius.circular(22),
+                          border: Border.all(
+                            color: _brandTeal.withValues(alpha: 0.5),
+                            width: 1,
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            _buildLensOptionChip(
+                              title: 'Kamera Belakang (Klien)',
+                              icon: Icons.camera_alt_rounded,
+                              isSelected: _isBackCamera,
+                              onTap: () => _selectCameraLens(
+                                CameraLensDirection.back,
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            _buildLensOptionChip(
+                              title: 'Kamera Depan (Mandiri)',
+                              icon: Icons.person_rounded,
+                              isSelected: _isFrontCamera,
+                              onTap: () => _selectCameraLens(
+                                CameraLensDirection.front,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+
                     const SizedBox(height: 12),
 
                     // Kartu Protokol Wawancara Klinis Semi-Terstruktur
@@ -552,7 +721,7 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
                           width: 8,
                           height: 8,
                           decoration: BoxDecoration(
-                            color: _speech.isListening
+                            color: _isRecording
                                 ? const Color(0xFF10B981)
                                 : const Color(0xFFF59E0B),
                             shape: BoxShape.circle,
@@ -568,7 +737,7 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
                           ),
                         ),
                         const Spacer(),
-                        if (_speech.isListening)
+                        if (_isRecording)
                           const Text(
                             '● Mendengarkan...',
                             style: TextStyle(
@@ -707,6 +876,45 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildLensOptionChip({
+    required String title,
+    required IconData icon,
+    required bool isSelected,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(18),
+      onTap: _canSwitchCamera ? onTap : null,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: isSelected ? _brandTeal : Colors.transparent,
+          borderRadius: BorderRadius.circular(18),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              icon,
+              color: isSelected ? Colors.white : Colors.white70,
+              size: 15,
+            ),
+            const SizedBox(width: 6),
+            Text(
+              title,
+              style: TextStyle(
+                color: isSelected ? Colors.white : Colors.white70,
+                fontSize: 11,
+                fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

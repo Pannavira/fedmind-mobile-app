@@ -266,6 +266,8 @@ class MultimodalExtractorService {
           'videoPath': videoPath,
           'maxFrames': 16,
           'targetSampleRate': 16000,
+          // WAV dari MicSession (mic tunggal) bila ada; jika tidak, audio track video
+          'audioWavPath': await _sidecarWavIfExists(videoPath),
         },
       );
 
@@ -309,10 +311,7 @@ class MultimodalExtractorService {
 
     // Fallback pembacaan byte stream nyata jika dijalankan di lingkungan Desktop / Unit Test
     if (!nativeSuccess) {
-      final parsed = await _parseMediaStreamFromBytes(file);
-      visualFrames = parsed.frames;
-      pcmSamples = parsed.pcmSamples;
-      facesDetectedCount = parsed.facesDetected;
+      throw 'Ekstraksi video native gagal: tidak ada frame wajah maupun audio yang terbaca.';
     }
     debugPrint('[PERF] native extract (frames+audio): ${perfSw.elapsedMilliseconds} ms');
 
@@ -347,9 +346,9 @@ class MultimodalExtractorService {
     final audioResult = _computeRealAcousticFeatures248D(pcmSamples, sampleRate);
     debugPrint('[PERF] visual+acoustic features done at: ${perfSw.elapsedMilliseconds} ms');
 
-    // Tahap 4: On-Device Whisper Speech-to-Text & Cross-Lingual Translation
+    // Tahap 4: On-Device Google STT & Cross-Lingual Translation
     onProgress?.call(
-      'Mempersiapkan model Whisper On-Device untuk transkripsi tuturan...',
+      'Memproses transkrip tuturan wicara (Google STT) & penanda semantik...',
       0.68,
     );
     final whisperResult = await OnDeviceWhisperService.transcribeAndTranslate(
@@ -427,7 +426,7 @@ class MultimodalExtractorService {
       extractionSummary:
           'Ekstraksi Riil On-Device Selesai: Durasi ${effectiveDurationSec.toStringAsFixed(1)} dtk, '
           '${visualFrames.length} Frame Wajah ($facesDetectedCount terdeteksi), '
-          '${whisperResult.isWhisperModel ? (whisperResult.linguisticTitle.contains("Small-ID") ? "Whisper Small-ID" : "Whisper Base") : "DSP Audio"} On-Device: ${whisperResult.detectedKeywords.length} penanda kata klinis (ID ➔ EN MentalBERT).',
+          'Google Live ASR On-Device: ${whisperResult.detectedKeywords.length} penanda kata klinis (ID ➔ EN MentalBERT).',
       extractedAt: DateTime.now(),
       videoSizeMb: fileSizeMb,
       framesAnalyzed: visualFrames.length,
@@ -435,6 +434,11 @@ class MultimodalExtractorService {
       audioSamplesAnalyzed: pcmSamples.length,
       inspectionData: inspectionData,
     );
+  }
+
+  static Future<String?> _sidecarWavIfExists(String videoPath) async {
+    final wav = videoPath.replaceFirst(RegExp(r'\.[A-Za-z0-9]+$'), '.wav');
+    return await File(wav).exists() ? wav : null;
   }
 
   /// Membaca atom 'mvhd' (Movie Header) dari berkas MP4/MOV secara langsung
@@ -2440,109 +2444,8 @@ class MultimodalExtractorService {
         );
       }
     } else {
-      // 2. Mode Sintesis Observasi Tuturan Multimodal (ketika pengguna hanya mengunggah video tanpa transkrip teks)
-      // Dibangun dinamis murni dari metrik gelombang suara & FACS visual unik pada video tersebut!
-      const int segCount = 3;
-      final synthSentences = <String>[];
-
-      final browTension = visualSummary?['browTension'] ?? 1.05;
-      final smileIntensity = visualSummary?['smileIntensity'] ?? 0.85;
-      final headPitch = visualSummary?['avgPitch'] ?? -3.5;
-      final expressiveness = visualSummary?['expressiveness'] ?? 0.26;
-
-      String faceDesc1;
-      if (browTension > 1.25) {
-        faceDesc1 = 'Observasi wajah mencatat ketegangan pada otot dahi (aktivasi Corrugator AU04)';
-      } else if (smileIntensity > 0.95) {
-        faceDesc1 = 'Ekspresi wajah menampilkan senyuman wajar dan kontak mata terbuka (AU12)';
-      } else if (headPitch < -6.5) {
-        faceDesc1 = 'Posisi kepala tampak menunduk saat memulai sesi wawancara';
-      } else {
-        faceDesc1 = 'Kontak tatapan kamera dan ekspresi wajah terukur tenang';
-      }
-
-      String faceDesc2;
-      if (expressiveness < 0.20) {
-        faceDesc2 = 'Dinamika motorik wajah tampak tenang dengan ekspresi afek cenderung datar';
-      } else if (browTension > 1.20) {
-        faceDesc2 = 'Teramati kontraksi otot alis yang berulang seiring dinamika bicara';
-      } else if (smileIntensity > 0.85) {
-        faceDesc2 = 'Kontak tatapan terjaga aktif dengan ekspresi emosi yang selaras';
-      } else {
-        faceDesc2 = 'Responsivitas ekspresi wajah terukur stabil dan fokus terjaga';
-      }
-
-      String faceDesc3;
-      if (headPitch < -7.0) {
-        faceDesc3 = 'arah tatapan menunduk dan minim pergerakan kepala';
-      } else if (browTension > 1.20) {
-        faceDesc3 = 'ketegangan dahi mereda menuju penutupan sesi';
-      } else {
-        faceDesc3 = 'postur kepala tegak dan kontak mata tetap stabil';
-      }
-
-      for (int i = 0; i < segCount; i++) {
-        final tStart = (durationSec * i / segCount).round();
-        final tEnd = max(tStart + 1, (durationSec * (i + 1) / segCount).round());
-        final timeLabel = '${_fmtSec(tStart)} - ${_fmtSec(tEnd)}';
-
-        final bStart = (i * waveformBars.length) ~/ segCount;
-        final bEnd = max(bStart + 1, ((i + 1) * waveformBars.length) ~/ segCount);
-        final segBars = waveformBars.sublist(bStart, min(waveformBars.length, bEnd));
-        final segVoicedPct = waveformBars.isNotEmpty
-            ? ((segBars.where((b) => b >= 0.14).length / max(1, segBars.length)) * 100).round()
-            : (i == 0 ? 70 : (i == 1 ? 65 : 60));
-        final segPausePct = 100 - segVoicedPct;
-
-        double segPitchMean = avgPitchHz;
-        double segPitchStd = pitchStdHz ?? 11.0;
-        if (pitchContour != null && pitchContour.isNotEmpty) {
-          final pStart = (i * pitchContour.length) ~/ segCount;
-          final pEnd = max(pStart + 1, ((i + 1) * pitchContour.length) ~/ segCount);
-          final segPitches =
-              pitchContour.sublist(pStart, min(pitchContour.length, pEnd));
-          final pSt = _calcSeriesStats(segPitches);
-          segPitchMean = pSt.mean;
-          segPitchStd = pSt.std;
-        }
-
-        final stabilityLabel = (jitterPct ?? 1.4) > 2.0 ? 'Fluktuatif' : 'Stabil';
-        String segText;
-        String prosodyNote;
-
-        if (i == 0) {
-          prosodyNote = 'Awal sesi • Nada ${segPitchMean.toStringAsFixed(0)} Hz • Bicara $segVoicedPct%';
-          segText =
-              'Pada segmen pembukaan, klien berbicara dengan proporsi vokal $segVoicedPct% aktif pada frekuensi dasar ${segPitchMean.toStringAsFixed(0)} Hz (${segPitchStd > 11.5 ? 'modulasi dinamis' : 'intonasi terkontrol'}). $faceDesc1.';
-        } else if (i == 1) {
-          prosodyNote = 'Tengah sesi • Variasi ±${segPitchStd.toStringAsFixed(1)} Hz (${segPitchMean.toStringAsFixed(0)} Hz) • Aktif $segVoicedPct%';
-          segText =
-              'Pada segmen pertengahan, pola prosodi mencatat modulasi nada ±${segPitchStd.toStringAsFixed(1)} Hz dengan interval jeda bicara $segPausePct%. $faceDesc2.';
-        } else {
-          prosodyNote = 'Akhir sesi • Nada ${segPitchMean.toStringAsFixed(0)} Hz ($stabilityLabel) • Jeda $segPausePct%';
-          segText =
-              'Pada segmen penutupan, frekuensi nada vokal berada di sekitar ${segPitchMean.toStringAsFixed(0)} Hz ($stabilityLabel) dengan jeda hening akhir $segPausePct%. Teramati $faceDesc3.';
-        }
-
-        synthSentences.add(segText);
-
-        final segWords = segText
-            .toLowerCase()
-            .split(RegExp(r'[^a-zA-Z0-9_]+'))
-            .where((w) => emotionalLexicon.containsKey(w))
-            .toList();
-
-        segments.add(
-          TranscriptSegmentItem(
-            timeRangeLabel: timeLabel,
-            text: segText,
-            detectedKeywords: segWords,
-            prosodyNote: prosodyNote,
-          ),
-        );
-      }
-
-      rawTranscript = synthSentences.join(' ');
+      // 2. Tidak ada tuturan terkenali: transkrip dibiarkan kosong (tanpa sintesis)
+      rawTranscript = '';
     }
 
     final textLower = rawTranscript.toLowerCase();
@@ -2571,14 +2474,6 @@ class MultimodalExtractorService {
       }
     }
 
-    if (detectedKeywords.isEmpty) {
-      detectedKeywords.addAll([
-        'nada (Dinamika Vokal)',
-        'frekuensi (Frekuensi Akustik)',
-        'jeda (Retardasi Vokal)',
-      ]);
-    }
-
     final valence = ((posHits - negHits) / max(1, posHits + negHits + 1)).clamp(-1.0, 1.0);
 
     final String lingTitle;
@@ -2594,9 +2489,8 @@ class MultimodalExtractorService {
             'Kalimat menunjukkan refleksi diri yang tenang dengan ${detectedKeywords.length} penanda leksikal dan keseimbangan regulasi emosi sepanjang ${durationSec.toStringAsFixed(1)} detik.';
       }
     } else {
-      lingTitle = 'Sintesis Komunikasi Multimodal Video Terkalibrasi';
-      lingDesc =
-          'Profil tuturan disusun secara objektif dari dekomposisi gelombang akustik (${(avgPitchHz).toStringAsFixed(0)} Hz) dan ${detectedKeywords.length} penanda afek perilaku visual sepanjang ${durationSec.toStringAsFixed(1)} detik.';
+      lingTitle = 'Tidak Ada Transkrip';
+      lingDesc = 'Pengenalan suara tidak menghasilkan teks pada rekaman ini.';
     }
 
     return _TranscriptLinguisticBundle(
