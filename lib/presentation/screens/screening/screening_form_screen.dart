@@ -280,6 +280,10 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
         ? 'RM-2026-001'
         : _participantIdController.text.trim();
 
+    if (_participantIdController.text.trim().isEmpty) {
+      _participantIdController.text = pid;
+    }
+
     try {
       final result = await Navigator.push<ClinicalCameraResult>(
         context,
@@ -295,28 +299,10 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
         );
 
         if (!mounted) return;
-        final fileName =
-            result.videoPath.split(Platform.isWindows ? r'\' : '/').last;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Row(
-              children: [
-                const Icon(Icons.check_circle_rounded,
-                    color: Colors.white, size: 20),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    'Rekaman observasi klinis tersimpan ($fileName)',
-                    style: const TextStyle(
-                        fontSize: 12.5, fontWeight: FontWeight.w600),
-                  ),
-                ),
-              ],
-            ),
-            backgroundColor: const Color(0xFF0F766E),
-            duration: const Duration(seconds: 4),
-          ),
-        );
+
+        // Otomatis langsung jalankan inferensi multimodal on-device dan tampilkan hasil
+        // tanpa perlu berpindah manual ke bagian Ringkasan Pemeriksaan Klinis
+        await _submitScreening(openStudioFirst: false);
       }
     } catch (e) {
       if (!mounted) return;
@@ -1734,7 +1720,7 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
               ),
               Expanded(
                 child: Text(
-                  'Pilihan Sumber Modalitas Observasi',
+                  'Mulai Merekam',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
@@ -1774,7 +1760,7 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
   }
 
   // =========================================================================
-  // TAHAP 2: UNGGAH REKAMAN VIDEO & PEMUTAR LANGSUNG
+  // TAHAP 2: REKAM VIDEO OBSERVASI & PEMUTAR LANGSUNG
   // =========================================================================
   Widget _buildStage2Media(ScreeningProvider provider) {
     return Column(
@@ -1782,14 +1768,14 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
       children: [
         _buildSectionCard(
           stepNumber: '02',
-          title: 'Pilihan Sumber Modalitas Observasi',
+          title: 'Mulai Merekam',
           subtitle:
-              'Unggah berkas rekaman video observasi dan putar langsung di aplikasi',
-          icon: Icons.videocam_outlined,
+              'Rekam wawancara observasi klinis secara langsung on-device dengan panduan protokol E-DAIC / PHQ-8',
+          icon: Icons.videocam_rounded,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // Jika video belum dipilih: Tampilkan Area Unggah/Rekam Video
+              // Jika video belum dipilih: Tampilkan Area Mulai Merekam
               if (_localVideoPath == null)
                 _buildVideoUploadPrompt()
               else ...[
@@ -1803,9 +1789,6 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
         const SizedBox(height: 16),
 
         // Pre-check Kualitas Sensor & Integritas Modalitas
-        const SizedBox(height: 16),
-        _buildVoiceTestCard(),
-        const SizedBox(height: 16),
         _buildSectionCard(
           stepNumber: '02.1',
           title: 'Status & Kualitas Sensor Media',
@@ -1816,7 +1799,7 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
         ),
         const SizedBox(height: 18),
 
-        // Tombol Navigasi Bawah Tahap 2: Kembali & Lanjut
+        // Tombol Navigasi Bawah Tahap 2: Kembali & Mulai Merekam / Jalankan Inferensi
         Row(
           children: [
             Expanded(
@@ -1845,7 +1828,11 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
               child: SizedBox(
                 height: 50,
                 child: ElevatedButton.icon(
-                  onPressed: provider.isExecuting ? null : () => _goToStage(2),
+                  onPressed: provider.isExecuting
+                      ? null
+                      : (_localVideoPath != null
+                          ? () => _submitScreening(openStudioFirst: false)
+                          : _openClinicalCamera),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: _brandTeal,
                     foregroundColor: Colors.white,
@@ -1854,10 +1841,17 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
                       borderRadius: BorderRadius.circular(14),
                     ),
                   ),
-                  icon: const Icon(Icons.arrow_forward_rounded, size: 18),
-                  label: const Text(
-                    'Lanjut ke Ringkasan Analisa',
-                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800),
+                  icon: Icon(
+                    _localVideoPath != null
+                        ? Icons.psychology_rounded
+                        : Icons.videocam_rounded,
+                    size: 18,
+                  ),
+                  label: Text(
+                    _localVideoPath != null
+                        ? 'Jalankan Inferensi & Hasil'
+                        : 'Mulai Merekam',
+                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800),
                   ),
                 ),
               ),
@@ -1868,7 +1862,8 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
     );
   }
 
-  Widget _buildVoiceTestCard() {
+  @visibleForTesting
+  Widget buildVoiceTestCard() {
     final transcriptText = _voiceTestTranscript.trim().isEmpty
         ? 'Tekan tombol mikrofon lalu ucapkan kalimat percakapan pasien. Transkrip akan tampil secara real-time seperti Android voice typing.'
         : _voiceTestTranscript;
@@ -1946,7 +1941,7 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
     );
   }
 
-  /// Tampilan Area Unggah/Rekam Video (Ketika belum ada video yang dipilih)
+  /// Tampilan Area Mulai Merekam Video (Ketika belum ada video yang dipilih)
   Widget _buildVideoUploadPrompt() {
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
@@ -1974,7 +1969,7 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
           ),
           const SizedBox(height: 14),
           const Text(
-            'Rekam Sesi Observasi Klinis',
+            'Mulai Merekam Wawancara Klinis',
             style: TextStyle(
               fontSize: 15.5,
               fontWeight: FontWeight.w800,
@@ -1983,7 +1978,7 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
           ),
           const SizedBox(height: 6),
           const Text(
-            'Rekam observasi langsung melalui kamera dengan transkripsi wicara real-time (Google Speech-to-Text). Rekaman akan disimpan secara lokal di perangkat.',
+            'Rekam observasi klinis terpandu pertanyaan interaktif E-DAIC / PHQ-8 dengan transkripsi wicara real-time. Begitu perekaman selesai, model AI on-device akan langsung memproses inferensi dan menampilkan hasilnya secara otomatis.',
             textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: 12,
@@ -2007,8 +2002,8 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
               ),
               icon: const Icon(Icons.videocam_rounded, size: 22),
               label: const Text(
-                'Buka Kamera & Mulai Rekam (Live ASR)',
-                style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w800),
+                'Mulai Merekam',
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800),
               ),
             ),
           ),
