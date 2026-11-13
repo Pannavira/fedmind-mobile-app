@@ -61,6 +61,7 @@ void main() {
           participantId: 'P_TEST_99',
           userNote:
               'Akhir-akhir ini saya merasa lelah, sulit tidur, dan cemas.',
+          allowSyntheticByteFallback: true,
           onProgress: (stage, progress) {
             progressUpdates.add(stage);
           },
@@ -111,10 +112,12 @@ void main() {
         final featA = await MultimodalExtractorService.extractFromLocalVideo(
           videoPath: tempFileA.path,
           participantId: 'SAME_ID',
+          allowSyntheticByteFallback: true,
         );
         final featB = await MultimodalExtractorService.extractFromLocalVideo(
           videoPath: tempFileB.path,
           participantId: 'SAME_ID',
+          allowSyntheticByteFallback: true,
         );
 
         // Hitung selisih L1 antara kedua hasil ekstraksi
@@ -143,6 +146,7 @@ void main() {
               participantId: 'P_NOTE',
               userNote:
                   'Saya merasa sangat sedih, hampa, putus asa, dan tidak bisa tidur setiap malam.',
+              allowSyntheticByteFallback: true,
             );
 
         final featPositive =
@@ -151,6 +155,7 @@ void main() {
               participantId: 'P_NOTE',
               userNote:
                   'Hari ini saya merasa tenang, bersyukur, bahagia, dan bersemangat bekerja.',
+              allowSyntheticByteFallback: true,
             );
 
         final featShortDistress =
@@ -158,6 +163,7 @@ void main() {
               videoPath: tempFileA.path,
               participantId: 'P_NOTE',
               userNote: 'sedih lelah cemas',
+              allowSyntheticByteFallback: true,
             );
 
         final featShortPositive =
@@ -165,6 +171,7 @@ void main() {
               videoPath: tempFileA.path,
               participantId: 'P_NOTE',
               userNote: 'tenang semangat bahagia',
+              allowSyntheticByteFallback: true,
             );
 
         double textDiff = 0.0;
@@ -194,10 +201,12 @@ void main() {
         final featA = await MultimodalExtractorService.extractFromLocalVideo(
           videoPath: tempFileA.path,
           participantId: 'P_VID_A',
+          allowSyntheticByteFallback: true,
         );
         final featB = await MultimodalExtractorService.extractFromLocalVideo(
           videoPath: tempFileB.path,
           participantId: 'P_VID_B',
+          allowSyntheticByteFallback: true,
         );
 
         final preprocessor = LocalPreprocessingService();
@@ -244,6 +253,7 @@ void main() {
               videoPath: targetVideoPath,
               participantId: 'REAL_VIDEO_USER',
               userNote: 'Merasa sedikit lelah karena pekerjaan menumpuk.',
+              allowSyntheticByteFallback: true,
             );
 
         final preprocessor = LocalPreprocessingService();
@@ -478,6 +488,7 @@ void main() {
           videoPath: tempFileA.path,
           participantId: 'P_EXPLICIT',
           clientTranscript: customTranscript,
+          allowSyntheticByteFallback: true,
         );
 
         final ins = feat.inspectionData;
@@ -587,6 +598,7 @@ void main() {
         final feat = await MultimodalExtractorService.extractFromLocalVideo(
           videoPath: tempFileA.path,
           participantId: 'P_PARITY_01',
+          allowSyntheticByteFallback: true,
         );
 
         expect(feat.visualFeatures.length, equals(75));
@@ -614,6 +626,400 @@ void main() {
 
         // Audio[12] is OpenSMILE c0 log-energy mean (training mean ~75.96) -> must be strongly positive
         expect(feat.audioFeatures[12], greaterThan(20.0));
+      },
+    );
+
+    test(
+      'Phase 1 Parity: poseRx negation, actual dtMs for diff pose, calibrated AU02/AU09, 75D-derived UI AUs, and non-Android block',
+      () async {
+        final statsMap = json.decode(
+          await File('assets/models/train_norm_stats.json').readAsString(),
+        ) as Map<String, dynamic>;
+        final visMean = (statsMap['visual']['mean'] as List).cast<num>();
+        final visStd = (statsMap['visual']['std'] as List).cast<num>();
+
+        // 1. Negated eulerX -> poseRx positive when looking down (menunduk)
+        final lookingDownFrames = List<Map<String, double>>.generate(12, (i) => {
+              'faceFound': 1.0,
+              'timeSec': i * 1.0,
+              'eulerX': -12.0, // menunduk in ML Kit
+              'eulerY': (i.isEven ? 2.0 : -2.0),
+              'eulerZ': 0.5,
+              'browActivation': 1.05,
+              'eyeOpenness': 0.90,
+              'cheekActivation': 1.05,
+              'mouthActivation': 0.90,
+              'mouthOpenness': 0.55,
+              'asymmetry': 0.08,
+              'motionEnergy': 0.25,
+            });
+        final featDown =
+            await MultimodalExtractorService.extractVisualFeatures75DForTest(
+          lookingDownFrames,
+        );
+        // pose_Rx (idx 69) must be positive (~ +0.209 rad) matching E-DAIC convention
+        expect(featDown[69], greaterThan(0.15));
+
+        // 2. Actual dtMs from timeSec / timestampMs affects features 73-74
+        final slowFrames = List<Map<String, double>>.generate(10, (i) => {
+              'faceFound': 1.0,
+              'timeSec': i * 2.0, // dtMs = 2000 -> stepScale = 0.08
+              'eulerX': (i.isEven ? -4.0 : -10.0),
+              'eulerY': (i.isEven ? -3.0 : 3.0),
+              'eulerZ': 0.0,
+              'browActivation': 0.95,
+              'eyeOpenness': 0.95,
+              'cheekActivation': 0.95,
+              'mouthActivation': 0.95,
+              'mouthOpenness': 0.5,
+              'asymmetry': 0.05,
+              'motionEnergy': 0.3,
+            });
+        final fastFrames = List<Map<String, double>>.generate(10, (i) => {
+              ...slowFrames[i],
+              'timestampMs': i * 60.0, // dtMs = 60 -> stepScale = 33.333/60 = 0.555
+            });
+        final featSlow =
+            await MultimodalExtractorService.extractVisualFeatures75DForTest(
+          slowFrames,
+        );
+        final featFast =
+            await MultimodalExtractorService.extractVisualFeatures75DForTest(
+          fastFrames,
+        );
+        expect(featFast[73], greaterThan(featSlow[73]));
+        expect(featFast[74], greaterThan(featSlow[74]));
+
+        // 3. AU02 & AU09 calibrated for neutral & expressive faces (< +10 sigma)
+        final expressiveFrames = List<Map<String, double>>.generate(12, (i) => {
+              'faceFound': 1.0,
+              'timeSec': i * 0.8,
+              'eulerX': -2.0,
+              'eulerY': 1.0,
+              'eulerZ': 0.5,
+              'browActivation': 1.45,
+              'eyeOpenness': 1.05,
+              'cheekActivation': 1.45,
+              'mouthActivation': 1.35,
+              'mouthOpenness': 0.75,
+              'asymmetry': 0.12,
+              'motionEnergy': 0.45,
+              'smilingProb': 0.85,
+            });
+        final featExpr =
+            await MultimodalExtractorService.extractVisualFeatures75DForTest(
+          expressiveFrames,
+        );
+        for (final idx in [4, 5, 6, 7, 20, 21, 22, 23]) {
+          final z = (featExpr[idx] - visMean[idx].toDouble()) /
+              (visStd[idx].toDouble() + 1e-7);
+          expect(z.abs(), lessThan(6.0), reason: 'Feature idx $idx spiked: z=$z');
+        }
+
+        // 4. 5 AU UI scores derived directly from normalized 75D vector
+        final uiScoresExpr =
+            await MultimodalExtractorService.deriveActionUnitScoresFrom75DForTest(
+          featExpr,
+        );
+        final uiScoresDown =
+            await MultimodalExtractorService.deriveActionUnitScoresFrom75DForTest(
+          featDown,
+        );
+        expect(uiScoresExpr.length, equals(5));
+        expect(
+          uiScoresExpr['AU12 Lip Corner Puller (Zygomaticus / Smile)']!,
+          greaterThan(uiScoresDown['AU12 Lip Corner Puller (Zygomaticus / Smile)']!),
+        );
+
+        // 5. Non-Android platform protection (without allowSyntheticByteFallback)
+        await expectLater(
+          MultimodalExtractorService.extractFromLocalVideo(
+            videoPath: tempFileA.path,
+            participantId: 'P_NON_ANDROID_BLOCK',
+          ),
+          throwsA(isA<UnsupportedVisualPlatformException>()),
+        );
+
+        final disabledFeat =
+            await MultimodalExtractorService.extractFromLocalVideo(
+          videoPath: tempFileA.path,
+          participantId: 'P_NON_ANDROID_DISABLED',
+          requireFaceDetection: false,
+        );
+        expect(disabledFeat.isVisualBranchDisabled, isTrue);
+        expect(disabledFeat.facesDetected, equals(0));
+        expect(disabledFeat.inspectionData.isVisualBranchDisabled, isTrue);
+        expect(disabledFeat.inspectionData.faceDetectionRatePct, equals(0.0));
+
+        final prep = LocalPreprocessingService();
+        final prepTensors = await prep.prepareMultimodalTensors(
+          audioInput: disabledFeat.audioFeatures,
+          visualInput: disabledFeat.visualFeatures,
+          textInput: disabledFeat.textFeatures,
+          disableVisualBranch: true,
+        );
+        expect(prepTensors.qualityFlags['poor_visual_quality'], isTrue);
+      },
+    );
+
+    test(
+      'MediaPipe 52 ARKit Blendshapes map cleanly to 75D OpenFace AUs without spikes & separate depressive vs happy affect',
+      () async {
+        final statsJson = json.decode(
+          await File('assets/models/train_norm_stats.json').readAsString(),
+        ) as Map<String, dynamic>;
+        final visMean =
+            (statsJson['visual']['mean'] as List).cast<num>();
+        final visStd =
+            (statsJson['visual']['std'] as List).cast<num>();
+
+        // 1. Neutral calm face using ARKit blendshapes (no synthetic cueScale amplification)
+        final neutralMpFrames = List<Map<String, double>>.generate(12, (i) => {
+              'usedMediaPipe': 1.0,
+              'faceFound': 1.0,
+              'timestampMs': i * 500.0,
+              'timeSec': i * 0.5,
+              'eulerX': -11.5, // slight natural downward webcam angle -> poseRx ~ +0.20 rad
+              'eulerY': (i.isEven ? 1.5 : -1.5),
+              'eulerZ': 0.5,
+              'gazeAngleX': 0.02 * (i.isEven ? 1 : -1),
+              'gazeAngleY': 0.34,
+              'bs_browInnerUp': 0.12 + (i % 3) * 0.02,
+              'bs_browOuterUpLeft': 0.08 + (i % 2) * 0.03,
+              'bs_browOuterUpRight': 0.07 + (i % 2) * 0.03,
+              'bs_browDownLeft': 0.15,
+              'bs_browDownRight': 0.15,
+              'bs_cheekSquintLeft': 0.12,
+              'bs_cheekSquintRight': 0.12,
+              'bs_eyeSquintLeft': 0.22,
+              'bs_eyeSquintRight': 0.22,
+              'bs_noseSneerLeft': 0.06,
+              'bs_noseSneerRight': 0.06,
+              'bs_mouthUpperUpLeft': 0.18,
+              'bs_mouthUpperUpRight': 0.18,
+              'bs_mouthSmileLeft': 0.10,
+              'bs_mouthSmileRight': 0.10,
+              'bs_mouthDimpleLeft': 0.16,
+              'bs_mouthDimpleRight': 0.16,
+              'bs_mouthFrownLeft': 0.08,
+              'bs_mouthFrownRight': 0.08,
+              'bs_mouthPressLeft': 0.14,
+              'bs_mouthPressRight': 0.14,
+              'bs_mouthStretchLeft': 0.05,
+              'bs_mouthStretchRight': 0.05,
+              'bs_mouthShrugLower': 0.15,
+              'bs_mouthClose': 0.65,
+              'bs_jawOpen': 0.14,
+              'bs_eyeBlinkLeft': (i == 4 ? 0.80 : 0.06),
+              'bs_eyeBlinkRight': (i == 4 ? 0.80 : 0.06),
+            });
+
+        final featNeutral =
+            await MultimodalExtractorService.extractVisualFeatures75DForTest(
+          neutralMpFrames,
+        );
+
+        // Verify ALL 75 features are within healthy Z-score range (especially AU02 [4..7] & AU09 [20..23])
+        for (int idx = 0; idx < 75; idx++) {
+          final z = (featNeutral[idx] - visMean[idx].toDouble()) /
+              (visStd[idx].toDouble() + 1e-7);
+          expect(
+            z.abs(),
+            lessThan(4.5),
+            reason: 'MediaPipe neutral feature idx $idx exceeded +/-4.5 sigma (z=$z)',
+          );
+        }
+
+        // 2. Depressive affect vs Happy Duchenne blendshapes
+        final depressiveMpFrames = List<Map<String, double>>.generate(12, (i) => {
+              ...neutralMpFrames[i],
+              'eulerX': -18.0, // looking down more prominently
+              'bs_browInnerUp': 0.58,
+              'bs_browDownLeft': 0.65,
+              'bs_browDownRight': 0.65,
+              'bs_mouthSmileLeft': 0.02,
+              'bs_mouthSmileRight': 0.02,
+              'bs_mouthFrownLeft': 0.62,
+              'bs_mouthFrownRight': 0.62,
+              'bs_cheekSquintLeft': 0.04,
+              'bs_cheekSquintRight': 0.04,
+            });
+
+        final happyMpFrames = List<Map<String, double>>.generate(12, (i) => {
+              ...neutralMpFrames[i],
+              'eulerX': -3.0,
+              'bs_browInnerUp': 0.08,
+              'bs_browDownLeft': 0.03,
+              'bs_browDownRight': 0.03,
+              'bs_mouthSmileLeft': 0.78,
+              'bs_mouthSmileRight': 0.78,
+              'bs_cheekSquintLeft': 0.68,
+              'bs_cheekSquintRight': 0.68,
+              'bs_mouthFrownLeft': 0.02,
+              'bs_mouthFrownRight': 0.02,
+            });
+
+        final featDepr =
+            await MultimodalExtractorService.extractVisualFeatures75DForTest(
+          depressiveMpFrames,
+        );
+        final featHappy =
+            await MultimodalExtractorService.extractVisualFeatures75DForTest(
+          happyMpFrames,
+        );
+
+        // Depressive frames must have higher AU04 (idx 8) & AU15 (idx 36) & pose_Rx (idx 69)
+        expect(featDepr[8], greaterThan(featHappy[8]));
+        expect(featDepr[36], greaterThan(featHappy[36]));
+        expect(featDepr[69], greaterThan(featHappy[69]));
+        // Happy frames must have higher AU12 (idx 28) & Duchenne fraction (idx 64)
+        expect(featHappy[28], greaterThan(featDepr[28]));
+        expect(featHappy[64], greaterThan(featDepr[64]));
+
+        // UI AU scores from 75D must align monotonically
+        final uiDepr =
+            await MultimodalExtractorService.deriveActionUnitScoresFrom75DForTest(
+          featDepr,
+        );
+        final uiHappy =
+            await MultimodalExtractorService.deriveActionUnitScoresFrom75DForTest(
+          featHappy,
+        );
+        expect(
+          uiDepr['AU04 Brow Lowerer (Corrugator Supercilii)']!,
+          greaterThan(uiHappy['AU04 Brow Lowerer (Corrugator Supercilii)']!),
+        );
+        expect(
+          uiDepr['AU15 Lip Corner Depressor (Depressive Affect)']!,
+          greaterThan(uiHappy['AU15 Lip Corner Depressor (Depressive Affect)']!),
+        );
+        expect(
+          uiHappy['AU12 Lip Corner Puller (Zygomaticus / Smile)']!,
+          greaterThan(uiDepr['AU12 Lip Corner Puller (Zygomaticus / Smile)']!),
+        );
+      },
+    );
+
+    test(
+      'TEST 4 Regression: AU02 p75 bounded, responsive motor dynamics, non-floored chart cues, and negation-aware sleep/mood valence',
+      () async {
+        final statsJson = json.decode(
+          await File('assets/models/train_norm_stats.json').readAsString(),
+        ) as Map<String, dynamic>;
+        final visMean = (statsJson['visual']['mean'] as List).cast<num>();
+        final visStd = (statsJson['visual']['std'] as List).cast<num>();
+
+        // Simulasi 24 frame MediaPipe ~53.8 dtk seperti rekaman TEST 4 (wajah aktif bicara & ekspresi ringan)
+        final mpSpeakingFrames = List<Map<String, double>>.generate(24, (i) {
+          final isSmile = i == 4 || i == 11 || i == 22;
+          return {
+            'usedMediaPipe': 1.0,
+            'faceFound': 1.0,
+            'confidence': 0.99,
+            'timestampMs': i * 2240.0,
+            'timeSec': i * 2.24,
+            'eulerX': i < 12 ? -2.5 + (i % 3) : 4.5 + (i % 4),
+            'eulerY': (i % 3 - 1) * 2.0,
+            'eulerZ': (i.isEven ? 1.2 : -0.8),
+            'gazeAngleX': 0.03 * (i % 3 - 1),
+            'gazeAngleY': 0.14 + (i % 4) * 0.03,
+            'browActivation': 0.12 + (i % 4) * 0.09,
+            'eyeOpenness': 0.95 + (i % 3) * 0.05,
+            'motionEnergy': i == 0 ? 0.0 : (0.35 + (i % 5) * 0.16),
+            'bs_browInnerUp': 0.12 + (i % 3) * 0.04,
+            'bs_browOuterUpLeft': 0.34 + (i % 2) * 0.03,
+            'bs_browOuterUpRight': 0.33 + (i % 2) * 0.03,
+            'bs_browDownLeft': 0.02 + (i % 3) * 0.02,
+            'bs_browDownRight': 0.02 + (i % 3) * 0.02,
+            'bs_cheekSquintLeft': isSmile ? 0.45 : 0.08,
+            'bs_cheekSquintRight': isSmile ? 0.45 : 0.08,
+            'bs_eyeSquintLeft': 0.18,
+            'bs_eyeSquintRight': 0.18,
+            'bs_noseSneerLeft': 0.06,
+            'bs_noseSneerRight': 0.06,
+            'bs_mouthSmileLeft': isSmile ? 0.65 : (0.04 + (i % 3) * 0.03),
+            'bs_mouthSmileRight': isSmile ? 0.65 : (0.04 + (i % 3) * 0.03),
+            'bs_mouthFrownLeft': 0.03 + (i % 2) * 0.02,
+            'bs_mouthFrownRight': 0.03 + (i % 2) * 0.02,
+            'bs_mouthClose': (i % 2 == 0) ? 0.20 : 0.70,
+            'bs_jawOpen': (i % 3) * 0.25 + 0.08,
+            'bs_eyeBlinkLeft': i == 20 ? 0.70 : 0.05,
+            'bs_eyeBlinkRight': i == 20 ? 0.70 : 0.05,
+          };
+        });
+
+        final feat =
+            await MultimodalExtractorService.extractVisualFeatures75DForTest(
+          mpSpeakingFrames,
+        );
+        // 1. AU02 p75 (idx 6) tidak boleh spike ke +4.5 sigma
+        final zAu02P75 =
+            (feat[6] - visMean[6].toDouble()) / (visStd[6].toDouble() + 1e-7);
+        expect(zAu02P75.abs(), lessThan(2.5),
+            reason: 'AU02 p75 still spiked: z=$zAu02P75');
+
+        // 2. Motor dynamics aktif bicara tidak jatuh ke lantai 0.20
+        final uiScores =
+            await MultimodalExtractorService.deriveActionUnitScoresFrom75DForTest(
+          feat,
+        );
+        expect(
+          uiScores['Optical Flow / Facial Motor Dynamics']!,
+          greaterThan(0.45),
+        );
+
+        // 3 & 4. Grafik ekspresi ringan tidak terpotong rata 0.05 & valensi tidur nyenyak + negasi positif
+        final inspection =
+            await MultimodalExtractorService.buildRealInspectionDataForTest(
+          participantId: 'TEST_4_REGR',
+          rawFrames: mpSpeakingFrames,
+          clientTranscript:
+              'suasana hati saya dua minggu terakhir sangat baik tidak ada yang menyedihkan '
+              'untuk kemudahan tidur malam hari saya juga tidurnya nyenyak '
+              'dan tidak begitu terkuras masih wajar dalam kehidupan sehari hari',
+        );
+        expect(
+          inspection.visualFrames.first.expressionLabel,
+          isNot(contains('Cenderung Datar')),
+        );
+        final avgBrow = inspection.visualFrames
+                .map((f) => f.browTension)
+                .reduce((a, b) => a + b) /
+            inspection.visualFrames.length;
+        expect(avgBrow, greaterThan(0.12));
+        expect(inspection.emotionalValence, greaterThan(0.0));
+        expect(
+          inspection.linguisticTitle,
+          equals('Narasi Cerita Terstruktur dengan Upaya Regulasi Diri'),
+        );
+      },
+    );
+
+    test(
+      'TEST 5 Regression: unpunctuated Indonesian STT transcript splits by discourse cues & preserves ASR/pronoun clarity',
+      () {
+        const rawStt =
+            'suasana hati saya dua minggu terakhirmu bagus kemudian saya juga tidak sedih '
+            'lalu untuk mood juga baik tidak bad mood Kemudian untuk bersantai saya masih '
+            'bersantai dan menikmati waktu luang saya untuk pola tidur sendiri Saya masih '
+            'tidur dengan cukup dan nyaman Kemudian untuk stamina atau energi di pagi hari '
+            'saya masih mendapatkan energi yang cukup untuk menjalani aktivitas sehari-hari';
+
+        final normalized =
+            OnDeviceWhisperService.normalizeIndonesianAsrText(rawStt);
+        expect(normalized, contains('dua minggu terakhir ini bagus'));
+        expect(normalized, isNot(contains('terakhirmu')));
+
+        final clauses =
+            OnDeviceWhisperService.splitIndonesianTranscriptClauses(normalized);
+        expect(clauses.length, greaterThanOrEqualTo(5));
+        expect(clauses.first, contains('terakhir ini bagus'));
+
+        final fixedEn = OnDeviceWhisperService.postProcessEnglishTranslation(
+          'untuk pola tidur sendiri Saya masih tidur dengan cukup',
+          'for your own sleep patterns I still sleep enough',
+        );
+        expect(fixedEn, equals('for my own sleep patterns I still sleep enough.'));
       },
     );
   });

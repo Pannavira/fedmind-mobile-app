@@ -257,28 +257,9 @@ class OnDeviceWhisperService {
     Map<String, double>? audioSummary,
     double confidence = 0.95,
   }) {
-    final rawSentences = text
-        .split(RegExp(r'(?<=[.!?])\s+|\n+'))
-        .map((s) => s.trim())
-        .where((s) => s.isNotEmpty)
-        .toList();
-
-    final sentences = <String>[];
-    if (rawSentences.isEmpty) {
+    final sentences = splitIndonesianTranscriptClauses(text);
+    if (sentences.isEmpty) {
       sentences.add(text);
-    } else if (rawSentences.length == 1 && durationSec >= 15.0) {
-      final parts = rawSentences[0]
-          .split(RegExp(r'(?<=,)\s+'))
-          .map((s) => s.trim())
-          .where((p) => p.isNotEmpty)
-          .toList();
-      if (parts.length >= 2) {
-        sentences.addAll(parts);
-      } else {
-        sentences.add(rawSentences[0]);
-      }
-    } else {
-      sentences.addAll(rawSentences);
     }
 
     final int segCount = max(1, sentences.length);
@@ -471,6 +452,11 @@ class OnDeviceWhisperService {
       RegExp(r'\bkeil\b', caseSensitive: false): 'kecil',
       RegExp(r'\bmemayaknya\b', caseSensitive: false): 'melakukannya',
       RegExp(r'\bberhod\b', caseSensitive: false): 'berat',
+      RegExp(r'\bterakhirmu\b', caseSensitive: false): 'terakhir ini',
+      RegExp(r'\btidur\s+minyak\b', caseSensitive: false): 'tidur nyenyak',
+      RegExp(r'\bbatas\s+taman\b', caseSensitive: false): 'batas aman',
+      RegExp(r'\bmemandang\s+diri\s+terakhir\b', caseSensitive: false):
+          'memandang diri akhir-akhir ini',
     };
 
     corrections.forEach((pattern, replacement) {
@@ -479,6 +465,88 @@ class OnDeviceWhisperService {
 
     // Rapikan spasi berlebih
     return cleaned.replaceAll(RegExp(r'\s+'), ' ').trim();
+  }
+
+  /// Memecah transkrip STT Bahasa Indonesia yang sering tanpa tanda baca menjadi
+  /// klausa pendek agar Google ML Kit & segmentasi waktu tidak kehilangan kata kunci.
+  @visibleForTesting
+  static List<String> splitIndonesianTranscriptClauses(String text) {
+    final trimmed = text.trim();
+    if (trimmed.isEmpty) return const [];
+
+    final baseChunks = trimmed
+        .split(RegExp(r'(?<=[.!?])\s+|\n+|(?<=[,;])\s+'))
+        .map((s) => s.trim())
+        .where((s) => s.isNotEmpty)
+        .toList();
+
+    final discourseCueRegex = RegExp(
+      r'\s+(?=(?:kemudian|lalu|selanjutnya|selain\s+itu|setelah\s+itu|kalau\s+untuk|dan\s+untuk|untuk\s+(?:suasana|mood|pola|tidur|stamina|energi|kualitas|memandang|bersantai))\b)',
+      caseSensitive: false,
+    );
+
+    final out = <String>[];
+    for (final chunk in baseChunks) {
+      final wordCount =
+          chunk.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).length;
+      if (wordCount < 10) {
+        out.add(chunk);
+        continue;
+      }
+      final subParts = chunk
+          .split(discourseCueRegex)
+          .map((s) => s.trim())
+          .where((s) => s.isNotEmpty)
+          .toList();
+      for (final part in subParts) {
+        if (out.isNotEmpty &&
+            part.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).length <= 2) {
+          out[out.length - 1] = '${out.last} $part';
+        } else {
+          out.add(part);
+        }
+      }
+    }
+    return out;
+  }
+
+  /// Merapikan hasil terjemahan klausa ML Kit (penjagaan sudut pandang orang pertama & titik akhir)
+  @visibleForTesting
+  static String postProcessEnglishTranslation(
+    String indonesianSource,
+    String englishTranslated,
+  ) {
+    var result = englishTranslated.trim();
+    if (result.isEmpty) return '';
+
+    final idLower = indonesianSource.toLowerCase();
+    final hasSecondPerson =
+        RegExp(r'\b(kamu|anda|kalian|saudara)\b').hasMatch(idLower);
+    final hasFirstPersonOrSelf = RegExp(
+      r'\b(saya|aku|sendiri|diriku|kita|kami)\b',
+    ).hasMatch(idLower);
+
+    if (!hasSecondPerson && hasFirstPersonOrSelf) {
+      result = result
+          .replaceAll(
+            RegExp(r'\bfor your own\b', caseSensitive: false),
+            'for my own',
+          )
+          .replaceAll(
+            RegExp(r'\benjoy your (free|spare) time\b', caseSensitive: false),
+            'enjoy my free time',
+          )
+          .replaceAll(
+            RegExp(r'\byour own sleep\b', caseSensitive: false),
+            'my own sleep',
+          );
+    }
+
+    result = result.replaceAll(RegExp(r'\s+'), ' ').trim();
+    if (result.isNotEmpty && !RegExp(r'[.!?]$').hasMatch(result)) {
+      result = '$result.';
+    }
+    return result;
   }
 
   static OnDeviceTranslator? _mlKitTranslator;
@@ -611,33 +679,33 @@ class OnDeviceWhisperService {
     if (trimmed.isEmpty) return '';
     if (isLikelyEnglishText(trimmed)) return trimmed;
 
+    final prepared = normalizeIndonesianAsrText(trimmed);
+
     try {
       _mlKitTranslator ??= OnDeviceTranslator(
         sourceLanguage: TranslateLanguage.indonesian,
         targetLanguage: TranslateLanguage.english,
       );
 
-      // Proses per klausa agar negasi tidak hilang pada salah satu klausa majemuk
-      final clauses = trimmed
-          .split(RegExp(r'(?<=[,;])(?:\s+)|(?<=[.!?])(?:\s+)'))
-          .map((c) => c.trim())
-          .where((c) => c.isNotEmpty)
-          .toList();
+      // Proses per klausa pendek (termasuk penanda wacana bila STT tanpa tanda baca)
+      final clauses = splitIndonesianTranscriptClauses(prepared);
 
       if (clauses.length <= 1) {
-        final rawEn = (await _mlKitTranslator!.translateText(trimmed)).trim();
-        return enforceNegationParity(trimmed, rawEn);
+        final rawEn = (await _mlKitTranslator!.translateText(prepared)).trim();
+        final guarded = enforceNegationParity(prepared, rawEn);
+        return postProcessEnglishTranslation(prepared, guarded);
       }
 
       final translatedClauses = <String>[];
       for (final clause in clauses) {
         final rawEn = (await _mlKitTranslator!.translateText(clause)).trim();
-        translatedClauses.add(enforceNegationParity(clause, rawEn));
+        final guarded = enforceNegationParity(clause, rawEn);
+        translatedClauses.add(postProcessEnglishTranslation(clause, guarded));
       }
       return translatedClauses.join(' ').replaceAll(RegExp(r'\s+'), ' ').trim();
     } catch (e) {
       debugPrint('translateWithMlKit error: $e');
-      return translateIndonesianToEnglish(trimmed);
+      return translateIndonesianToEnglish(prepared);
     }
   }
 

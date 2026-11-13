@@ -86,6 +86,7 @@ class LocalInferenceService {
     String? sessionId,
     String? counselorNote,
     String? transcription,
+    bool disableVisualBranch = false,
   }) async {
     await initialize();
 
@@ -97,6 +98,7 @@ class LocalInferenceService {
       audioInput: audioFeatures,
       visualInput: visualFeatures,
       textInput: textFeatures,
+      disableVisualBranch: disableVisualBranch,
     );
 
     // 2. Siapkan OrtValue untuk Model Utama
@@ -120,7 +122,8 @@ class LocalInferenceService {
       final double rawScore = (predList[0] as num).toDouble();
 
       final aIList = (await mainOutputs['audio_latent']!.asFlattenedList()).map((e) => (e as num).toDouble()).toList();
-      final vIList = (await mainOutputs['visual_latent']!.asFlattenedList()).map((e) => (e as num).toDouble()).toList();
+      final rawVIList = (await mainOutputs['visual_latent']!.asFlattenedList()).map((e) => (e as num).toDouble()).toList();
+      final vIList = disableVisualBranch ? List<double>.from(_visualBase!) : rawVIList;
       final tIList = (await mainOutputs['text_latent']!.asFlattenedList()).map((e) => (e as num).toDouble()).toList();
 
       // 4. Hitung 8 Koalisi Exact Shapley menggunakan Regressor ONNX

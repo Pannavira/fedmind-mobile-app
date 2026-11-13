@@ -200,15 +200,21 @@ class _FaceModalityCardState extends State<FaceModalityCard> {
                               vertical: 2,
                             ),
                             decoration: BoxDecoration(
-                              color: const Color(0xFFDCFCE7),
+                              color: ins.isVisualBranchDisabled
+                                  ? const Color(0xFFFEF3C7)
+                                  : const Color(0xFFDCFCE7),
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: Text(
-                              'Wajah Terdeteksi ${ins.faceDetectionRatePct.toStringAsFixed(0)}%',
-                              style: const TextStyle(
+                              ins.isVisualBranchDisabled
+                                  ? 'Cabang Visual Nonaktif'
+                                  : 'Wajah Terdeteksi ${ins.faceDetectionRatePct.toStringAsFixed(0)}%',
+                              style: TextStyle(
                                 fontSize: 10,
                                 fontWeight: FontWeight.w800,
-                                color: Color(0xFF15803D),
+                                color: ins.isVisualBranchDisabled
+                                    ? const Color(0xFFB45309)
+                                    : const Color(0xFF15803D),
                               ),
                             ),
                           ),
@@ -723,17 +729,26 @@ class _FaceModalityCardState extends State<FaceModalityCard> {
   }
 
   String _cleanAffectTitle(String title) {
-    if (title.contains('Zygomaticus') || title.contains('Corrugator') || title.contains('AU') || title.contains('FACS')) {
-      return 'Ekspresi Afek Tenang dengan Sedikit Kerutan Dahi';
-    }
-    return title;
+    return title
+        .replaceAll('Corrugator Supercilii', 'Otot Ketegangan Alis')
+        .replaceAll('Zygomaticus / Smile', 'Otot Senyum')
+        .replaceAll('Zygomaticus', 'Otot Senyum')
+        .replaceAll('Lip Corner Puller', 'Tarikan Sudut Bibir Senyum')
+        .replaceAll('Lip Corner Depressor', 'Penurunan Sudut Bibir')
+        .replaceAll('Gaze Aversion', 'Penghindaran Tatapan')
+        .replaceAll('Reduced Facial Dynamics', 'Dinamika Ekspresi Menurun')
+        .replaceAll('FACS', 'Ekspresi Wajah');
   }
 
   String _cleanAffectDescription(String desc) {
-    if (desc.contains('AU12') || desc.contains('AU04') || desc.contains('Lip Corner Puller') || desc.contains('FACS')) {
-      return 'Wajah klien terdeteksi jelas dan konsisten. Kontak mata terjaga baik selama sesi, dengan responsivitas emosi yang wajar dan kerutan dahi saat berkonsentrasi.';
-    }
-    return desc;
+    return desc
+        .replaceAll('Corrugator Supercilii', 'otot ketegangan alis')
+        .replaceAll('Lip Corner Depressor', 'penurunan sudut bibir')
+        .replaceAll('Lip Corner Puller', 'tarikan sudut bibir senyum')
+        .replaceAll('Zygomaticus', 'otot senyum')
+        .replaceAll('gaze vertikal', 'arah tatapan vertikal')
+        .replaceAll('Gaze Aversion', 'penghindaran tatapan')
+        .replaceAll('FACS', 'indikator ekspresi wajah');
   }
 
   Widget _buildActionUnitBar({

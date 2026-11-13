@@ -950,6 +950,41 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
           await _openClinicalCamera();
         }
       }
+    } on UnsupportedVisualPlatformException catch (e) {
+      if (dialogShown && mounted) {
+        Navigator.of(context, rootNavigator: true).pop();
+        dialogShown = false;
+      }
+      _isSubmitting = false;
+      if (mounted) {
+        await showDialog<void>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Row(
+              children: [
+                Icon(Icons.videocam_off_rounded, color: Color(0xFFD97706)),
+                SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Ekstraktor Visual Belum Tersedia',
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800),
+                  ),
+                ),
+              ],
+            ),
+            content: Text(
+              e.message,
+              style: const TextStyle(fontSize: 13, height: 1.45),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                child: const Text('Mengerti'),
+              ),
+            ],
+          ),
+        );
+      }
     } catch (e) {
       if (dialogShown && mounted) {
         Navigator.of(context, rootNavigator: true).pop();

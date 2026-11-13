@@ -15,8 +15,13 @@ import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import com.google.android.gms.tasks.Tasks
+import com.google.mediapipe.framework.image.BitmapImageBuilder
+import com.google.mediapipe.tasks.core.BaseOptions
+import com.google.mediapipe.tasks.vision.core.RunningMode
+import com.google.mediapipe.tasks.vision.facelandmarker.FaceLandmarker
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.face.FaceDetection
+import com.google.mlkit.vision.face.FaceDetector
 import com.google.mlkit.vision.face.FaceDetectorOptions
 import com.google.mlkit.vision.face.FaceLandmark
 import io.flutter.embedding.android.FlutterActivity
@@ -28,6 +33,7 @@ import java.nio.ByteOrder
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import kotlin.math.abs
+import kotlin.math.atan2
 import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
@@ -199,18 +205,43 @@ class MainActivity : FlutterActivity() {
 
     /**
      * Mengekstrak frame video secara riil menggunakan MediaMetadataRetriever,
-     * mendeteksi wajah menggunakan Google ML Kit Face Detection (akurat untuk pose miring/menunduk),
-     * dan menghitung dinamika ekspresi sub-area wajah (Alis, Mata, Mulut, Pose Kepala, & Aliran Gerak).
+     * mendeteksi 478 landmark wajah + 52 ARKit Blendshapes + pose 3D menggunakan
+     * MediaPipe Face Landmarker (`face_landmarker.task`), dengan fallback aman ke
+     * ML Kit Face Detection + analisis regional bila runtime MediaPipe tidak tersedia.
      */
     private fun extractVisualFrames(videoPath: String, numFrames: Int): Map<String, Any> {
         val retriever = MediaMetadataRetriever()
-        val mlkitOptions = FaceDetectorOptions.Builder()
-            .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_ACCURATE)
-            .setLandmarkMode(FaceDetectorOptions.LANDMARK_MODE_ALL)
-            .setClassificationMode(FaceDetectorOptions.CLASSIFICATION_MODE_ALL)
-            .setMinFaceSize(0.12f)
-            .build()
-        val mlkitDetector = FaceDetection.getClient(mlkitOptions)
+        var faceLandmarker: FaceLandmarker? = null
+        var mlkitDetector: FaceDetector? = null
+
+        try {
+            val baseOptions = BaseOptions.builder()
+                .setModelAssetPath("face_landmarker.task")
+                .build()
+            val mpOptions = FaceLandmarker.FaceLandmarkerOptions.builder()
+                .setBaseOptions(baseOptions)
+                .setRunningMode(RunningMode.VIDEO)
+                .setNumFaces(1)
+                .setMinFaceDetectionConfidence(0.45f)
+                .setMinFacePresenceConfidence(0.45f)
+                .setMinTrackingConfidence(0.45f)
+                .setOutputFaceBlendshapes(true)
+                .setOutputFacialTransformationMatrixes(true)
+                .build()
+            faceLandmarker = FaceLandmarker.createFromOptions(applicationContext, mpOptions)
+        } catch (_: Throwable) {
+            faceLandmarker = null
+        }
+
+        if (faceLandmarker == null) {
+            val mlkitOptions = FaceDetectorOptions.Builder()
+                .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_ACCURATE)
+                .setLandmarkMode(FaceDetectorOptions.LANDMARK_MODE_ALL)
+                .setClassificationMode(FaceDetectorOptions.CLASSIFICATION_MODE_ALL)
+                .setMinFaceSize(0.12f)
+                .build()
+            mlkitDetector = FaceDetection.getClient(mlkitOptions)
+        }
 
         val frameFeatures = ArrayList<Map<String, Double>>()
         var durationMs = 0L
@@ -224,6 +255,9 @@ class MainActivity : FlutterActivity() {
 
             val safeFrames = numFrames.coerceIn(6, 24)
             var prevLumaFrame: DoubleArray? = null
+            var prevMpLandmarks: List<Pair<Double, Double>>? = null
+            var prevMpBlendshapes: Map<String, Double>? = null
+            var prevMpTimestampMs = -1L
             val normSize = 64
 
             for (i in 0 until safeFrames) {
@@ -251,7 +285,245 @@ class MainActivity : FlutterActivity() {
                     .let { if (it % 2 != 0) it + 1 else it }
 
                 val scaled = Bitmap.createScaledBitmap(rawBitmap, targetW, targetH, true)
+                val argbBitmap = if (scaled.config == Bitmap.Config.ARGB_8888) {
+                    scaled
+                } else {
+                    scaled.copy(Bitmap.Config.ARGB_8888, false)
+                }
 
+                if (faceLandmarker != null) {
+                    val mpTimestampMs = max(prevMpTimestampMs + 1L, timeUs / 1000L)
+                    prevMpTimestampMs = mpTimestampMs
+
+                    var faceFound = 0.0
+                    var confidence = 0.0
+                    var eulerX = 0.0
+                    var eulerY = 0.0
+                    var eulerZ = 0.0
+                    var eyeDistRatio = 0.25
+                    var smilingProb = 0.0
+                    var leftEyeOpenProb = 1.0
+                    var rightEyeOpenProb = 1.0
+                    var gazeAngleX = 0.0
+                    var gazeAngleY = 0.16
+                    var bboxLeft = 0.22
+                    var bboxTop = 0.18
+                    var bboxRight = 0.78
+                    var bboxBottom = 0.82
+                    var browActivation = 0.05
+                    var eyeOpenness = 0.85
+                    var cheekActivation = 0.05
+                    var mouthActivation = 0.05
+                    var mouthOpenness = 0.05
+                    var asymmetry = 0.0
+                    var motionEnergy = 0.0
+
+                    val frameMap = HashMap<String, Double>(80)
+
+                    try {
+                        val mpImage = BitmapImageBuilder(argbBitmap).build()
+                        val mpResult = faceLandmarker.detectForVideo(mpImage, mpTimestampMs)
+                        val allLandmarks = mpResult?.faceLandmarks()
+                        if (!allLandmarks.isNullOrEmpty()) {
+                            val landmarks = allLandmarks[0]
+                            facesDetectedCount++
+                            faceFound = 1.0
+
+                            var minX = 1.0
+                            var maxX = 0.0
+                            var minY = 1.0
+                            var maxY = 0.0
+                            for (lm in landmarks) {
+                                val lx = lm.x().toDouble().coerceIn(0.0, 1.0)
+                                val ly = lm.y().toDouble().coerceIn(0.0, 1.0)
+                                if (lx < minX) minX = lx
+                                if (lx > maxX) maxX = lx
+                                if (ly < minY) minY = ly
+                                if (ly > maxY) maxY = ly
+                            }
+                            bboxLeft = (minX - 0.03).coerceIn(0.0, 0.90)
+                            bboxRight = (maxX + 0.03).coerceIn(bboxLeft + 0.08, 1.0)
+                            bboxTop = (minY - 0.05).coerceIn(0.0, 0.90)
+                            bboxBottom = (maxY + 0.02).coerceIn(bboxTop + 0.08, 1.0)
+
+                            val boxAreaRatio = ((bboxRight - bboxLeft) * (bboxBottom - bboxTop)).coerceIn(0.0, 1.0)
+                            confidence = (0.90 + boxAreaRatio * 0.25).coerceIn(0.86, 0.99)
+
+                            if (landmarks.size > 362) {
+                                val rEyeX = (landmarks[33].x() + landmarks[133].x()) * 0.5
+                                val rEyeY = (landmarks[33].y() + landmarks[133].y()) * 0.5
+                                val lEyeX = (landmarks[263].x() + landmarks[362].x()) * 0.5
+                                val lEyeY = (landmarks[263].y() + landmarks[362].y()) * 0.5
+                                val eyeDist = hypot(lEyeX - rEyeX, lEyeY - rEyeY)
+                                    .coerceAtLeast(0.04)
+                                eyeDistRatio = eyeDist.coerceIn(0.10, 0.48)
+
+                                val fh = landmarks[10]
+                                val chin = landmarks[152]
+                                val nose = landmarks[1]
+                                val rCheek = landmarks[234]
+                                val lCheek = landmarks[454]
+
+                                // Konvensi UI / ML Kit: menunduk -> eulerX negatif (< 0), mendongak -> positif (> 0)
+                                val dyFace = max(1e-4, (chin.y() - fh.y()).toDouble())
+                                val dzFace = (chin.z() - fh.z()).toDouble()
+                                val landmarkPitchDeg = -(atan2(dzFace, dyFace) * 180.0 / Math.PI)
+                                val landmarkYawDeg = ((nose.x() - (rCheek.x() + lCheek.x()) * 0.5) / eyeDist) * 32.0
+                                val landmarkRollDeg = atan2(lEyeY - rEyeY, lEyeX - rEyeX) * 180.0 / Math.PI
+
+                                val matrixOpt = mpResult.facialTransformationMatrixes()
+                                if (matrixOpt.isPresent && matrixOpt.get().isNotEmpty()) {
+                                    val m = matrixOpt.get()[0]
+                                    if (m.size >= 16) {
+                                        val r00 = m[0].toDouble()
+                                        val r10 = m[1].toDouble()
+                                        val r20 = m[2].toDouble()
+                                        val r21 = m[6].toDouble()
+                                        val r22 = m[10].toDouble()
+
+                                        var matPitchDeg = -(atan2(r21, r22) * 180.0 / Math.PI)
+                                        // Sinkronkan tanda terhadap geometri 3D landmark (chin.z - forehead.z > 0 saat menunduk)
+                                        if (abs(landmarkPitchDeg) > 6.0 && matPitchDeg * landmarkPitchDeg < -20.0) {
+                                            matPitchDeg = -matPitchDeg
+                                        }
+                                        eulerX = matPitchDeg.coerceIn(-45.0, 45.0)
+                                        eulerY = (atan2(-r20, hypot(r21, r22)) * 180.0 / Math.PI).coerceIn(-60.0, 60.0)
+                                        eulerZ = (atan2(r10, r00) * 180.0 / Math.PI).coerceIn(-45.0, 45.0)
+                                    } else {
+                                        eulerX = landmarkPitchDeg.coerceIn(-45.0, 45.0)
+                                        eulerY = landmarkYawDeg.coerceIn(-60.0, 60.0)
+                                        eulerZ = landmarkRollDeg.coerceIn(-45.0, 45.0)
+                                    }
+                                } else {
+                                    eulerX = landmarkPitchDeg.coerceIn(-45.0, 45.0)
+                                    eulerY = landmarkYawDeg.coerceIn(-60.0, 60.0)
+                                    eulerZ = landmarkRollDeg.coerceIn(-45.0, 45.0)
+                                }
+                            }
+
+                            val bsMap = HashMap<String, Double>(56)
+                            val bsOpt = mpResult.faceBlendshapes()
+                            if (bsOpt.isPresent && bsOpt.get().isNotEmpty()) {
+                                for (cat in bsOpt.get()[0]) {
+                                    val name = cat.categoryName()
+                                    val score = cat.score().toDouble().coerceIn(0.0, 1.0)
+                                    bsMap[name] = score
+                                    frameMap["bs_$name"] = score
+                                }
+                            }
+
+                            val pitchRad = -eulerX * Math.PI / 180.0
+                            val yawRad = eulerY * Math.PI / 180.0
+                            val lookRight = 0.5 * ((bsMap["eyeLookOutRight"] ?: 0.0) + (bsMap["eyeLookInLeft"] ?: 0.0))
+                            val lookLeft = 0.5 * ((bsMap["eyeLookInRight"] ?: 0.0) + (bsMap["eyeLookOutLeft"] ?: 0.0))
+                            val lookUp = 0.5 * ((bsMap["eyeLookUpLeft"] ?: 0.0) + (bsMap["eyeLookUpRight"] ?: 0.0))
+                            val lookDown = 0.5 * ((bsMap["eyeLookDownLeft"] ?: 0.0) + (bsMap["eyeLookDownRight"] ?: 0.0))
+                            gazeAngleX = yawRad * 0.65 + (lookRight - lookLeft) * 0.35
+                            gazeAngleY = pitchRad * 0.75 + (lookDown - lookUp) * 0.35 + 0.16
+
+                            val browInnerUp = bsMap["browInnerUp"] ?: 0.0
+                            val browDownAvg = 0.5 * ((bsMap["browDownLeft"] ?: 0.0) + (bsMap["browDownRight"] ?: 0.0))
+                            val blinkLeft = bsMap["eyeBlinkLeft"] ?: 0.0
+                            val blinkRight = bsMap["eyeBlinkRight"] ?: 0.0
+                            val eyeWideAvg = 0.5 * ((bsMap["eyeWideLeft"] ?: 0.0) + (bsMap["eyeWideRight"] ?: 0.0))
+                            val cheekSquintAvg = 0.5 * ((bsMap["cheekSquintLeft"] ?: 0.0) + (bsMap["cheekSquintRight"] ?: 0.0))
+                            val smileLeft = bsMap["mouthSmileLeft"] ?: 0.0
+                            val smileRight = bsMap["mouthSmileRight"] ?: 0.0
+                            val frownAvg = 0.5 * ((bsMap["mouthFrownLeft"] ?: 0.0) + (bsMap["mouthFrownRight"] ?: 0.0))
+                            val jawOpen = bsMap["jawOpen"] ?: 0.0
+                            val upperUpAvg = 0.5 * ((bsMap["mouthUpperUpLeft"] ?: 0.0) + (bsMap["mouthUpperUpRight"] ?: 0.0))
+
+                            smilingProb = (0.5 * (smileLeft + smileRight)).coerceIn(0.0, 1.0)
+                            leftEyeOpenProb = (1.0 - blinkLeft).coerceIn(0.0, 1.0)
+                            rightEyeOpenProb = (1.0 - blinkRight).coerceIn(0.0, 1.0)
+
+                            browActivation = (browInnerUp * 1.4 + browDownAvg * 1.8).coerceIn(0.05, 4.0)
+                            eyeOpenness = ((leftEyeOpenProb + rightEyeOpenProb) * 0.55 + eyeWideAvg * 0.6).coerceIn(0.08, 2.5)
+                            cheekActivation = (cheekSquintAvg * 2.0 + smilingProb * 0.4).coerceIn(0.05, 4.0)
+                            mouthActivation = (smilingProb * 2.2 + upperUpAvg * 1.4).coerceIn(0.05, 4.0)
+                            mouthOpenness = (jawOpen * 2.4).coerceIn(0.05, 4.0)
+
+                            val bsAsym = 0.5 * (
+                                abs(smileLeft - smileRight) +
+                                    abs((bsMap["browDownLeft"] ?: 0.0) - (bsMap["browDownRight"] ?: 0.0))
+                                )
+                            asymmetry = (frownAvg * 0.75 + bsAsym * 0.45).coerceIn(0.0, 1.0)
+
+                            // Aliran gerak geometris antar-frame dari 478 landmark & delta blendshapes
+                            val currPts = ArrayList<Pair<Double, Double>>(128)
+                            var k = 0
+                            while (k < landmarks.size) {
+                                currPts.add(Pair(landmarks[k].x().toDouble(), landmarks[k].y().toDouble()))
+                                k += 4
+                            }
+                            var lmDisp = 0.0
+                            val prevPts = prevMpLandmarks
+                            if (prevPts != null && prevPts.size == currPts.size && currPts.isNotEmpty()) {
+                                var sumDisp = 0.0
+                                for (idx in currPts.indices) {
+                                    sumDisp += hypot(
+                                        currPts[idx].first - prevPts[idx].first,
+                                        currPts[idx].second - prevPts[idx].second
+                                    )
+                                }
+                                lmDisp = sumDisp / currPts.size
+                            }
+                            prevMpLandmarks = currPts
+
+                            var bsDelta = 0.0
+                            val prevBs = prevMpBlendshapes
+                            if (prevBs != null && bsMap.isNotEmpty()) {
+                                var bsDiffSum = 0.0
+                                var bsCount = 0
+                                for ((name, valCurr) in bsMap) {
+                                    bsDiffSum += abs(valCurr - (prevBs[name] ?: valCurr))
+                                    bsCount++
+                                }
+                                if (bsCount > 0) bsDelta = bsDiffSum / bsCount
+                            }
+                            prevMpBlendshapes = bsMap
+
+                            motionEnergy = (lmDisp * 18.0 + bsDelta * 4.5).coerceIn(0.0, 3.0)
+                        }
+                    } catch (_: Throwable) {
+                        faceFound = 0.0
+                        confidence = 0.0
+                    }
+
+                    frameMap["usedMediaPipe"] = 1.0
+                    frameMap["timeSec"] = timeUs / 1000000.0
+                    frameMap["timestampMs"] = timeUs / 1000.0
+                    frameMap["faceFound"] = faceFound
+                    frameMap["confidence"] = confidence
+                    frameMap["bboxLeft"] = bboxLeft
+                    frameMap["bboxTop"] = bboxTop
+                    frameMap["bboxRight"] = bboxRight
+                    frameMap["bboxBottom"] = bboxBottom
+                    frameMap["eulerX"] = eulerX
+                    frameMap["eulerY"] = eulerY
+                    frameMap["eulerZ"] = eulerZ
+                    frameMap["eyeDistRatio"] = eyeDistRatio
+                    frameMap["smilingProb"] = smilingProb
+                    frameMap["leftEyeOpenProb"] = leftEyeOpenProb
+                    frameMap["rightEyeOpenProb"] = rightEyeOpenProb
+                    frameMap["gazeAngleX"] = gazeAngleX
+                    frameMap["gazeAngleY"] = gazeAngleY
+                    frameMap["browActivation"] = browActivation
+                    frameMap["eyeOpenness"] = eyeOpenness
+                    frameMap["cheekActivation"] = cheekActivation
+                    frameMap["mouthActivation"] = mouthActivation
+                    frameMap["mouthOpenness"] = mouthOpenness
+                    frameMap["asymmetry"] = asymmetry
+                    frameMap["motionEnergy"] = motionEnergy
+                    frameFeatures.add(frameMap)
+
+                    if (argbBitmap !== scaled) argbBitmap.recycle()
+                    scaled.recycle()
+                    rawBitmap.recycle()
+                    continue
+                }
+
+                // Fallback ML Kit + luma regional bila FaceLandmarker gagal diinisialisasi
                 var faceFound = 0.0
                 var confidence = 0.0
                 var eulerX = 0.0
@@ -271,62 +543,65 @@ class MainActivity : FlutterActivity() {
                 var cropBottom = (targetH * 0.82).toInt()
 
                 try {
-                    val inputImage = InputImage.fromBitmap(scaled, 0)
-                    val faces = Tasks.await(mlkitDetector.process(inputImage), 3, TimeUnit.SECONDS)
+                    val detector = mlkitDetector
+                    if (detector != null) {
+                        val inputImage = InputImage.fromBitmap(scaled, 0)
+                        val faces = Tasks.await(detector.process(inputImage), 3, TimeUnit.SECONDS)
 
-                    if (!faces.isNullOrEmpty()) {
-                        // Pilih wajah dengan area bounding box terbesar sebagai subjek utama
-                        val face = faces.maxByOrNull { f ->
-                            f.boundingBox.width().coerceAtLeast(1) * f.boundingBox.height().coerceAtLeast(1)
-                        }!!
-                        val box = face.boundingBox
-                        val boxAreaRatio = (box.width().coerceAtLeast(1) * box.height().coerceAtLeast(1)).toDouble() /
-                            (targetW * targetH).toDouble()
+                        if (!faces.isNullOrEmpty()) {
+                            // Pilih wajah dengan area bounding box terbesar sebagai subjek utama
+                            val face = faces.maxByOrNull { f ->
+                                f.boundingBox.width().coerceAtLeast(1) * f.boundingBox.height().coerceAtLeast(1)
+                            }!!
+                            val box = face.boundingBox
+                            val boxAreaRatio = (box.width().coerceAtLeast(1) * box.height().coerceAtLeast(1)).toDouble() /
+                                (targetW * targetH).toDouble()
 
-                        facesDetectedCount++
-                        faceFound = 1.0
-                        eulerX = face.headEulerAngleX.toDouble()
-                        eulerY = face.headEulerAngleY.toDouble()
-                        eulerZ = face.headEulerAngleZ.toDouble()
-                        smilingProb = face.smilingProbability?.toDouble()?.coerceIn(0.0, 1.0) ?: -1.0
-                        leftEyeOpenProb = face.leftEyeOpenProbability?.toDouble()?.coerceIn(0.0, 1.0) ?: -1.0
-                        rightEyeOpenProb = face.rightEyeOpenProbability?.toDouble()?.coerceIn(0.0, 1.0) ?: -1.0
+                            facesDetectedCount++
+                            faceFound = 1.0
+                            eulerX = face.headEulerAngleX.toDouble()
+                            eulerY = face.headEulerAngleY.toDouble()
+                            eulerZ = face.headEulerAngleZ.toDouble()
+                            smilingProb = face.smilingProbability?.toDouble()?.coerceIn(0.0, 1.0) ?: -1.0
+                            leftEyeOpenProb = face.leftEyeOpenProbability?.toDouble()?.coerceIn(0.0, 1.0) ?: -1.0
+                            rightEyeOpenProb = face.rightEyeOpenProbability?.toDouble()?.coerceIn(0.0, 1.0) ?: -1.0
 
-                        val leftEye = face.getLandmark(FaceLandmark.LEFT_EYE)?.position
-                        val rightEye = face.getLandmark(FaceLandmark.RIGHT_EYE)?.position
-                        val noseBase = face.getLandmark(FaceLandmark.NOSE_BASE)?.position
-                        val pitchRad = -eulerX * Math.PI / 180.0
-                        val yawRad = eulerY * Math.PI / 180.0
+                            val leftEye = face.getLandmark(FaceLandmark.LEFT_EYE)?.position
+                            val rightEye = face.getLandmark(FaceLandmark.RIGHT_EYE)?.position
+                            val noseBase = face.getLandmark(FaceLandmark.NOSE_BASE)?.position
+                            val pitchRad = -eulerX * Math.PI / 180.0
+                            val yawRad = eulerY * Math.PI / 180.0
 
-                        if (leftEye != null && rightEye != null) {
-                            val eyeDist = hypot(
-                                (rightEye.x - leftEye.x).toDouble(),
-                                (rightEye.y - leftEye.y).toDouble()
-                            ).coerceAtLeast(16.0)
-                            eyeDistRatio = (eyeDist / targetW.toDouble()).coerceIn(0.10, 0.48)
-                            confidence = (0.86 + boxAreaRatio * 0.30).coerceIn(0.84, 0.99)
-                            if (noseBase != null) {
-                                val midEyeX = (leftEye.x + rightEye.x) * 0.5
-                                val midEyeY = (leftEye.y + rightEye.y) * 0.5
-                                val dxNorm = ((noseBase.x - midEyeX) / eyeDist).coerceIn(-0.6, 0.6)
-                                val dyNorm = ((noseBase.y - midEyeY) / eyeDist).coerceIn(0.3, 1.2)
-                                gazeAngleX = yawRad * 0.65 + dxNorm * 0.35
-                                gazeAngleY = pitchRad * 0.75 + (dyNorm - 0.68) * 0.35 + 0.16
+                            if (leftEye != null && rightEye != null) {
+                                val eyeDist = hypot(
+                                    (rightEye.x - leftEye.x).toDouble(),
+                                    (rightEye.y - leftEye.y).toDouble()
+                                ).coerceAtLeast(16.0)
+                                eyeDistRatio = (eyeDist / targetW.toDouble()).coerceIn(0.10, 0.48)
+                                confidence = (0.86 + boxAreaRatio * 0.30).coerceIn(0.84, 0.99)
+                                if (noseBase != null) {
+                                    val midEyeX = (leftEye.x + rightEye.x) * 0.5
+                                    val midEyeY = (leftEye.y + rightEye.y) * 0.5
+                                    val dxNorm = ((noseBase.x - midEyeX) / eyeDist).coerceIn(-0.6, 0.6)
+                                    val dyNorm = ((noseBase.y - midEyeY) / eyeDist).coerceIn(0.3, 1.2)
+                                    gazeAngleX = yawRad * 0.65 + dxNorm * 0.35
+                                    gazeAngleY = pitchRad * 0.75 + (dyNorm - 0.68) * 0.35 + 0.16
+                                } else {
+                                    gazeAngleX = yawRad
+                                    gazeAngleY = pitchRad + 0.16
+                                }
                             } else {
+                                eyeDistRatio = (box.width().toDouble() * 0.38 / targetW.toDouble()).coerceIn(0.10, 0.48)
+                                confidence = (0.78 + boxAreaRatio * 0.25).coerceIn(0.75, 0.94)
                                 gazeAngleX = yawRad
                                 gazeAngleY = pitchRad + 0.16
                             }
-                        } else {
-                            eyeDistRatio = (box.width().toDouble() * 0.38 / targetW.toDouble()).coerceIn(0.10, 0.48)
-                            confidence = (0.78 + boxAreaRatio * 0.25).coerceIn(0.75, 0.94)
-                            gazeAngleX = yawRad
-                            gazeAngleY = pitchRad + 0.16
-                        }
 
-                        cropLeft = box.left.coerceIn(0, targetW - 16)
-                        cropRight = box.right.coerceIn(cropLeft + 16, targetW)
-                        cropTop = box.top.coerceIn(0, targetH - 16)
-                        cropBottom = box.bottom.coerceIn(cropTop + 16, targetH)
+                            cropLeft = box.left.coerceIn(0, targetW - 16)
+                            cropRight = box.right.coerceIn(cropLeft + 16, targetW)
+                            cropTop = box.top.coerceIn(0, targetH - 16)
+                            cropBottom = box.bottom.coerceIn(cropTop + 16, targetH)
+                        }
                     }
                 } catch (_: Throwable) {
                     faceFound = 0.0
@@ -353,8 +628,6 @@ class MainActivity : FlutterActivity() {
                     luma[p] = (0.299 * r + 0.587 * g + 0.114 * b) / 255.0
                 }
 
-                // Analisis Sub-Area Wajah (Action Unit Proxies):
-                // 1. Area Alis & Glabella (y: 8..22, x: 14..50) -> AU01/AU02/AU04 (ketegangan dahi & kerutan antar-alis)
                 val browGrad = computeRegionGradient(luma, normSize, 14, 8, 50, 22)
                 val glabellaGrad = computeRegionGradient(luma, normSize, 24, 10, 40, 22)
                 val foreheadMean = computeRegionMean(luma, normSize, 18, 6, 46, 15)
@@ -362,24 +635,20 @@ class MainActivity : FlutterActivity() {
                 val browContrast = (foreheadMean - browMean).coerceAtLeast(0.0)
                 val browActivation = ((browGrad * 5.2) + (glabellaGrad * 4.5) + (browContrast * 3.8)).coerceIn(0.05, 4.0)
 
-                // 2. Area Mata Kiri & Kanan (y: 20..32) -> AU05/AU07/AU45 (Eye Aperture)
                 val leftEyeVar = computeRegionVariance(luma, normSize, 12, 20, 28, 32)
                 val rightEyeVar = computeRegionVariance(luma, normSize, 36, 20, 52, 32)
                 val eyeGrad = (computeRegionGradient(luma, normSize, 12, 20, 28, 32) +
                         computeRegionGradient(luma, normSize, 36, 20, 52, 32)) * 0.5
                 val eyeOpenness = (((leftEyeVar + rightEyeVar) * 6.5) + (eyeGrad * 3.2)).coerceIn(0.08, 2.5)
 
-                // 3. Area Pipi & Nasolabial (y: 30..44) -> AU06/AU09/AU10
                 val cheekGrad = computeRegionGradient(luma, normSize, 12, 29, 52, 44)
                 val upperCheekMean = computeRegionMean(luma, normSize, 12, 28, 52, 36)
                 val lowerCheekMean = computeRegionMean(luma, normSize, 14, 36, 50, 44)
                 val cheekLift = (upperCheekMean - lowerCheekMean + 0.08).coerceIn(0.0, 0.5)
                 val cheekActivation = ((cheekGrad * 5.8) + (cheekLift * 4.2)).coerceIn(0.05, 4.0)
 
-                // 4. Area Mulut & Sudut Bibir (y: 42..58, x: 16..48) -> AU12 (senyum) vs AU15 (depressor)
                 val mouthGrad = computeRegionGradient(luma, normSize, 16, 42, 48, 58)
                 val mouthOpenVar = computeRegionVariance(luma, normSize, 22, 44, 42, 56)
-                // Bandingkan sudut bibir atas-luar vs bawah-luar untuk mendeteksi tarikan senyum (AU12) vs sudut turun (AU15)
                 val upperCornerMean = (computeRegionMean(luma, normSize, 15, 43, 23, 49) +
                         computeRegionMean(luma, normSize, 41, 43, 49, 49)) * 0.5
                 val lowerCornerMean = (computeRegionMean(luma, normSize, 15, 50, 23, 57) +
@@ -389,17 +658,14 @@ class MainActivity : FlutterActivity() {
                 val mouthActivation = ((mouthGrad * 6.5) + (cornerLift * 5.5) + 0.45).coerceIn(0.05, 4.0)
                 val mouthOpenness = ((mouthOpenVar * 16.0) + (mouthGrad * 2.2)).coerceIn(0.05, 4.0)
 
-                // 5. Simetri Kiri-Kanan & Ketegangan Sudut Bibir Bawah
                 val symmetryDiff = computeLeftRightAsymmetry(luma, normSize)
                 val depressorProxy = (symmetryDiff * 1.15 + (upperCornerMean - lowerCornerMean).coerceAtLeast(0.0) * 1.8).coerceIn(0.0, 1.0)
 
-                // Jika eulerX masih mendekati 0, perkaya dengan rasio pencahayaan vertikal wajah (menunduk membuat dahi lebih dominan & dagu gelap)
                 if (abs(eulerX) < 1.5) {
                     val lowerJawMean = computeRegionMean(luma, normSize, 18, 46, 46, 60)
                     eulerX += ((lowerJawMean - foreheadMean) * 32.0).coerceIn(-18.0, 15.0)
                 }
 
-                // 6. Aliran Gerak Antar-Frame (Optical Flow / Temporal Expression Dynamics)
                 var motionEnergy = 0.0
                 val prevLuma = prevLumaFrame
                 if (prevLuma != null && prevLuma.size == luma.size) {
@@ -413,7 +679,9 @@ class MainActivity : FlutterActivity() {
 
                 frameFeatures.add(
                     hashMapOf(
+                        "usedMediaPipe" to 0.0,
                         "timeSec" to (timeUs / 1000000.0),
+                        "timestampMs" to (timeUs / 1000.0),
                         "faceFound" to faceFound,
                         "confidence" to confidence,
                         "bboxLeft" to (cropLeft.toDouble() / targetW.coerceAtLeast(1)),
@@ -441,12 +709,17 @@ class MainActivity : FlutterActivity() {
 
                 normFace.recycle()
                 faceCrop.recycle()
+                if (argbBitmap !== scaled) argbBitmap.recycle()
                 scaled.recycle()
                 rawBitmap.recycle()
             }
         } finally {
             try {
-                mlkitDetector.close()
+                faceLandmarker?.close()
+            } catch (_: Exception) {
+            }
+            try {
+                mlkitDetector?.close()
             } catch (_: Exception) {
             }
             try {

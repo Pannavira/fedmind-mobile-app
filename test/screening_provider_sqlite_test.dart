@@ -22,6 +22,7 @@ class StubLocalInferenceService extends LocalInferenceService {
     String? sessionId,
     String? counselorNote,
     String? transcription,
+    bool disableVisualBranch = false,
   }) async {
     return ScreeningResponse(
       screeningId: sessionId ?? 'SESSION-SQL-999',

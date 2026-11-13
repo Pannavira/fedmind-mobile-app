@@ -26,6 +26,7 @@ class ScreeningRepository {
     String? sessionId,
     String? counselorNote,
     String? transcription,
+    bool disableVisualBranch = false,
   }) async {
     try {
       return await localInferenceService.predict(
@@ -36,6 +37,7 @@ class ScreeningRepository {
         sessionId: sessionId,
         counselorNote: counselorNote,
         transcription: transcription,
+        disableVisualBranch: disableVisualBranch,
       );
     } catch (e) {
       throw 'Failed to execute local on-device inference: $e';

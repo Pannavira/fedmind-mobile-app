@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
-import 'package:flutter/foundation.dart' show debugPrint;
+import 'package:flutter/foundation.dart' show debugPrint, visibleForTesting;
 import 'package:flutter/services.dart';
 import '../../data/models/multimodal_inspection_models.dart';
 import 'on_device_mentalbert_service.dart';
@@ -26,6 +26,21 @@ class FaceNotDetectedException implements Exception {
   String toString() => message;
 }
 
+/// Pengecualian ketika platform non-Android (mis. iOS) belum memiliki ekstraktor
+/// frame wajah native sehingga cabang visual diblokir secara eksplisit.
+class UnsupportedVisualPlatformException implements Exception {
+  final String platformName;
+  final String message;
+
+  UnsupportedVisualPlatformException({
+    required this.platformName,
+    required this.message,
+  });
+
+  @override
+  String toString() => message;
+}
+
 class ExtractedMultimodalFeatures {
   final String participantId;
   final String videoPath;
@@ -40,6 +55,8 @@ class ExtractedMultimodalFeatures {
   final int audioSamplesAnalyzed;
   final bool usedMentalBertOnnx;
   final String textEmbeddingEngine;
+  final bool isVisualBranchDisabled;
+  final String? visualBranchWarning;
   final MultimodalInspectionData inspectionData;
 
   ExtractedMultimodalFeatures({
@@ -56,6 +73,8 @@ class ExtractedMultimodalFeatures {
     this.audioSamplesAnalyzed = 0,
     this.usedMentalBertOnnx = false,
     this.textEmbeddingEngine = 'MentalBERT-INT4 ONNX (768D)',
+    this.isVisualBranchDisabled = false,
+    this.visualBranchWarning,
     required this.inspectionData,
   });
 
@@ -72,6 +91,9 @@ class ExtractedMultimodalFeatures {
       'audio_samples_analyzed': audioSamplesAnalyzed,
       'used_mentalbert_onnx': usedMentalBertOnnx,
       'text_embedding_engine': textEmbeddingEngine,
+      'visual_branch_disabled': isVisualBranchDisabled,
+      if (visualBranchWarning != null)
+        'visual_branch_warning': visualBranchWarning,
       'extracted_at': extractedAt.toIso8601String(),
       'feature_dims': {
         'text': textFeatures.length,
@@ -192,6 +214,7 @@ class MultimodalExtractorService {
     String? clientTranscript,
     bool requireFaceDetection = true,
     double minFaceDetectionRate = 0.40,
+    @visibleForTesting bool allowSyntheticByteFallback = false,
     void Function(String stage, double progress)? onProgress,
   }) async {
     final file = File(videoPath);
@@ -227,6 +250,8 @@ class MultimodalExtractorService {
 
     bool nativeSuccess = false;
     bool missingPluginOnNonAndroid = false;
+    bool isVisualBranchDisabled = false;
+    String? visualBranchWarning;
     try {
       final result = await _channel.invokeMethod<Map<dynamic, dynamic>>(
         'extractVideoMultimodal',
@@ -284,15 +309,36 @@ class MultimodalExtractorService {
       nativeSuccess = false;
     }
 
-    // Fallback deterministik khusus non-Android (mis. flutter test Windows/Linux tanpa MethodChannel)
+    // Proteksi platform non-Android (mis. iOS): jangan menyamarkan byte mentah MP4
+    // sebagai sinyal wajah manusia. Hanya izinkan fallback byte bila diaktifkan
+    // secara eksplisit pada unit test desktop (@visibleForTesting).
     if (!nativeSuccess && missingPluginOnNonAndroid && !Platform.isAndroid) {
-      final fallback = await _parseMediaContainerFallback(file);
-      visualFrames = fallback.visualFrames;
-      pcmSamples = fallback.pcmSamples;
-      sampleRate = fallback.sampleRate;
-      facesDetectedCount = fallback.facesDetectedCount;
-      nativeVideoDurationSec = fallback.durationSec;
-      nativeSuccess = visualFrames.isNotEmpty || pcmSamples.isNotEmpty;
+      if (allowSyntheticByteFallback) {
+        final fallback = await _parseMediaContainerFallback(file);
+        visualFrames = fallback.visualFrames;
+        pcmSamples = fallback.pcmSamples;
+        sampleRate = fallback.sampleRate;
+        facesDetectedCount = fallback.facesDetectedCount;
+        nativeVideoDurationSec = fallback.durationSec;
+        nativeSuccess = visualFrames.isNotEmpty || pcmSamples.isNotEmpty;
+      } else if (requireFaceDetection) {
+        throw UnsupportedVisualPlatformException(
+          platformName: Platform.operatingSystem,
+          message:
+              'Ekstraktor wajah & video native belum tersedia di platform ${Platform.operatingSystem} '
+              '(saat ini hanya didukung di Android). Analisis diblokir untuk mencegah penyamaran '
+              'byte mentah video sebagai sinyal ekspresi wajah.',
+        );
+      } else {
+        isVisualBranchDisabled = true;
+        visualBranchWarning =
+            'Ekstraktor wajah native belum tersedia pada platform ${Platform.operatingSystem}; '
+            'cabang visual dinonaktifkan secara eksplisit (poor_visual_quality = true).';
+        visualFrames = const [];
+        facesDetectedCount = 0;
+        nativeWavPath ??= await _sidecarWavIfExists(videoPath);
+        nativeSuccess = true;
+      }
     }
 
     // Pastikan jalur native Android berhasil mengekstrak frame visual atau sampel audio
@@ -318,7 +364,7 @@ class MultimodalExtractorService {
     }
 
     // Quality gate modalitas visual: pastikan wajah benar-benar terlihat sebelum inferensi ONNX
-    if (requireFaceDetection) {
+    if (requireFaceDetection && !isVisualBranchDisabled) {
       validateVisualFacePresence(
         facesDetectedCount: facesDetectedCount,
         framesAnalyzed: visualFrames.length,
@@ -326,12 +372,30 @@ class MultimodalExtractorService {
       );
     }
 
-    // Tahap 2: Hitung 75 Fitur Visual dari dinamika frame wajah
+    // Tahap 2: Hitung 75 Fitur Visual dari dinamika frame wajah (atau nolkan bila cabang visual nonaktif)
     onProgress?.call(
-      'Menganalisis ${visualFrames.length} frame wajah ($facesDetectedCount wajah terdeteksi)...',
+      isVisualBranchDisabled
+          ? 'Cabang visual dinonaktifkan pada ${Platform.operatingSystem} (tanpa ekstraktor native)...'
+          : 'Menganalisis ${visualFrames.length} frame wajah ($facesDetectedCount wajah terdeteksi)...',
       0.55,
     );
-    final visualResult = _computeRealVisualFeatures75D(visualFrames);
+    final visualResult = isVisualBranchDisabled
+        ? _VisualExtractionResult(
+            features: List<double>.filled(75, 0.0),
+            summaryStats: const {
+              'expressiveness': 0.0,
+              'headMovement': 0.0,
+              'faceRatio': 0.0,
+              'visualSeverity': 0.0,
+              'browTension': 0.0,
+              'smileIntensity': 0.0,
+              'depressorIntensity': 0.0,
+              'avgPitch': 0.0,
+              'temporalModulation': 0.0,
+              'duchenneSmile': 0.0,
+            },
+          )
+        : _computeRealVisualFeatures75D(visualFrames);
 
     // Tahap 3: Hitung 248 Fitur Akustik (FFT, Mel-Spectrogram, MFCC, Pitch F0, Jitter, Shimmer)
     onProgress?.call(
@@ -446,6 +510,8 @@ class MultimodalExtractorService {
       visualSummary: visualResult.summaryStats,
       audioSummary: audioResult.summaryStats,
       realPitchContour: audioResult.pitchContour,
+      isVisualBranchDisabled: isVisualBranchDisabled,
+      visualBranchWarning: visualBranchWarning,
     );
 
     return ExtractedMultimodalFeatures(
@@ -454,10 +520,13 @@ class MultimodalExtractorService {
       textFeatures: textFeatures,
       audioFeatures: audioResult.features,
       visualFeatures: visualResult.features,
-      extractionSummary:
-          'Ekstraksi Riil On-Device Selesai: Durasi ${effectiveDurationSec.toStringAsFixed(1)} dtk, '
-          '${visualFrames.length} Frame Wajah ($facesDetectedCount terdeteksi), '
-          'Teks: $textEmbeddingEngine (${whisperResult.detectedKeywords.length} penanda kata klinis).',
+      extractionSummary: isVisualBranchDisabled
+          ? 'Ekstraksi Audio/Teks Selesai (Visual Dinonaktifkan pada ${Platform.operatingSystem}): '
+              'Durasi ${effectiveDurationSec.toStringAsFixed(1)} dtk, '
+              'Teks: $textEmbeddingEngine (${whisperResult.detectedKeywords.length} penanda kata klinis).'
+          : 'Ekstraksi Riil On-Device Selesai: Durasi ${effectiveDurationSec.toStringAsFixed(1)} dtk, '
+              '${visualFrames.length} Frame Wajah ($facesDetectedCount terdeteksi), '
+              'Teks: $textEmbeddingEngine (${whisperResult.detectedKeywords.length} penanda kata klinis).',
       extractedAt: DateTime.now(),
       videoSizeMb: fileSizeMb,
       framesAnalyzed: visualFrames.length,
@@ -465,6 +534,8 @@ class MultimodalExtractorService {
       audioSamplesAnalyzed: pcmSamples.length,
       usedMentalBertOnnx: usedMentalBertOnnx,
       textEmbeddingEngine: textEmbeddingEngine,
+      isVisualBranchDisabled: isVisualBranchDisabled,
+      visualBranchWarning: visualBranchWarning,
       inspectionData: inspectionData,
     );
   }
@@ -693,20 +764,26 @@ class MultimodalExtractorService {
         ? frames.where((f) => (f['faceFound'] ?? 0.0) > 0.5).toList()
         : frames;
 
-    // Kalibrasi skala adaptif untuk mendukung ekstraktor native lama (64x64 Sobel mentah ~0.25..0.55)
-    // maupun ekstraktor native baru yang sudah diamplifikasi (~0.65..1.60), tanpa mengubah rasio antar-AU.
-    double rawCueSum = 0.0;
-    for (final f in activeFrames) {
-      rawCueSum += ((f['browActivation'] ?? 0.5) +
-              (f['eyeOpenness'] ?? 0.5) +
-              (f['cheekActivation'] ?? 0.5) +
-              (f['mouthActivation'] ?? 0.5)) *
-          0.25;
+    final bool usesMediaPipe = activeFrames.any(_hasMediaPipeBlendshapes);
+
+    // Kalibrasi skala adaptif hanya untuk fallback ekstraktor piksel 64x64.
+    // Untuk frame MediaPipe Face Landmarker (52 ARKit Blendshapes), skala dipertahankan 1.0
+    // agar wajah netral tidak teramplifikasi buatan.
+    double cueScale = 1.0;
+    if (!usesMediaPipe) {
+      double rawCueSum = 0.0;
+      for (final f in activeFrames) {
+        rawCueSum += ((f['browActivation'] ?? 0.5) +
+                (f['eyeOpenness'] ?? 0.5) +
+                (f['cheekActivation'] ?? 0.5) +
+                (f['mouthActivation'] ?? 0.5)) *
+            0.25;
+      }
+      final avgRawCue = rawCueSum / activeFrames.length;
+      cueScale = avgRawCue < 0.68
+          ? (0.92 / max(0.18, avgRawCue)).clamp(1.0, 2.85)
+          : 1.0;
     }
-    final avgRawCue = rawCueSum / activeFrames.length;
-    final cueScale = avgRawCue < 0.68
-        ? (0.92 / max(0.18, avgRawCue)).clamp(1.0, 2.85)
-        : 1.0;
 
     // Ekstrak deret waktu 16 Action Unit OpenFace + Duchenne + Gaze (rad) + Head Pose (rad)
     // Urutan wajib identik 1:1 dengan 00_prepare_index_and_features.py & train_norm_stats['visual']:
@@ -731,91 +808,108 @@ class MultimodalExtractorService {
     const double degToRad = pi / 180.0;
 
     for (final f in activeFrames) {
-      final brow = (f['browActivation'] ?? 0.8) * cueScale;
-      final eye = (f['eyeOpenness'] ?? 0.9) * cueScale;
-      final cheek = (f['cheekActivation'] ?? 0.7) * cueScale;
-      final mouth = (f['mouthActivation'] ?? 0.8) * cueScale;
-      final mouthOpen = (f['mouthOpenness'] ?? 0.5) * cueScale;
-      final asym = (f['asymmetry'] ?? 0.05) * (cueScale > 1.2 ? 1.35 : 1.0);
-      final motion = (f['motionEnergy'] ?? 0.2) * (cueScale > 1.2 ? 1.50 : 1.0);
+      final isMpFrame = _hasMediaPipeBlendshapes(f);
+      final localCueScale = isMpFrame ? 1.0 : cueScale;
+      final brow = (f['browActivation'] ?? 0.8) * localCueScale;
+      final eye = (f['eyeOpenness'] ?? 0.9) * localCueScale;
+      final cheek = (f['cheekActivation'] ?? 0.7) * localCueScale;
+      final mouth = (f['mouthActivation'] ?? 0.8) * localCueScale;
+      final mouthOpen = (f['mouthOpenness'] ?? 0.5) * localCueScale;
+      final asym =
+          (f['asymmetry'] ?? 0.05) * (!isMpFrame && cueScale > 1.2 ? 1.35 : 1.0);
+      final motion =
+          (f['motionEnergy'] ?? 0.2) * (!isMpFrame && cueScale > 1.2 ? 1.50 : 1.0);
 
       final rawPitchDeg = f['eulerX'] ?? 0.0;
       final rawYawDeg = f['eulerY'] ?? 0.0;
       final rawRollDeg = f['eulerZ'] ?? 0.0;
       signedPitchSum += rawPitchDeg;
 
-      final poseRx = rawPitchDeg * degToRad;
+      // Konvensi ML Kit / UI: menunduk = negatif (eulerX < 0).
+      // Konvensi OpenFace E-DAIC (pose_Rx): menunduk = positif (mean ~ +0.202 rad).
+      final poseRx = -rawPitchDeg * degToRad;
       final poseRy = rawYawDeg * degToRad;
       final poseRz = rawRollDeg * degToRad;
 
-      // Gunakan gaze angle langsung dari ML Kit (rad) bila tersedia; fallback ke proksi pose
+      // Gunakan gaze angle langsung dari MediaPipe/ML Kit (rad) bila tersedia; fallback ke proksi pose
       final gazeY = f.containsKey('gazeAngleY')
           ? (f['gazeAngleY'] ?? 0.0)
-          : (-poseRx * 0.75 + 0.12);
+          : (poseRx * 0.75 + 0.12);
       final gazeX = f.containsKey('gazeAngleX')
           ? (f['gazeAngleX'] ?? 0.0)
           : (poseRy * 0.75);
 
-      final hasSmileProb = (f['smilingProb'] ?? -1.0) >= 0.0;
-      final smilingProb = (f['smilingProb'] ?? 0.0).clamp(0.0, 1.0);
-      final leftEyeOpen = f['leftEyeOpenProb'] ?? -1.0;
-      final rightEyeOpen = f['rightEyeOpenProb'] ?? -1.0;
-      final hasEyeProb = leftEyeOpen >= 0.0 && rightEyeOpen >= 0.0;
-
-      // Kalibrasi skala AU ke rentang OpenFace 0..5 dengan baseline netral yang terpusat
-      final au01 =
-          (max(0.0, brow - 0.45) * 0.70 + brow * 0.08).clamp(0.0, 5.0);
-      final au02 =
-          (max(0.0, brow - 0.75) * 0.55 + (brow * 0.06).clamp(0.0, 0.11))
-              .clamp(0.0, 5.0);
-      final au04 =
-          (max(0.0, brow - 0.35) * 0.85 + asym * 1.2 + brow * 0.12)
-              .clamp(0.0, 5.0);
-      final au06 = hasSmileProb
-          ? (smilingProb * 1.65 + max(0.0, cheek - 0.50) * 0.55 + cheek * 0.08)
-              .clamp(0.0, 5.0)
-          : (max(0.0, cheek - 0.45) * 1.15 + cheek * 0.10).clamp(0.0, 5.0);
-      final au07 =
-          (max(0.0, 1.15 - eye) * 0.90 + asym * 0.4).clamp(0.0, 5.0);
-      final au09 =
-          (max(0.0, cheek - 0.65) * 0.65 + asym * 0.8 + cheek * 0.05)
-              .clamp(0.0, 5.0);
-      final au10 =
-          (max(0.0, mouth - 0.45) * 0.75 + mouth * 0.10).clamp(0.0, 5.0);
-      final au12 = hasSmileProb
-          ? (smilingProb * 2.20 + max(0.0, mouth - 0.50) * 0.45)
-              .clamp(0.0, 5.0)
-          : (max(0.0, mouth - 0.42) * 1.20 - asym * 0.4).clamp(0.0, 5.0);
-      final au14 =
-          (mouth * 0.15 + max(0.0, cheek - 0.45) * 0.55).clamp(0.0, 5.0);
-      final rawAu15 =
-          (max(0.0, brow - 0.55) * 0.35 + asym * 1.8 + max(0.0, 0.75 - mouth) * 0.25)
-              .clamp(0.0, 5.0);
-      final au15 = hasSmileProb
-          ? (rawAu15 * (1.0 - smilingProb * 0.8)).clamp(0.0, 5.0)
-          : rawAu15;
-      final au17 =
-          (max(0.0, mouthOpen - 0.30) * 0.65 + mouthOpen * 0.08).clamp(0.0, 5.0);
-      final au20 =
-          (max(0.0, mouth - 0.55) * 0.60 + mouth * 0.06).clamp(0.0, 5.0);
-      final au23 =
-          (max(0.0, 1.05 - mouthOpen) * 0.45 + asym * 0.3).clamp(0.0, 5.0);
-      final au25 =
-          (max(0.0, mouthOpen - 0.25) * 0.95 + mouthOpen * 0.15).clamp(0.0, 5.0);
-      final au26 =
-          (max(0.0, mouthOpen - 0.38) * 0.85 + mouthOpen * 0.10).clamp(0.0, 5.0);
-      final double au45;
-      if (hasEyeProb) {
-        final avgClosed = (1.0 - 0.5 * (leftEyeOpen + rightEyeOpen)).clamp(0.0, 1.0);
-        au45 = (avgClosed > 0.35
-                ? 0.25 + (avgClosed - 0.35) * 3.8
-                : 0.05 + avgClosed * 0.55)
-            .clamp(0.0, 5.0);
+      final List<double> mappedAUs;
+      if (isMpFrame) {
+        mappedAUs = _mapBlendshapesToOpenFaceAUs(f);
       } else {
-        au45 = (max(0.0, 0.95 - eye) * 1.45 + motion * 0.18).clamp(0.0, 5.0);
+        final hasSmileProb = (f['smilingProb'] ?? -1.0) >= 0.0;
+        final smilingProb = (f['smilingProb'] ?? 0.0).clamp(0.0, 1.0);
+        final leftEyeOpen = f['leftEyeOpenProb'] ?? -1.0;
+        final rightEyeOpen = f['rightEyeOpenProb'] ?? -1.0;
+        final hasEyeProb = leftEyeOpen >= 0.0 && rightEyeOpen >= 0.0;
+
+        // Kalibrasi skala AU ke rentang OpenFace 0..5 dengan baseline netral yang terpusat
+        final au01 =
+            (max(0.0, brow - 0.45) * 0.70 + brow * 0.08).clamp(0.0, 5.0);
+        final au02 =
+            (max(0.0, brow - 1.20) * 0.18 + (brow * 0.055).clamp(0.0, 0.08))
+                .clamp(0.0, 5.0);
+        final au04 =
+            (max(0.0, brow - 0.35) * 0.85 + asym * 1.2 + brow * 0.12)
+                .clamp(0.0, 5.0);
+        final au06 = hasSmileProb
+            ? (smilingProb * 1.65 + max(0.0, cheek - 0.50) * 0.55 + cheek * 0.08)
+                .clamp(0.0, 5.0)
+            : (max(0.0, cheek - 0.45) * 1.15 + cheek * 0.10).clamp(0.0, 5.0);
+        final au07 =
+            (max(0.0, 1.15 - eye) * 0.90 + asym * 0.4).clamp(0.0, 5.0);
+        final au09 = (max(0.0, cheek - 1.10) * 0.14 +
+                (asym * 0.20).clamp(0.0, 0.055) +
+                (cheek * 0.05).clamp(0.0, 0.075))
+            .clamp(0.0, 5.0);
+        final au10 =
+            (max(0.0, mouth - 0.45) * 0.75 + mouth * 0.10).clamp(0.0, 5.0);
+        final au12 = hasSmileProb
+            ? (smilingProb * 2.20 + max(0.0, mouth - 0.50) * 0.45)
+                .clamp(0.0, 5.0)
+            : (max(0.0, mouth - 0.42) * 1.20 - asym * 0.4).clamp(0.0, 5.0);
+        final au14 =
+            (mouth * 0.15 + max(0.0, cheek - 0.45) * 0.55).clamp(0.0, 5.0);
+        final rawAu15 =
+            (max(0.0, brow - 0.55) * 0.35 + asym * 1.8 + max(0.0, 0.75 - mouth) * 0.25)
+                .clamp(0.0, 5.0);
+        final au15 = hasSmileProb
+            ? (rawAu15 * (1.0 - smilingProb * 0.8)).clamp(0.0, 5.0)
+            : rawAu15;
+        final au17 =
+            (max(0.0, mouthOpen - 0.30) * 0.65 + mouthOpen * 0.08).clamp(0.0, 5.0);
+        final au20 =
+            (max(0.0, mouth - 0.55) * 0.60 + mouth * 0.06).clamp(0.0, 5.0);
+        final au23 =
+            (max(0.0, 1.05 - mouthOpen) * 0.45 + asym * 0.3).clamp(0.0, 5.0);
+        final au25 =
+            (max(0.0, mouthOpen - 0.25) * 0.95 + mouthOpen * 0.15).clamp(0.0, 5.0);
+        final au26 =
+            (max(0.0, mouthOpen - 0.38) * 0.85 + mouthOpen * 0.10).clamp(0.0, 5.0);
+        final double au45;
+        if (hasEyeProb) {
+          final avgClosed = (1.0 - 0.5 * (leftEyeOpen + rightEyeOpen)).clamp(0.0, 1.0);
+          au45 = (avgClosed > 0.35
+                  ? 0.25 + (avgClosed - 0.35) * 3.8
+                  : 0.05 + avgClosed * 0.55)
+              .clamp(0.0, 5.0);
+        } else {
+          au45 = (max(0.0, 0.95 - eye) * 1.45 + motion * 0.18).clamp(0.0, 5.0);
+        }
+
+        mappedAUs = <double>[
+          au01, au02, au04, au06, au07, au09, au10, au12,
+          au14, au15, au17, au20, au23, au25, au26, au45,
+        ];
       }
 
-      if (au06 > 1.0 && au12 > 1.0) {
+      if (mappedAUs[3] > 1.0 && mappedAUs[7] > 1.0) {
         duchenneCount++;
       }
 
@@ -825,22 +919,9 @@ class MultimodalExtractorService {
       rawCheekList.add(cheek);
       rawAsymList.add(asym);
 
-      auSeries[0].add(au01);
-      auSeries[1].add(au02);
-      auSeries[2].add(au04);
-      auSeries[3].add(au06);
-      auSeries[4].add(au07);
-      auSeries[5].add(au09);
-      auSeries[6].add(au10);
-      auSeries[7].add(au12);
-      auSeries[8].add(au14);
-      auSeries[9].add(au15);
-      auSeries[10].add(au17);
-      auSeries[11].add(au20);
-      auSeries[12].add(au23);
-      auSeries[13].add(au25);
-      auSeries[14].add(au26);
-      auSeries[15].add(au45);
+      for (int i = 0; i < 16; i++) {
+        auSeries[i].add(mappedAUs[i]);
+      }
 
       gazeXSeries.add(gazeX);
       gazeYSeries.add(gazeY);
@@ -850,6 +931,8 @@ class MultimodalExtractorService {
       motionSeries.add(motion);
       if (f.containsKey('timestampMs')) {
         timestampSeries.add(f['timestampMs']!);
+      } else if (f.containsKey('timeSec')) {
+        timestampSeries.add(f['timeSec']! * 1000.0);
       }
     }
 
@@ -899,7 +982,9 @@ class MultimodalExtractorService {
       if (timestampSeries.length == poseRxSeries.length) {
         final dtMs = (timestampSeries[k] - timestampSeries[k - 1]).abs();
         if (dtMs > 1.0) {
-          stepScale = (33.333 / dtMs).clamp(0.08, 1.0);
+          // Gunakan RMS Brownian scaling sqrt(33.333 / dtMs) agar sampling ~0.4-2 FPS
+          // tidak meremukkan diff_Rx/diff_Ry oleh faktor linear ~0.08x.
+          stepScale = sqrt(33.333 / dtMs).clamp(0.18, 1.0);
         }
       }
       diffRx.add((poseRxSeries[k] - poseRxSeries[k - 1]) * stepScale);
@@ -1786,6 +1871,214 @@ class MultimodalExtractorService {
     return sorted[lo] * (1.0 - frac) + sorted[hi] * frac;
   }
 
+  /// Pengujian unit langsung untuk ekstraksi vektor visual 75D
+  @visibleForTesting
+  static Future<List<double>> extractVisualFeatures75DForTest(
+    List<Map<String, double>> frames,
+  ) async {
+    await _ensureNormStatsLoaded();
+    return _computeRealVisualFeatures75D(frames).features;
+  }
+
+  static bool _hasMediaPipeBlendshapes(Map<String, double> frame) {
+    if ((frame['usedMediaPipe'] ?? 0.0) > 0.5) return true;
+    for (final key in frame.keys) {
+      if (key.startsWith('bs_')) return true;
+    }
+    return false;
+  }
+
+  /// Memetakan 52 ARKit Blendshapes (0..1) dari MediaPipe Face Landmarker
+  /// menjadi 16 OpenFace Action Unit intensities (0..5) terkalibrasi E-DAIC.
+  static List<double> _mapBlendshapesToOpenFaceAUs(Map<String, double> frame) {
+    double b(String name) => (frame['bs_$name'] ?? 0.0).clamp(0.0, 1.0);
+
+    final browInnerUp = b('browInnerUp');
+    final browOuterUp = 0.5 * (b('browOuterUpLeft') + b('browOuterUpRight'));
+    final browDown = 0.5 * (b('browDownLeft') + b('browDownRight'));
+    final cheekSquint = 0.5 * (b('cheekSquintLeft') + b('cheekSquintRight'));
+    final eyeSquint = 0.5 * (b('eyeSquintLeft') + b('eyeSquintRight'));
+    final noseSneer = 0.5 * (b('noseSneerLeft') + b('noseSneerRight'));
+    final mouthUpperUp = 0.5 * (b('mouthUpperUpLeft') + b('mouthUpperUpRight'));
+    final mouthShrugUpper = b('mouthShrugUpper');
+    final smileAvg = 0.5 * (b('mouthSmileLeft') + b('mouthSmileRight'));
+    final dimpleAvg = 0.5 * (b('mouthDimpleLeft') + b('mouthDimpleRight'));
+    final mouthPress = 0.5 * (b('mouthPressLeft') + b('mouthPressRight'));
+    final frownAvg = 0.5 * (b('mouthFrownLeft') + b('mouthFrownRight'));
+    final mouthLowerDown =
+        0.5 * (b('mouthLowerDownLeft') + b('mouthLowerDownRight'));
+    final mouthShrugLower = b('mouthShrugLower');
+    final mouthClose = b('mouthClose');
+    final mouthStretch = 0.5 * (b('mouthStretchLeft') + b('mouthStretchRight'));
+    final mouthRoll = 0.5 * (b('mouthRollLower') + b('mouthRollUpper'));
+    final jawOpen = b('jawOpen');
+    final eyeBlink = 0.5 * (b('eyeBlinkLeft') + b('eyeBlinkRight'));
+
+    final au01 = (browInnerUp * 2.20).clamp(0.0, 5.0);
+    // AU02 & AU09 memiliki std p75 sangat kecil pada train_norm_stats.json
+    // (AU02 p75=0.0695±0.0126, AU09 p75=0.0737±0.0204) sehingga baseline
+    // bicara/ekspresi ringan (browOuterUp s.d. ~0.38) dijaga <= 0.068 agar tidak spike ke +4 sigma.
+    final au02 = (max(0.0, browOuterUp - 0.38) * 0.75 +
+            (browOuterUp * 0.38).clamp(0.0, 0.068))
+        .clamp(0.0, 5.0);
+    final au04 =
+        (browDown * 2.85 + max(0.0, browDown - 0.12) * 1.15).clamp(0.0, 5.0);
+    final au06 = (cheekSquint * 2.60 + smileAvg * 0.55).clamp(0.0, 5.0);
+    final au07 = (eyeSquint * 2.60 + browDown * 0.35).clamp(0.0, 5.0);
+    final au09 = (max(0.0, noseSneer - 0.25) * 1.15 +
+            (noseSneer * 0.32).clamp(0.0, 0.072))
+        .clamp(0.0, 5.0);
+    final au10 =
+        (mouthUpperUp * 2.50 + mouthShrugUpper * 1.20 + 0.15).clamp(0.0, 5.0);
+    final au12 = (smileAvg * 2.95 + cheekSquint * 0.45).clamp(0.0, 5.0);
+    final au14 =
+        (dimpleAvg * 2.50 + mouthPress * 1.10 + smileAvg * 0.45 + 0.25)
+            .clamp(0.0, 5.0);
+    final au15 = (frownAvg * 2.40 + mouthLowerDown * 0.35).clamp(0.0, 5.0);
+    final au17 =
+        (mouthShrugLower * 2.10 + mouthClose * 0.45 + mouthPress * 0.55)
+            .clamp(0.0, 5.0);
+    final au20 = (max(0.0, mouthStretch - 0.08) * 1.65 +
+            (mouthStretch * 0.45).clamp(0.0, 0.14))
+        .clamp(0.0, 5.0);
+    final au23 = (mouthPress * 1.45 + mouthRoll * 0.85).clamp(0.0, 5.0);
+    final au25 =
+        (jawOpen * 1.90 + (1.0 - mouthClose) * 0.55 + mouthLowerDown * 0.75)
+            .clamp(0.0, 5.0);
+    final au26 = (jawOpen * 2.55 + mouthLowerDown * 0.35).clamp(0.0, 5.0);
+    final au45 = (eyeBlink * 2.60 + eyeSquint * 0.25).clamp(0.0, 5.0);
+
+    return <double>[
+      au01,
+      au02,
+      au04,
+      au06,
+      au07,
+      au09,
+      au10,
+      au12,
+      au14,
+      au15,
+      au17,
+      au20,
+      au23,
+      au25,
+      au26,
+      au45,
+    ];
+  }
+
+  /// Pengujian unit langsung untuk penurunan 5 skor AU UI dari vektor 75D ternormalisasi
+  @visibleForTesting
+  static Future<Map<String, double>> deriveActionUnitScoresFrom75DForTest(
+    List<double> visualFeatures, {
+    bool isVisualBranchDisabled = false,
+  }) async {
+    await _ensureNormStatsLoaded();
+    return _deriveActionUnitScoresFrom75D(
+      visualFeatures,
+      isVisualBranchDisabled: isVisualBranchDisabled,
+    );
+  }
+
+  /// Pengujian unit langsung untuk penyusunan MultimodalInspectionData dari frame MediaPipe riil
+  @visibleForTesting
+  static Future<MultimodalInspectionData> buildRealInspectionDataForTest({
+    required String participantId,
+    required List<Map<String, double>> rawFrames,
+    String? clientTranscript,
+    double videoDurationSec = 53.8,
+  }) async {
+    await _ensureNormStatsLoaded();
+    final visualRes = _computeRealVisualFeatures75D(rawFrames);
+    final facesDetected =
+        rawFrames.where((f) => (f['faceFound'] ?? 0.0) > 0.5).length;
+    return _buildRealInspectionData(
+      participantId: participantId,
+      videoPath: 'test_video.mp4',
+      rawFrames: rawFrames,
+      facesDetectedCount: facesDetected,
+      pcmSamples: const [],
+      sampleRate: 16000,
+      videoDurationSecOverride: videoDurationSec,
+      clientTranscript: clientTranscript,
+      visualFeatures: visualRes.features,
+      audioFeatures: List<double>.filled(80, 0.0),
+      textFeatures: List<double>.filled(768, 0.0),
+      visualSummary: visualRes.summaryStats,
+      audioSummary: const {},
+    );
+  }
+
+  /// Menurunkan 5 skor AU untuk UI inspeksi langsung dari vektor 75D yang sudah
+  /// dinormalisasi Z-score terhadap `train_norm_stats.json`, sehingga 100% konsisten
+  /// dengan input tensor ONNX.
+  static Map<String, double> _deriveActionUnitScoresFrom75D(
+    List<double> visualFeatures, {
+    bool isVisualBranchDisabled = false,
+  }) {
+    if (isVisualBranchDisabled || visualFeatures.length < 75) {
+      return const <String, double>{
+        'AU04 Brow Lowerer (Corrugator Supercilii)': 0.0,
+        'AU05 Upper Lid Raiser (Eye Aperture)': 0.0,
+        'AU12 Lip Corner Puller (Zygomaticus / Smile)': 0.0,
+        'AU15 Lip Corner Depressor (Depressive Affect)': 0.0,
+        'Optical Flow / Facial Motor Dynamics': 0.0,
+      };
+    }
+
+    final mean = _meanStats?['visual'];
+    final std = _stdStats?['visual'];
+
+    double zAt(int idx) {
+      if (idx < 0 || idx >= visualFeatures.length) return 0.0;
+      final raw = visualFeatures[idx];
+      if (raw.isNaN || raw.isInfinite) return 0.0;
+      if (mean != null && std != null && idx < mean.length && idx < std.length) {
+        final s = std[idx] > 1e-7 ? std[idx] : 1.0;
+        return ((raw - mean[idx]) / s).clamp(-4.5, 4.5);
+      }
+      return (raw - 0.5).clamp(-3.0, 3.0);
+    }
+
+    double zToUnit(double z) {
+      return (1.0 / (1.0 + exp(-z * 0.85))).clamp(0.05, 0.95);
+    }
+
+    // 0..63 = 16 AU × [mean, std, p75, frac>1]
+    // AU04 (idx 2 -> base 8), AU07 (idx 4 -> base 16), AU12 (idx 7 -> base 28),
+    // AU15 (idx 9 -> base 36), AU45 (idx 15 -> base 60), Duchenne (64),
+    // Motor/Speech dynamics: AU25_std (53), AU26_std (57), AU12_std (29),
+    // gazeY_std (66), pose_Rx_std (70), pose_Ry_std (71), diff_Rx (73).
+    // (Menghindari AU04_std [9] agar dahi tenang tidak menurunkan skor motorik bicara aktif.)
+    final au04Score = zToUnit(0.75 * zAt(8) + 0.25 * zAt(10));
+    final eyeApertureScore = zToUnit(-(0.65 * zAt(60) + 0.35 * zAt(16)));
+    final au12Score = zToUnit(0.75 * zAt(28) + 0.25 * zAt(64));
+    final au15Score = zToUnit(0.75 * zAt(36) + 0.25 * zAt(38));
+    final motorZ = 0.22 * zAt(53) +
+        0.18 * zAt(57) +
+        0.18 * zAt(29) +
+        0.12 * zAt(66) +
+        0.15 * zAt(70) +
+        0.15 * zAt(73);
+    // Offset +0.95 mengkalibrasi titik netral (0.50) karena sinyal MediaPipe 0.4-2 FPS
+    // bebas jitter frekuensi tinggi dibanding OpenFace 30 FPS pada train_norm_stats.json.
+    final motorDynamicsScore = zToUnit(motorZ + 0.95);
+
+    return <String, double>{
+      'AU04 Brow Lowerer (Corrugator Supercilii)':
+          double.parse(au04Score.toStringAsFixed(3)),
+      'AU05 Upper Lid Raiser (Eye Aperture)':
+          double.parse(eyeApertureScore.toStringAsFixed(3)),
+      'AU12 Lip Corner Puller (Zygomaticus / Smile)':
+          double.parse(au12Score.toStringAsFixed(3)),
+      'AU15 Lip Corner Depressor (Depressive Affect)':
+          double.parse(au15Score.toStringAsFixed(3)),
+      'Optical Flow / Facial Motor Dynamics':
+          double.parse(motorDynamicsScore.toStringAsFixed(3)),
+    };
+  }
+
   /// Menyusun objek MultimodalInspectionData dari sinyal riil video yang diekstrak
   static MultimodalInspectionData _buildRealInspectionData({
     required String participantId,
@@ -1805,6 +2098,8 @@ class MultimodalExtractorService {
     String? customLinguisticDescription,
     bool isWhisperTranscribed = false,
     bool? isExplicitTranscript,
+    bool isVisualBranchDisabled = false,
+    String? visualBranchWarning,
     required List<double> visualFeatures,
     required List<double> audioFeatures,
     required List<double> textFeatures,
@@ -1818,19 +2113,23 @@ class MultimodalExtractorService {
             ? max(3.0, pcmSamples.length / max(1000, sampleRate))
             : max(5.0, rawFrames.length * 1.5));
 
-    // Kalibrasi skala gradien frame wajah bila berasal dari ekstraktor 64x64 sebelum rebuild native
-    double rawCueSum = 0.0;
-    for (final f in rawFrames) {
-      rawCueSum += ((f['browActivation'] ?? 0.5) +
-              (f['eyeOpenness'] ?? 0.5) +
-              (f['cheekActivation'] ?? 0.5) +
-              (f['mouthActivation'] ?? 0.5)) *
-          0.25;
+    // Kalibrasi skala gradien frame wajah bila berasal dari ekstraktor 64x64 non-MediaPipe
+    final bool usesMediaPipe = rawFrames.any(_hasMediaPipeBlendshapes);
+    double cueScale = 1.0;
+    if (!usesMediaPipe) {
+      double rawCueSum = 0.0;
+      for (final f in rawFrames) {
+        rawCueSum += ((f['browActivation'] ?? 0.5) +
+                (f['eyeOpenness'] ?? 0.5) +
+                (f['cheekActivation'] ?? 0.5) +
+                (f['mouthActivation'] ?? 0.5)) *
+            0.25;
+      }
+      final avgRawCue = rawFrames.isEmpty ? 0.85 : rawCueSum / rawFrames.length;
+      cueScale = avgRawCue < 0.68
+          ? (0.92 / max(0.18, avgRawCue)).clamp(1.0, 2.85)
+          : 1.0;
     }
-    final avgRawCue = rawFrames.isEmpty ? 0.85 : rawCueSum / rawFrames.length;
-    final cueScale = avgRawCue < 0.68
-        ? (0.92 / max(0.18, avgRawCue)).clamp(1.0, 2.85)
-        : 1.0;
 
     final lastFrameRawTime =
         rawFrames.isNotEmpty ? (rawFrames.last['timeSec'] ?? 0.0) : 0.0;
@@ -1842,10 +2141,6 @@ class MultimodalExtractorService {
     double sumConf = 0.0;
     double sumPitch = 0.0;
     double sumYaw = 0.0;
-    double sumBrow = 0.0;
-    double sumEye = 0.0;
-    double sumSmile = 0.0;
-    double sumDepressor = 0.0;
     double sumMotion = 0.0;
 
     final int totalF = max(1, rawFrames.length);
@@ -1864,22 +2159,43 @@ class MultimodalExtractorService {
       final eX = f['eulerX'] ?? -4.0;
       final eY = f['eulerY'] ?? 2.0;
       final eZ = f['eulerZ'] ?? 0.5;
-      final brow = ((f['browActivation'] ?? 0.9) * cueScale).clamp(0.0, 4.0);
-      final eye = ((f['eyeOpenness'] ?? 0.85) * cueScale).clamp(0.1, 2.5);
-      final mouth = ((f['mouthActivation'] ?? 0.8) * cueScale).clamp(0.0, 4.0);
-      final asym = ((f['asymmetry'] ?? 0.06) * (cueScale > 1.2 ? 1.35 : 1.0)).clamp(0.0, 1.0);
-      final motion = ((f['motionEnergy'] ?? 0.25) * (cueScale > 1.2 ? 1.50 : 1.0)).clamp(0.0, 3.0);
+      final isMpFrame = _hasMediaPipeBlendshapes(f);
+      final localCueScale = isMpFrame ? 1.0 : cueScale;
+      final brow = ((f['browActivation'] ?? 0.9) * localCueScale).clamp(0.0, 4.0);
+      final eye = ((f['eyeOpenness'] ?? 0.85) * localCueScale).clamp(0.1, 2.5);
+      final mouth = ((f['mouthActivation'] ?? 0.8) * localCueScale).clamp(0.0, 4.0);
+      final asym = ((f['asymmetry'] ?? 0.06) * (!isMpFrame && cueScale > 1.2 ? 1.35 : 1.0)).clamp(0.0, 1.0);
+      final motion = ((f['motionEnergy'] ?? 0.25) * (!isMpFrame && cueScale > 1.2 ? 1.50 : 1.0)).clamp(0.0, 3.0);
 
-      final smile = (mouth * 0.75 - asym * 1.2).clamp(0.05, 3.0);
-      final depressor = (brow * 0.45 + asym * 2.5).clamp(0.05, 3.0);
+      final double smile;
+      final double depressor;
+      if (isMpFrame) {
+        final mpAus = _mapBlendshapesToOpenFaceAUs(f);
+        smile = mpAus[7]; // AU12
+        depressor = (mpAus[9] * 1.4 + mpAus[2] * 0.25).clamp(0.02, 3.0); // AU15 + AU04
+      } else {
+        smile = (mouth * 0.75 - asym * 1.2).clamp(0.05, 3.0);
+        depressor = (brow * 0.45 + asym * 2.5).clamp(0.05, 3.0);
+      }
+
+      // Kurva visual grafik per-frame disesuaikan untuk blendshape MediaPipe yang lebih halus
+      // agar ekspresi ringan tetap terlihat di chart dan tidak terpotong rata di lantai 5%.
+      final double browChartVal = isMpFrame
+          ? pow((brow / 1.15).clamp(0.0, 1.0), 0.78).toDouble().clamp(0.02, 1.0)
+          : (brow / 2.2).clamp(0.05, 1.0);
+      final double eyeChartVal = isMpFrame
+          ? (eye / 1.35).clamp(0.05, 1.0)
+          : (eye / 1.8).clamp(0.05, 1.0);
+      final double smileChartVal = isMpFrame
+          ? pow((smile / 1.50).clamp(0.0, 1.0), 0.78).toDouble().clamp(0.02, 1.0)
+          : (smile / 1.8).clamp(0.05, 1.0);
+      final double depressorChartVal = isMpFrame
+          ? pow((depressor / 1.25).clamp(0.0, 1.0), 0.78).toDouble().clamp(0.02, 1.0)
+          : (depressor / 1.8).clamp(0.05, 1.0);
 
       sumConf += conf;
       sumPitch += eX;
       sumYaw += eY;
-      sumBrow += brow;
-      sumEye += eye;
-      sumSmile += smile;
-      sumDepressor += depressor;
       sumMotion += motion;
 
       String exprLabel;
@@ -1887,9 +2203,13 @@ class MultimodalExtractorService {
         exprLabel = 'Wajah Tidak Terlihat / Di Luar Area Fokus';
       } else if (eX < -7.5) {
         exprLabel = 'Wajah Terdeteksi • Posisi Kepala Cenderung Menunduk';
-      } else if (motion < 0.20 && smile < 0.62) {
+      } else if (i == 0 && smileChartVal < 0.35) {
+        exprLabel = 'Wajah Terdeteksi • Posisi Awal Menghadap Kamera';
+      } else if (i > 0 && motion < 0.20 && smile < 0.62) {
         exprLabel = 'Wajah Terdeteksi • Ekspresi Tenang / Cenderung Datar';
-      } else if (brow > 1.35 && brow > mouth * 1.12) {
+      } else if (isMpFrame
+          ? (browChartVal > 0.55 && browChartVal > smileChartVal * 1.25)
+          : (brow > 1.35 && brow > mouth * 1.12)) {
         exprLabel = 'Wajah Terdeteksi • Ketegangan Area Dahi & Alis';
       } else {
         exprLabel = 'Wajah Terdeteksi Jelas • Kontak Mata & Ekspresi Aktif';
@@ -1908,31 +2228,50 @@ class MultimodalExtractorService {
           eulerX: double.parse(eX.toStringAsFixed(1)),
           eulerY: double.parse(eY.toStringAsFixed(1)),
           eulerZ: double.parse(eZ.toStringAsFixed(1)),
-          browTension: double.parse((brow / 2.2).clamp(0.05, 1.0).toStringAsFixed(2)),
-          eyeOpenness: double.parse((eye / 1.8).clamp(0.05, 1.0).toStringAsFixed(2)),
-          smileIntensity: double.parse((smile / 1.8).clamp(0.05, 1.0).toStringAsFixed(2)),
-          lipDepressor: double.parse((depressor / 1.8).clamp(0.05, 1.0).toStringAsFixed(2)),
+          browTension: double.parse(browChartVal.toStringAsFixed(2)),
+          eyeOpenness: double.parse(eyeChartVal.toStringAsFixed(2)),
+          smileIntensity: double.parse(smileChartVal.toStringAsFixed(2)),
+          lipDepressor: double.parse(depressorChartVal.toStringAsFixed(2)),
           motionEnergy: double.parse((motion / 1.4).clamp(0.05, 1.0).toStringAsFixed(2)),
           expressionLabel: exprLabel,
         ),
       );
     }
 
-    final faceRatePct = rawFrames.isEmpty
+    final faceRatePct = isVisualBranchDisabled || rawFrames.isEmpty
         ? 0.0
         : double.parse(((facesDetectedCount / rawFrames.length) * 100).clamp(0.0, 100.0).toStringAsFixed(1));
-    final avgConf = rawFrames.isEmpty ? 0.88 : sumConf / totalF;
-    final avgPitch = rawFrames.isEmpty ? -3.5 : sumPitch / totalF;
-    final avgYaw = rawFrames.isEmpty ? 1.8 : sumYaw / totalF;
-    final avgMotion = rawFrames.isEmpty ? 0.25 : sumMotion / totalF;
+    final avgConf = isVisualBranchDisabled
+        ? 0.0
+        : (rawFrames.isEmpty ? 0.88 : sumConf / totalF);
+    final avgPitch = isVisualBranchDisabled
+        ? 0.0
+        : (rawFrames.isEmpty ? -3.5 : sumPitch / totalF);
+    final avgYaw = isVisualBranchDisabled
+        ? 0.0
+        : (rawFrames.isEmpty ? 1.8 : sumYaw / totalF);
+    final avgMotion = isVisualBranchDisabled
+        ? 0.0
+        : (rawFrames.isEmpty ? 0.25 : sumMotion / totalF);
+
+    final actionUnits = _deriveActionUnitScoresFrom75D(
+      visualFeatures,
+      isVisualBranchDisabled: isVisualBranchDisabled,
+    );
+    final motorScoreFrom75D =
+        actionUnits['Optical Flow / Facial Motor Dynamics'] ?? 0.5;
 
     final String affectTitle;
     final String affectDesc;
-    if (faceRatePct < 50.0) {
+    if (isVisualBranchDisabled) {
+      affectTitle = 'Cabang Visual Dinonaktifkan (Platform Non-Android)';
+      affectDesc = visualBranchWarning ??
+          'Ekstraktor wajah native belum tersedia pada platform ${Platform.operatingSystem}. Fitur wajah tidak diekstrak dari byte mentah video.';
+    } else if (faceRatePct < 50.0) {
       affectTitle = 'Deteksi Wajah Parsial (Sering Menunduk / Berpaling)';
       affectDesc =
           'Kamera mendeteksi wajah pada $faceRatePct% durasi video. Posisi kepala tampak beberapa kali menunduk atau menjauh dari fokus kamera.';
-    } else if (avgMotion < 0.22) {
+    } else if (motorScoreFrom75D < 0.35 && avgMotion < 0.22) {
       affectTitle = 'Ekspresi Cenderung Datar (Reduced Facial Dynamics)';
       affectDesc =
           'Wajah terdeteksi jelas ($faceRatePct% frame), namun pergerakan otot wajah mikro (senyum dan angkatan alis) tampak minim atau tenang sepanjang cerita.';
@@ -1941,14 +2280,6 @@ class MultimodalExtractorService {
       affectDesc =
           'Wajah terdeteksi secara konsisten ($faceRatePct% frame) dengan kontak mata yang terjaga serta gerak ekspresi wajah yang alami saat berbicara.';
     }
-
-    final actionUnits = <String, double>{
-      'AU04 Brow Lowerer (Corrugator Supercilii)': ((sumBrow / totalF) / 2.1).clamp(0.12, 0.95),
-      'AU05 Upper Lid Raiser (Eye Aperture)': ((sumEye / totalF) / 1.7).clamp(0.18, 0.95),
-      'AU12 Lip Corner Puller (Zygomaticus / Smile)': ((sumSmile / totalF) / 1.6).clamp(0.10, 0.92),
-      'AU15 Lip Corner Depressor (Depressive Affect)': ((sumDepressor / totalF) / 1.7).clamp(0.12, 0.92),
-      'Optical Flow / Facial Motor Dynamics': (avgMotion / 1.1).clamp(0.14, 0.95),
-    };
 
     // 2. Susun 64 bar gelombang suara (Audio Waveform) dengan ambang VAD adaptif
     // agar proporsi bar biru (>= 0.14, Suara Berbicara) dan bar kuning (< 0.14, Jeda Hening)
@@ -2123,6 +2454,7 @@ class MultimodalExtractorService {
       sampleVisualVector: visualFeatures.take(12).toList(),
       sampleAudioVector: audioFeatures.take(12).toList(),
       sampleTextVector: textFeatures.take(12).toList(),
+      isVisualBranchDisabled: isVisualBranchDisabled,
     );
   }
 
@@ -2366,6 +2698,7 @@ class MultimodalExtractorService {
 
     const emotionalLexicon = <String, String>{
       'sedih': 'Suasana Hati',
+      'menyedihkan': 'Suasana Hati',
       'murung': 'Suasana Hati',
       'hampa': 'Suasana Hati',
       'kosong': 'Suasana Hati',
@@ -2376,13 +2709,14 @@ class MultimodalExtractorService {
       'capek': 'Energi & Kelelahan',
       'letih': 'Energi & Kelelahan',
       'lesu': 'Energi & Kelelahan',
+      'terkuras': 'Energi & Kelelahan',
       'berat': 'Beban Emosi',
       'penuh': 'Beban Pikiran',
       'tidur': 'Kualitas Tidur',
       'insomnia': 'Kualitas Tidur',
       'begadang': 'Kualitas Tidur',
       'terbangun': 'Kualitas Tidur',
-      'nyenyak': 'Kualitas Tidur',
+      'nyenyak': 'Kualitas Tidur (Positif)',
       'istirahat': 'Kebutuhan Pemulihan',
       'pemulihan': 'Kebutuhan Pemulihan',
       'cemas': 'Kecemasan',
@@ -2398,8 +2732,12 @@ class MultimodalExtractorService {
       'konsentrasi': 'Fokus Kognitif',
       'tenang': 'Regulasi Diri',
       'nyaman': 'Regulasi Diri',
+      'bersantai': 'Regulasi Diri',
+      'aman': 'Regulasi Diri',
       'berusaha': 'Daya Juang (Coping)',
       'baik': 'Afek Positif',
+      'bahagia': 'Afek Positif',
+      'senang': 'Afek Positif',
       'semangat': 'Afek Positif',
       'bersemangat': 'Afek Positif',
       'optimis': 'Afek Positif',
@@ -2431,8 +2769,8 @@ class MultimodalExtractorService {
       'depression': 'Afek Depresif',
       'depressed': 'Afek Depresif',
       'bottom': 'Keputusasaan (Rock Bottom)',
-      'sleeping': 'Gangguan Tidur',
-      'sleep': 'Gangguan Tidur',
+      'sleeping': 'Kualitas Tidur',
+      'sleep': 'Kualitas Tidur',
       'dreams': 'Mimpi Buruk / Distres',
       'irritable': 'Iritabilitas / Tegang',
       'edge': 'Ketegangan Emosi',
@@ -2454,10 +2792,15 @@ class MultimodalExtractorService {
 
     const selfPronouns = {'saya', 'aku', 'diriku', 'ku', 'i', 'me', 'my', 'myself'};
     const positiveKeywords = {
+      'nyenyak',
       'tenang',
       'nyaman',
+      'bersantai',
+      'aman',
       'berusaha',
       'baik',
+      'bahagia',
+      'senang',
       'semangat',
       'bersemangat',
       'optimis',
@@ -2473,6 +2816,75 @@ class MultimodalExtractorService {
       'comfortable',
       'relaxed',
     };
+    const negativeKeywords = {
+      'sedih',
+      'menyedihkan',
+      'murung',
+      'hampa',
+      'kosong',
+      'kecewa',
+      'sendiri',
+      'kesepian',
+      'lelah',
+      'capek',
+      'letih',
+      'lesu',
+      'terkuras',
+      'berat',
+      'insomnia',
+      'begadang',
+      'terbangun',
+      'cemas',
+      'takut',
+      'khawatir',
+      'tegang',
+      'stres',
+      'stress',
+      'beban',
+      'masalah',
+      'menunduk',
+      'datar',
+      'depression',
+      'depressed',
+      'bottom',
+      'dreams',
+      'irritable',
+      'edge',
+      'hate',
+      'isolation',
+      'nobody',
+      'bad',
+      'nothing',
+      'tired',
+      'exhausted',
+      'hopeless',
+    };
+    const negationCues = {
+      'tidak',
+      'tak',
+      'bukan',
+      'tiada',
+      'belum',
+      'kurang',
+      'tanpa',
+      'nggak',
+      'enggak',
+      'gak',
+      'sulit',
+      'susah',
+      'gagal',
+      'gangguan',
+      'not',
+      'no',
+      'never',
+      'cannot',
+      'cant',
+      'dont',
+      'hard',
+      'trouble',
+    };
+    const clauseBreaks = {'tapi', 'tetapi', 'namun', 'melainkan', 'but', 'however'};
+    const sleepTopicKeywords = {'tidur', 'sleep', 'sleeping'};
 
     String rawTranscript;
     final segments = <TranscriptSegmentItem>[];
@@ -2633,16 +3045,37 @@ class MultimodalExtractorService {
     int negHits = 0;
     int posHits = 0;
 
-    for (final w in words) {
+    bool hasRecentNegation(int idx) {
+      final start = max(0, idx - 3);
+      for (int j = idx - 1; j >= start; j--) {
+        final prev = words[j];
+        if (clauseBreaks.contains(prev)) break;
+        if (negationCues.contains(prev)) return true;
+      }
+      return false;
+    }
+
+    for (int idx = 0; idx < words.length; idx++) {
+      final w = words[idx];
       if (selfPronouns.contains(w)) pronounCount++;
       if (emotionalLexicon.containsKey(w)) {
         final formatted = '$w (${emotionalLexicon[w]})';
         if (!detectedKeywords.contains(formatted)) {
           detectedKeywords.add(formatted);
         }
+        final negated = hasRecentNegation(idx);
         if (positiveKeywords.contains(w)) {
-          posHits++;
-        } else {
+          if (negated) {
+            negHits++;
+          } else {
+            posHits++;
+          }
+        } else if (negativeKeywords.contains(w)) {
+          if (!negated) {
+            negHits++;
+          }
+        } else if (sleepTopicKeywords.contains(w) && negated) {
+          // Contoh: "tidak bisa tidur" / "susah tidur" -> penanda gangguan tidur.
           negHits++;
         }
       }

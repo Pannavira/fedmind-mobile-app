@@ -177,6 +177,7 @@ class ScreeningProvider extends ChangeNotifier {
         sessionId: sessionId,
         counselorNote: counselorNote,
         transcription: transcription,
+        disableVisualBranch: inspectionData?.isVisualBranchDisabled == true,
       );
 
       final effectiveSessionType =

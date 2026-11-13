@@ -963,15 +963,11 @@ Waktu Sesi        : ${_formatDate(_currentResult.createdAt ?? '')}
     }
 
     // 3 Pilar Bukti Sinyal Model
-    final String visualReason;
+    final String visualReason = _buildVisualReason(result, inspection);
     final String audioReason;
     final String textReason;
 
     if (isLowRisk) {
-      visualReason =
-          'Wajah terdeteksi jelas pada ${inspection.faceDetectionRatePct.toStringAsFixed(0)}% sesi. '
-          'Otot wajah bergerak aktif dan alami saat berinteraksi, teramati respons senyum wajar, '
-          'dan posisi kepala tegak menjaga kontak mata tanpa tanda afek datar (flat affect).';
       audioReason =
           'Intonasi vokal stabil dan natural (rata-rata ${inspection.avgPitchHz.toStringAsFixed(0)} Hz). '
           'Proporsi jeda hening berada pada batas wajar (${inspection.pauseRatioPct.toStringAsFixed(0)}% dari durasi), '
@@ -980,18 +976,12 @@ Waktu Sesi        : ${_formatDate(_currentResult.createdAt ?? '')}
           'Tuturan kata tersusun runtut dan terbuka. '
           'Tidak ditemukan dominasi kata-kata bernuansa negatif ekstrem, putus asa, atau isolasi diri yang lazim menyertai episode depresi klinis.';
     } else if (isBorderline) {
-      visualReason =
-          'Wajah terdeteksi pada ${inspection.faceDetectionRatePct.toStringAsFixed(0)}% sesi dengan sedikit penurunan fokus tatapan '
-          'pada segmen tertentu, namun ekspresi wajah masih responsif terhadap percakapan.';
       audioReason =
           'Intonasi suara cenderung lebih pelan dengan jeda hening sekitar ${inspection.pauseRatioPct.toStringAsFixed(0)}% dari total sesi, '
           'menandakan adanya momen perenungan atau keletihan situasional.';
       textReason =
           'Pemilihan kata mengindikasikan adanya stresor kehidupan atau kelelahan mental ringan, namun struktur bahasa klien tetap adaptif.';
     } else {
-      visualReason =
-          'Teramati penurunan dinamika ekspresi wajah (reduced facial dynamics), kecenderungan menunduk atau menghindari tatapan kamera, '
-          'serta terdeteksi peningkatan ketegangan otot dahi dan penurunan sudut bibir saat berbicara.';
       audioReason =
           'Variasi nada bicara (F0) cenderung datar dengan proporsi jeda hening yang tinggi (${inspection.pauseRatioPct.toStringAsFixed(0)}% dari durasi). '
           'Hal ini selaras dengan manifestasi perlambatan produksi suara vokal pada kondisi depresi.';
@@ -1188,6 +1178,74 @@ Waktu Sesi        : ${_formatDate(_currentResult.createdAt ?? '')}
         ],
       ),
     );
+  }
+
+  /// Menyusun narasi pilar visual yang 100% konsisten dengan kontribusi Shapley (pV, visualPct),
+  /// tingkat deteksi wajah, pose kepala, dan skor aktivasi AU aktual.
+  String _buildVisualReason(
+    ScreeningResponse result,
+    MultimodalInspectionData inspection,
+  ) {
+    final pV = result.patientModalityAttribution?.shapValues.visual ?? 0.0;
+    final visualPct = result.patientModalityAttribution?.visualPct ?? 0.0;
+    final faceRatePct = inspection.faceDetectionRatePct;
+    final poorVisual = result.qualityFlags?.poorVisualQuality == true;
+    final isDisabled = inspection.isVisualBranchDisabled;
+
+    final pvSigned = '${pV >= 0 ? '+' : ''}${pV.toStringAsFixed(2)}';
+    final pctStr = visualPct.toStringAsFixed(1);
+    final faceStr = faceRatePct.toStringAsFixed(0);
+
+    if (isDisabled || (poorVisual && faceRatePct <= 0.0)) {
+      return 'Modalitas visual tidak aktif atau kualitas visual tidak memadai '
+          '(deteksi wajah $faceStr%, poor_visual_quality = true). '
+          'Atribusi visual terhadap prediksi model: $pvSigned poin PHQ-8 ($pctStr%).';
+    }
+
+    double findAu(String token, double fallback) {
+      for (final entry in inspection.actionUnitScores.entries) {
+        if (entry.key.toLowerCase().contains(token)) {
+          return entry.value;
+        }
+      }
+      return fallback;
+    }
+
+    final au04Pct = (findAu('au04', 0.5) * 100).round();
+    final au12Pct = (findAu('au12', 0.5) * 100).round();
+    final au15Pct = (findAu('au15', 0.5) * 100).round();
+    final motorPct = (findAu('motor', 0.5) * 100).round();
+
+    final pitch = inspection.avgHeadPitchDeg;
+    final String poseSummary;
+    if (pitch < -7.5) {
+      poseSummary = 'cenderung menunduk (${pitch.toStringAsFixed(1)}°)';
+    } else if (pitch > 7.5) {
+      poseSummary = 'cenderung mendongak (${pitch.toStringAsFixed(1)}°)';
+    } else {
+      poseSummary = 'tegak menghadap kamera (${pitch.toStringAsFixed(1)}°)';
+    }
+
+    final String shapDirection;
+    if (pV > 0.15) {
+      shapDirection =
+          'mendorong kenaikan estimasi risiko ($pvSigned poin PHQ-8, bobot $pctStr%)';
+    } else if (pV < -0.15) {
+      shapDirection =
+          'menekan estimasi risiko ($pvSigned poin PHQ-8, bobot $pctStr%)';
+    } else {
+      shapDirection =
+          'berdampak netral ($pvSigned poin PHQ-8, bobot $pctStr%)';
+    }
+
+    final qualityNote = poorVisual
+        ? ' Peringatan kualitas visual (variansi rendah) terdeteksi.'
+        : '';
+
+    return 'Wajah terdeteksi pada $faceStr% sesi dengan posisi kepala $poseSummary. '
+        'Sinyal visual $shapDirection. '
+        'Skor aktual: Ketegangan Alis (AU04) $au04Pct%, Senyum (AU12) $au12Pct%, '
+        'Sudut Bibir Turun (AU15) $au15Pct%, Dinamika Motorik $motorPct%.$qualityNote';
   }
 
   Widget _buildSummaryPillarItem({

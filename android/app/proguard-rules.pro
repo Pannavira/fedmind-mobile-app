@@ -18,3 +18,7 @@
 # Application native classes
 -keep class com.fedmind.fedmind_mobile_app.** { *; }
 -dontwarn com.fedmind.fedmind_mobile_app.**
+
+# MediaPipe Tasks Vision & Face Landmarker
+-keep class com.google.mediapipe.** { *; }
+-dontwarn com.google.mediapipe.**

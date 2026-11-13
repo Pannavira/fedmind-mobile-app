@@ -75,6 +75,7 @@ class LocalPreprocessingService {
     required List<double> audio,
     required List<double> visual,
     required List<double> text,
+    bool disableVisualBranch = false,
   }) {
     double calculateVariance(List<double> arr) {
       if (arr.isEmpty) return 0.0;
@@ -89,17 +90,22 @@ class LocalPreprocessingService {
 
     final lowText = textVar < 1e-4;
     final poorAudio = audioVar < 1e-4;
-    final poorVisual = visualVar < 1e-4;
+    final poorVisual = disableVisualBranch || visualVar < 1e-4;
 
     final details = <String>[];
     if (lowText) details.add('Very low text variance (minimal responses)');
     if (poorAudio) details.add('Low audio energy or quiet recording');
-    if (poorVisual) details.add('Flat facial dynamics or landmark activity');
+    if (disableVisualBranch) {
+      details.add('Visual branch disabled (native face extractor unavailable on this platform)');
+    } else if (poorVisual) {
+      details.add('Flat facial dynamics or landmark activity');
+    }
 
     return {
       'low_text_information': lowText,
       'poor_audio_quality': poorAudio,
       'poor_visual_quality': poorVisual,
+      'visual_branch_disabled': disableVisualBranch,
       'details': details.isNotEmpty ? details.join('; ') : 'Multimodal signal quality within normal parameters.',
     };
   }
@@ -109,6 +115,7 @@ class LocalPreprocessingService {
     required List<double> audioInput,
     required List<double> visualInput,
     required List<double> textInput,
+    bool disableVisualBranch = false,
   }) async {
     await initialize();
 
@@ -117,11 +124,14 @@ class LocalPreprocessingService {
       audio: audioInput,
       visual: visualInput,
       text: textInput,
+      disableVisualBranch: disableVisualBranch,
     );
 
     // 2. Normalisasi Z-Score
     final normAudio = normalizeFeature(audioInput, 'audio');
-    final normVisual = normalizeFeature(visualInput, 'visual');
+    final normVisual = disableVisualBranch
+        ? List<double>.filled(75, 0.0)
+        : normalizeFeature(visualInput, 'visual');
     final normText = normalizeFeature(textInput, 'text');
 
     // 3. Adaptasi Temporal Sequence (T=512)

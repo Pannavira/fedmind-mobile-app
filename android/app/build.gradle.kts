@@ -45,6 +45,10 @@ android {
             )
         }
     }
+
+    androidResources {
+        noCompress += listOf("task")
+    }
 }
 
 kotlin {
@@ -58,5 +62,6 @@ flutter {
 }
 
 dependencies {
+    implementation("com.google.mediapipe:tasks-vision:0.10.29")
     implementation("com.google.mlkit:face-detection:16.1.7")
 }

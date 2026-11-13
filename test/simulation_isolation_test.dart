@@ -23,6 +23,7 @@ class MockScreeningRepository extends Fake implements ScreeningRepository {
     String? sessionId,
     String? counselorNote,
     String? transcription,
+    bool disableVisualBranch = false,
   }) async {
     return ScreeningResponse(
       screeningId: 'SIM-${DateTime.now().millisecondsSinceEpoch}',

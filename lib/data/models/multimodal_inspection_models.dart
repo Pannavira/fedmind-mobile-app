@@ -206,6 +206,7 @@ class MultimodalInspectionData {
   final double visualLatentNorm;
   final double textLatentNorm;
   final List<CoalitionStepScore> coalitionScores;
+  final bool isVisualBranchDisabled;
 
   const MultimodalInspectionData({
     required this.participantId,
@@ -252,6 +253,7 @@ class MultimodalInspectionData {
     this.visualLatentNorm = 1.0,
     this.textLatentNorm = 1.0,
     this.coalitionScores = const [],
+    this.isVisualBranchDisabled = false,
   });
 
   MultimodalInspectionData copyWithCalculation({
@@ -305,6 +307,7 @@ class MultimodalInspectionData {
       visualLatentNorm: visualLatentNorm ?? this.visualLatentNorm,
       textLatentNorm: textLatentNorm ?? this.textLatentNorm,
       coalitionScores: coalitionScores ?? this.coalitionScores,
+      isVisualBranchDisabled: isVisualBranchDisabled,
     );
   }
 
@@ -356,6 +359,7 @@ class MultimodalInspectionData {
       visualLatentNorm: visualLatentNorm,
       textLatentNorm: textLatentNorm,
       coalitionScores: coalitionScores,
+      isVisualBranchDisabled: isVisualBranchDisabled,
     );
   }
 
@@ -404,6 +408,7 @@ class MultimodalInspectionData {
     'visualLatentNorm': visualLatentNorm,
     'textLatentNorm': textLatentNorm,
     'coalitionScores': coalitionScores.map((e) => e.toJson()).toList(),
+    'isVisualBranchDisabled': isVisualBranchDisabled,
   };
 
   factory MultimodalInspectionData.fromJson(Map<String, dynamic> json) => MultimodalInspectionData(
@@ -481,5 +486,6 @@ class MultimodalInspectionData {
             ?.map((e) => CoalitionStepScore.fromJson(e as Map<String, dynamic>))
             .toList() ??
         const [],
+    isVisualBranchDisabled: json['isVisualBranchDisabled'] as bool? ?? false,
   );
 }
