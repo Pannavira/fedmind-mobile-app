@@ -7,6 +7,25 @@ import 'package:flutter/services.dart';
 import '../../data/models/multimodal_inspection_models.dart';
 import 'on_device_whisper_service.dart';
 
+/// Pengecualian ketika kualitas modalitas visual tidak memenuhi ambang batas
+/// keberadaan wajah pada frame video.
+class FaceNotDetectedException implements Exception {
+  final int facesDetected;
+  final int framesAnalyzed;
+  final double detectionRatePct;
+  final String message;
+
+  FaceNotDetectedException({
+    required this.facesDetected,
+    required this.framesAnalyzed,
+    required this.detectionRatePct,
+    required this.message,
+  });
+
+  @override
+  String toString() => message;
+}
+
 class ExtractedMultimodalFeatures {
   final String participantId;
   final String videoPath;
@@ -216,6 +235,39 @@ class MultimodalExtractorService {
     return out;
   }
 
+  /// Memvalidasi apakah wajah terdeteksi memadai pada sampel frame video.
+  /// Melempar [FaceNotDetectedException] jika wajah tidak terlihat atau di bawah [minFaceDetectionRate].
+  static void validateVisualFacePresence({
+    required int facesDetectedCount,
+    required int framesAnalyzed,
+    double minFaceDetectionRate = 0.20,
+  }) {
+    if (framesAnalyzed <= 0 || facesDetectedCount <= 0) {
+      throw FaceNotDetectedException(
+        facesDetected: facesDetectedCount,
+        framesAnalyzed: framesAnalyzed,
+        detectionRatePct: 0.0,
+        message:
+            'Wajah tidak terlihat pada rekaman video ($facesDetectedCount dari $framesAnalyzed frame). '
+            'Silakan rekam ulang dengan wajah menghadap kamera di dalam bingkai oval.',
+      );
+    }
+
+    final rate = facesDetectedCount / framesAnalyzed;
+    if (rate < minFaceDetectionRate) {
+      final pct = (rate * 100).toStringAsFixed(0);
+      final minPct = (minFaceDetectionRate * 100).toStringAsFixed(0);
+      throw FaceNotDetectedException(
+        facesDetected: facesDetectedCount,
+        framesAnalyzed: framesAnalyzed,
+        detectionRatePct: rate * 100,
+        message:
+            'Wajah hanya terdeteksi pada $pct% frame ($facesDetectedCount/$framesAnalyzed, minimal $minPct%). '
+            'Pastikan wajah tetap terlihat jelas di kamera dan rekam ulang.',
+      );
+    }
+  }
+
   /// Mengekstrak fitur multimodal secara RIIL dari berkas video lokal on-device:
   /// 1. Visual (75D): Ekstraksi frame video native + deteksi wajah & analisis Action Units
   /// 2. Audio (248D): Dekode PCM hardware + STFT Radix-2 FFT + Mel-Filterbank + MFCC + Pitch F0
@@ -225,6 +277,8 @@ class MultimodalExtractorService {
     required String participantId,
     String? userNote,
     String? clientTranscript,
+    bool requireFaceDetection = true,
+    double minFaceDetectionRate = 0.20,
     void Function(String stage, double progress)? onProgress,
   }) async {
     final file = File(videoPath);
@@ -329,6 +383,15 @@ class MultimodalExtractorService {
       effectiveDurationSec = pcmSamples.isNotEmpty
           ? max(3.0, pcmSamples.length / max(1000, sampleRate))
           : max(5.0, visualFrames.length * 1.5);
+    }
+
+    // Quality gate modalitas visual: pastikan wajah benar-benar terlihat sebelum inferensi ONNX
+    if (requireFaceDetection) {
+      validateVisualFacePresence(
+        facesDetectedCount: facesDetectedCount,
+        framesAnalyzed: visualFrames.length,
+        minFaceDetectionRate: minFaceDetectionRate,
+      );
     }
 
     // Tahap 2: Hitung 75 Fitur Visual dari dinamika frame wajah
@@ -671,24 +734,30 @@ class MultimodalExtractorService {
       );
     }
 
+    // Gunakan hanya frame dengan wajah terdeteksi untuk fitur AU agar frame kosong/latar tidak mencemari sinyal
+    final int faceCount =
+        frames.where((f) => (f['faceFound'] ?? 0.0) > 0.5).length;
+    final List<Map<String, double>> activeFrames = faceCount > 0
+        ? frames.where((f) => (f['faceFound'] ?? 0.0) > 0.5).toList()
+        : frames;
+
     // Kalibrasi skala adaptif untuk mendukung ekstraktor native lama (64x64 Sobel mentah ~0.25..0.55)
     // maupun ekstraktor native baru yang sudah diamplifikasi (~0.65..1.60), tanpa mengubah rasio antar-AU.
     double rawCueSum = 0.0;
-    for (final f in frames) {
+    for (final f in activeFrames) {
       rawCueSum += ((f['browActivation'] ?? 0.5) +
               (f['eyeOpenness'] ?? 0.5) +
               (f['cheekActivation'] ?? 0.5) +
               (f['mouthActivation'] ?? 0.5)) *
           0.25;
     }
-    final avgRawCue = rawCueSum / frames.length;
+    final avgRawCue = rawCueSum / activeFrames.length;
     final cueScale = avgRawCue < 0.68
         ? (0.92 / max(0.18, avgRawCue)).clamp(1.0, 2.85)
         : 1.0;
 
-    // Ekstrak deret waktu 18 sinyal Action Unit & Pose Kepala di sepanjang frame video
+    // Ekstrak deret waktu 18 sinyal Action Unit & Pose Kepala di sepanjang frame video terdeteksi
     final series = List<List<double>>.generate(19, (_) => <double>[]);
-    int faceCount = 0;
     double signedPitchSum = 0.0;
     final rawBrowList = <double>[];
     final rawMouthList = <double>[];
@@ -696,8 +765,7 @@ class MultimodalExtractorService {
     final rawCheekList = <double>[];
     final rawAsymList = <double>[];
 
-    for (final f in frames) {
-      if ((f['faceFound'] ?? 0.0) > 0.5) faceCount++;
+    for (final f in activeFrames) {
       final brow = (f['browActivation'] ?? 0.8) * cueScale;
       final eye = (f['eyeOpenness'] ?? 0.9) * cueScale;
       final cheek = (f['cheekActivation'] ?? 0.7) * cueScale;
@@ -795,7 +863,7 @@ class MultimodalExtractorService {
     final au15Mean = seriesStatsList[10].mean;
     final headPoseMean = seriesStatsList[17].mean;
     final faceRatio = faceCount / frames.length;
-    final avgSignedPitch = signedPitchSum / frames.length;
+    final avgSignedPitch = signedPitchSum / activeFrames.length;
 
     final browStats = _calcSeriesStats(rawBrowList);
     final mouthStats = _calcSeriesStats(rawMouthList);
@@ -1751,7 +1819,7 @@ class MultimodalExtractorService {
 
       String exprLabel;
       if (!faceFound) {
-        exprLabel = 'Wajah Tertunduk / Di Luar Area Fokus';
+        exprLabel = 'Wajah Tidak Terlihat / Di Luar Area Fokus';
       } else if (eX < -7.5) {
         exprLabel = 'Wajah Terdeteksi • Posisi Kepala Cenderung Menunduk';
       } else if (motion < 0.20 && smile < 0.62) {

@@ -6,6 +6,7 @@ import 'package:permission_handler/permission_handler.dart';
 import '../../../core/constants/edaic_interview_protocol.dart';
 import '../../../core/services/local_storage_service.dart';
 import '../../../core/services/mic_session_service.dart';
+import '../../../core/services/realtime_face_detector_service.dart';
 import 'widgets/interactive_interview_overlay.dart';
 
 /// Hasil rekaman observasi klinis beserta transkrip tuturan real-time
@@ -77,6 +78,20 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
   // Real-Time Speech Recognition (Google Native SpeechRecognizer)
   String _liveTranscript = '';
 
+  // Real-Time Face Presence Detection (Google ML Kit)
+  final RealtimeFaceDetectorService _faceDetectorService =
+      RealtimeFaceDetectorService();
+  RealtimeFaceEvaluation _faceEval = const RealtimeFaceEvaluation(
+    status: RealtimeFaceStatus.checking,
+    faceCount: 0,
+    message: 'Mendeteksi wajah pada kamera...',
+  );
+  bool _isProcessingFaceFrame = false;
+  DateTime _lastFaceCheckAt = DateTime.fromMillisecondsSinceEpoch(0);
+  bool _hasCompletedInitialFaceCheck = false;
+  bool _receivedRecordingStreamFrame = false;
+  int _noFaceConsecutiveChecks = 0;
+
   Timer? _timer;
   int _secondsRecorded = 0;
 
@@ -94,6 +109,8 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
     if (_isRecording) {
       MicSessionService.stop();
     }
+    _stopPreviewFaceStreamSync();
+    _faceDetectorService.dispose();
     _controller?.dispose();
     super.dispose();
   }
@@ -105,6 +122,7 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
       return;
     }
     if (state == AppLifecycleState.inactive) {
+      _stopPreviewFaceStreamSync();
       cameraController.dispose();
     } else if (state == AppLifecycleState.resumed) {
       _initCamera(_selectedCameraIndex);
@@ -161,18 +179,24 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
       // Jika controller sudah ada dan aktif, gunakan setDescription (standar resmi Camera Flutter)
       // agar CameraX tidak melepaskan SurfaceProvider / unbindAll secara bersamaan
       if (_controller != null && _controller!.value.isInitialized) {
+        await _stopPreviewFaceStream();
+        _resetFaceDetectionState();
         await _controller!.setDescription(targetCamera);
         if (mounted) {
           setState(() {
             _isCameraInitialized = true;
             _isSwitchingCamera = false;
           });
+          await _startPreviewFaceStream();
         }
       } else {
         final newController = CameraController(
           targetCamera,
           ResolutionPreset.medium,
           enableAudio: false, // mikrofon dipegang MicSession (satu pemegang) agar tidak berebut dengan dictation
+          imageFormatGroup: Platform.isAndroid
+              ? ImageFormatGroup.nv21
+              : ImageFormatGroup.bgra8888,
         );
 
         newController.addListener(() {
@@ -188,6 +212,7 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
         }
 
         final oldController = _controller;
+        _resetFaceDetectionState();
         setState(() {
           _controller = newController;
           _isCameraInitialized = true;
@@ -197,6 +222,7 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
         if (oldController != null) {
           await oldController.dispose();
         }
+        await _startPreviewFaceStream();
       }
     } catch (e) {
       debugPrint('[ClinicalCamera] Gagal menginisialisasi kamera: $e');
@@ -206,6 +232,11 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
         final old = _controller;
         _controller = null;
         if (old != null) {
+          if (old.value.isStreamingImages) {
+            try {
+              await old.stopImageStream();
+            } catch (_) {}
+          }
           await old.dispose();
         }
 
@@ -213,17 +244,22 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
           _availableCameras[_selectedCameraIndex],
           ResolutionPreset.medium,
           enableAudio: false,
+          imageFormatGroup: Platform.isAndroid
+              ? ImageFormatGroup.nv21
+              : ImageFormatGroup.bgra8888,
         );
         fallbackController.addListener(() {
           if (mounted) setState(() {});
         });
         await fallbackController.initialize();
         if (mounted) {
+          _resetFaceDetectionState();
           setState(() {
             _controller = fallbackController;
             _isCameraInitialized = true;
             _isSwitchingCamera = false;
           });
+          await _startPreviewFaceStream();
         }
       } catch (fallbackError) {
         if (mounted) {
@@ -233,6 +269,109 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
           });
         }
       }
+    }
+  }
+
+  void _resetFaceDetectionState() {
+    _hasCompletedInitialFaceCheck = false;
+    _noFaceConsecutiveChecks = 0;
+    _faceEval = const RealtimeFaceEvaluation(
+      status: RealtimeFaceStatus.checking,
+      faceCount: 0,
+      message: 'Mendeteksi wajah pada kamera...',
+    );
+  }
+
+  Future<void> _startPreviewFaceStream() async {
+    if (!(Platform.isAndroid || Platform.isIOS)) return;
+    final controller = _controller;
+    if (controller == null ||
+        !controller.value.isInitialized ||
+        _isRecording ||
+        controller.value.isStreamingImages) {
+      return;
+    }
+    try {
+      await controller.startImageStream(_onCameraFrame);
+    } catch (e) {
+      debugPrint('[ClinicalCamera] Stream deteksi wajah tidak didukung: $e');
+    }
+  }
+
+  Future<void> _stopPreviewFaceStream() async {
+    final controller = _controller;
+    if (controller == null ||
+        !controller.value.isInitialized ||
+        !controller.value.isStreamingImages) {
+      return;
+    }
+    try {
+      await controller.stopImageStream();
+    } catch (_) {}
+  }
+
+  void _stopPreviewFaceStreamSync() {
+    final controller = _controller;
+    if (controller == null ||
+        !controller.value.isInitialized ||
+        !controller.value.isStreamingImages) {
+      return;
+    }
+    controller.stopImageStream().catchError((_) {});
+  }
+
+  Future<void> _onCameraFrame(CameraImage image) async {
+    if (!mounted || _isSwitchingCamera) return;
+    if (_isRecording && !_receivedRecordingStreamFrame) {
+      _receivedRecordingStreamFrame = true;
+    }
+
+    final now = DateTime.now();
+    if (_isProcessingFaceFrame ||
+        now.difference(_lastFaceCheckAt).inMilliseconds < 350) {
+      return;
+    }
+    if (_availableCameras.isEmpty ||
+        _selectedCameraIndex >= _availableCameras.length) {
+      return;
+    }
+
+    _isProcessingFaceFrame = true;
+    _lastFaceCheckAt = now;
+
+    try {
+      final controller = _controller;
+      if (controller == null || !controller.value.isInitialized) return;
+
+      final eval = await _faceDetectorService.processCameraImage(
+        image: image,
+        camera: _availableCameras[_selectedCameraIndex],
+        deviceOrientation: controller.value.deviceOrientation,
+      );
+      if (!mounted || eval == null) return;
+
+      // Histeresis ringan (2 frame gagal beruntun) saat berpindah dari terdeteksi -> tidak terlihat
+      // agar kotak indikator tidak berkedip saat klien berkedip cepat.
+      RealtimeFaceEvaluation nextEval = eval;
+      if (eval.status == RealtimeFaceStatus.noFace) {
+        _noFaceConsecutiveChecks++;
+        if (_hasCompletedInitialFaceCheck &&
+            _faceEval.isFacePresent &&
+            _noFaceConsecutiveChecks < 2) {
+          nextEval = _faceEval;
+        }
+      } else {
+        _noFaceConsecutiveChecks = 0;
+      }
+
+      setState(() {
+        _hasCompletedInitialFaceCheck = true;
+        _faceEval = nextEval;
+      });
+    } catch (e) {
+      debugPrint('[ClinicalCamera] Gagal memproses deteksi wajah real-time: $e');
+    } finally {
+      _isProcessingFaceFrame = false;
     }
   }
 
@@ -299,6 +438,47 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
     }
   }
 
+  Future<bool> _confirmStartWithoutFace() async {
+    final proceed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.face_retouching_off_rounded, color: Color(0xFFEF4444)),
+            SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'Wajah Tidak Terlihat di Kamera',
+                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800),
+              ),
+            ),
+          ],
+        ),
+        content: const Text(
+          'Detektor visual real-time belum mendeteksi wajah di dalam bingkai oval. '
+          'Jika direkam tanpa wajah yang terlihat, analisis ekspresi visual akan ditolak.\n\n'
+          'Pastikan wajah menghadap kamera dengan pencahayaan cukup.',
+          style: TextStyle(fontSize: 13, height: 1.4),
+        ),
+        actions: [
+          ElevatedButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            style: ElevatedButton.styleFrom(backgroundColor: _brandTeal),
+            child: const Text(
+              'Perbaiki Posisi',
+              style: TextStyle(color: Colors.white),
+            ),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Tetap Rekam'),
+          ),
+        ],
+      ),
+    );
+    return proceed ?? false;
+  }
+
   Future<void> _startRecording() async {
     if (_controller == null ||
         !_controller!.value.isInitialized ||
@@ -306,7 +486,16 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
       return;
     }
 
+    if (_hasCompletedInitialFaceCheck && !_faceEval.isFacePresent) {
+      final proceed = await _confirmStartWithoutFace();
+      if (!proceed || !mounted) return;
+    }
+
     try {
+      // Hentikan image stream preview terlebih dahulu sebelum mengikat VideoCapture CameraX
+      await _stopPreviewFaceStream();
+      _receivedRecordingStreamFrame = false;
+
       // 1) Mikrofon tunggal (WAV + dictation) dimulai lebih dulu agar menutupi seluruh video
       await MicSessionService.start(
         onTranscript: (text) {
@@ -321,11 +510,15 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
         },
       );
 
-      // 2) Video tanpa audio (audio ditangani MicSession)
+      // 2) Video tanpa audio (audio ditangani MicSession), sertakan stream jika hardware LEVEL_3 mendukung
       try {
-        await _controller!.startVideoRecording();
+        await _controller!.startVideoRecording(
+          onAvailable:
+              (Platform.isAndroid || Platform.isIOS) ? _onCameraFrame : null,
+        );
       } catch (e) {
         await MicSessionService.stop();
+        await _startPreviewFaceStream();
         rethrow;
       }
       setState(() {
@@ -493,50 +686,67 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
               ),
             ),
 
-          // 2. Panduan Kalibrasi Wajah FACS (Proporsional di Tengah, Bebas Halangan)
+          // 2. Panduan Kalibrasi Wajah FACS Real-Time (Proporsional di Tengah, Bebas Halangan)
           IgnorePointer(
             child: Center(
-              child: Container(
-                width: 220,
-                height: 280,
-                decoration: BoxDecoration(
-                  border: Border.all(
-                    color: _isRecording
-                        ? const Color(0xFF10B981).withValues(alpha: 0.85)
-                        : Colors.white.withValues(alpha: 0.65),
-                    width: 2.2,
-                  ),
-                  borderRadius:
-                      const BorderRadius.all(Radius.elliptical(220, 280)),
-                ),
-                child: Align(
-                  alignment: Alignment.bottomCenter,
-                  child: Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 4,
+              child: Builder(
+                builder: (context) {
+                  final ({Color color, IconData icon, String label}) guide =
+                      _resolveFaceGuideVisuals();
+                  return AnimatedContainer(
+                    duration: const Duration(milliseconds: 220),
+                    width: 220,
+                    height: 280,
+                    decoration: BoxDecoration(
+                      border: Border.all(
+                        color: guide.color.withValues(alpha: 0.9),
+                        width: 2.5,
                       ),
-                      decoration: BoxDecoration(
-                        color: Colors.black54,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Text(
-                        _isRecording
-                            ? 'FACS ROI Terkunci • Akuisisi Aktif'
-                            : (_isBackCamera
-                                ? 'Arahkan Kamera ke Wajah Klien (Zona FACS)'
-                                : 'Kalibrasi Wajah Klien pada Zona FACS'),
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 10.5,
-                          fontWeight: FontWeight.w700,
+                      borderRadius:
+                          const BorderRadius.all(Radius.elliptical(220, 280)),
+                    ),
+                    child: Align(
+                      alignment: Alignment.bottomCenter,
+                      child: Padding(
+                        padding: const EdgeInsets.only(bottom: 12, left: 8, right: 8),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 5,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.72),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: guide.color.withValues(alpha: 0.65),
+                              width: 1,
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(guide.icon, color: guide.color, size: 14),
+                              const SizedBox(width: 5),
+                              Flexible(
+                                child: Text(
+                                  guide.label,
+                                  textAlign: TextAlign.center,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 10.5,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                ),
+                  );
+                },
               ),
             ),
           ),
@@ -981,6 +1191,50 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
         ],
       ),
     );
+  }
+
+  ({Color color, IconData icon, String label}) _resolveFaceGuideVisuals() {
+    if (_isRecording && !_receivedRecordingStreamFrame) {
+      return (
+        color: const Color(0xFF10B981),
+        icon: Icons.lock_outline_rounded,
+        label: 'FACS ROI Terkunci • Akuisisi Aktif',
+      );
+    }
+
+    switch (_faceEval.status) {
+      case RealtimeFaceStatus.detected:
+        return (
+          color: const Color(0xFF10B981),
+          icon: Icons.face_retouching_natural_rounded,
+          label: _isRecording
+              ? 'Wajah Terdeteksi • Akuisisi Aktif'
+              : 'Wajah Terdeteksi • Siap Rekam',
+        );
+      case RealtimeFaceStatus.outOfZone:
+        return (
+          color: const Color(0xFFF59E0B),
+          icon: Icons.center_focus_weak_rounded,
+          label: _faceEval.message,
+        );
+      case RealtimeFaceStatus.noFace:
+        return (
+          color: const Color(0xFFEF4444),
+          icon: Icons.face_retouching_off_rounded,
+          label: _isRecording
+              ? 'Wajah Tidak Terlihat • Dekatkan ke Oval'
+              : 'Wajah Tidak Terlihat di Kamera',
+        );
+      case RealtimeFaceStatus.checking:
+      case RealtimeFaceStatus.recordingActive:
+        return (
+          color: Colors.white70,
+          icon: Icons.face_rounded,
+          label: _isBackCamera
+              ? 'Mendeteksi Wajah Klien (Zona FACS)...'
+              : 'Mendeteksi Wajah pada Zona FACS...',
+        );
+    }
   }
 
   Widget _buildLensOptionChip({

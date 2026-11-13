@@ -56,3 +56,7 @@ kotlin {
 flutter {
     source = "../.."
 }
+
+dependencies {
+    implementation("com.google.mlkit:face-detection:16.1.7")
+}

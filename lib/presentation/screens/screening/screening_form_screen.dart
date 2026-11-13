@@ -901,6 +901,55 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
           ),
         );
       }
+    } on FaceNotDetectedException catch (e) {
+      if (dialogShown && mounted) {
+        Navigator.of(context, rootNavigator: true).pop();
+        dialogShown = false;
+      }
+      _isSubmitting = false;
+      if (mounted) {
+        final retryRecord = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Row(
+              children: [
+                Icon(Icons.face_retouching_off_rounded,
+                    color: Color(0xFFDC2626)),
+                SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Wajah Tidak Terlihat di Video',
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800),
+                  ),
+                ),
+              ],
+            ),
+            content: Text(
+              e.message,
+              style: const TextStyle(fontSize: 13, height: 1.45),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(false),
+                child: const Text('Tutup'),
+              ),
+              ElevatedButton.icon(
+                onPressed: () => Navigator.of(ctx).pop(true),
+                style: ElevatedButton.styleFrom(backgroundColor: _brandTealDark),
+                icon: const Icon(Icons.videocam_rounded,
+                    color: Colors.white, size: 18),
+                label: const Text(
+                  'Rekam Ulang',
+                  style: TextStyle(color: Colors.white),
+                ),
+              ),
+            ],
+          ),
+        );
+        if (retryRecord == true && mounted) {
+          await _openClinicalCamera();
+        }
+      }
     } catch (e) {
       if (dialogShown && mounted) {
         Navigator.of(context, rootNavigator: true).pop();

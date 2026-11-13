@@ -3,8 +3,6 @@ package com.fedmind.fedmind_mobile_app
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Color
-import android.graphics.PointF
-import android.media.FaceDetector
 import android.media.MediaCodec
 import android.media.MediaExtractor
 import android.media.MediaFormat
@@ -16,6 +14,11 @@ import android.os.Looper
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
+import com.google.android.gms.tasks.Tasks
+import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.face.FaceDetection
+import com.google.mlkit.vision.face.FaceDetectorOptions
+import com.google.mlkit.vision.face.FaceLandmark
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -23,7 +26,9 @@ import java.io.File
 import java.io.RandomAccessFile
 import java.nio.ByteOrder
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import kotlin.math.abs
+import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sqrt
@@ -194,11 +199,19 @@ class MainActivity : FlutterActivity() {
 
     /**
      * Mengekstrak frame video secara riil menggunakan MediaMetadataRetriever,
-     * mendeteksi wajah menggunakan Android native FaceDetector (RGB_565),
+     * mendeteksi wajah menggunakan Google ML Kit Face Detection (akurat untuk pose miring/menunduk),
      * dan menghitung dinamika ekspresi sub-area wajah (Alis, Mata, Mulut, Pose Kepala, & Aliran Gerak).
      */
     private fun extractVisualFrames(videoPath: String, numFrames: Int): Map<String, Any> {
         val retriever = MediaMetadataRetriever()
+        val mlkitOptions = FaceDetectorOptions.Builder()
+            .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_ACCURATE)
+            .setLandmarkMode(FaceDetectorOptions.LANDMARK_MODE_ALL)
+            .setClassificationMode(FaceDetectorOptions.CLASSIFICATION_MODE_ALL)
+            .setMinFaceSize(0.12f)
+            .build()
+        val mlkitDetector = FaceDetection.getClient(mlkitOptions)
+
         val frameFeatures = ArrayList<Map<String, Double>>()
         var durationMs = 0L
         var facesDetectedCount = 0
@@ -231,19 +244,13 @@ class MainActivity : FlutterActivity() {
 
                 if (rawBitmap == null) continue
 
-                // Skala ke ukuran genap agar kompatibel dengan FaceDetector RGB_565
-                val targetW = 240
+                val targetW = 320
                 val targetH = ((rawBitmap.height.toFloat() / rawBitmap.width.coerceAtLeast(1)) * targetW)
                     .toInt()
-                    .coerceAtLeast(160)
+                    .coerceAtLeast(180)
                     .let { if (it % 2 != 0) it + 1 else it }
 
                 val scaled = Bitmap.createScaledBitmap(rawBitmap, targetW, targetH, true)
-                val rgb565 = try {
-                    scaled.copy(Bitmap.Config.RGB_565, false)
-                } catch (_: Throwable) {
-                    null
-                }
 
                 var faceFound = 0.0
                 var confidence = 0.0
@@ -252,67 +259,53 @@ class MainActivity : FlutterActivity() {
                 var eulerZ = 0.0
                 var eyeDistRatio = 0.25
 
-                // Default bounding box tengah sebelum deteksi
+                // Default bounding box tengah jika wajah tidak terdeteksi
                 var cropLeft = (targetW * 0.22).toInt()
                 var cropTop = (targetH * 0.18).toInt()
                 var cropRight = (targetW * 0.78).toInt()
                 var cropBottom = (targetH * 0.82).toInt()
 
-                if (rgb565 != null) {
-                    try {
-                        val detector = FaceDetector(targetW, targetH, 1)
-                        val faces = arrayOfNulls<FaceDetector.Face>(1)
-                        val found = detector.findFaces(rgb565, faces)
+                try {
+                    val inputImage = InputImage.fromBitmap(scaled, 0)
+                    val faces = Tasks.await(mlkitDetector.process(inputImage), 3, TimeUnit.SECONDS)
 
-                        if (found > 0 && faces[0] != null) {
-                            val face = faces[0]!!
-                            facesDetectedCount++
-                            faceFound = 1.0
-                            confidence = face.confidence().toDouble().coerceIn(0.35, 0.99)
-                            eulerX = face.pose(FaceDetector.Face.EULER_X).toDouble()
-                            eulerY = face.pose(FaceDetector.Face.EULER_Y).toDouble()
-                            eulerZ = face.pose(FaceDetector.Face.EULER_Z).toDouble()
+                    if (!faces.isNullOrEmpty()) {
+                        // Pilih wajah dengan area bounding box terbesar sebagai subjek utama
+                        val face = faces.maxByOrNull { f ->
+                            f.boundingBox.width().coerceAtLeast(1) * f.boundingBox.height().coerceAtLeast(1)
+                        }!!
+                        val box = face.boundingBox
+                        val boxAreaRatio = (box.width().coerceAtLeast(1) * box.height().coerceAtLeast(1)).toDouble() /
+                            (targetW * targetH).toDouble()
 
-                            val mid = PointF()
-                            face.getMidPoint(mid)
-                            val eyeDist = face.eyesDistance().coerceAtLeast(16f)
-                            eyeDistRatio = (eyeDist / targetW.toFloat()).toDouble().coerceIn(0.12, 0.48)
-
-                            // Jika Android FaceDetector mengembalikan 0.0 untuk pose Euler, estimasi dari posisi titik tengah mata
-                            if (abs(eulerX) < 0.01) {
-                                eulerX = ((0.40 - (mid.y / targetH.toDouble())) * 45.0).coerceIn(-28.0, 22.0)
-                            }
-                            if (abs(eulerY) < 0.01) {
-                                eulerY = (((mid.x / targetW.toDouble()) - 0.50) * 45.0).coerceIn(-30.0, 30.0)
-                            }
-
-                            cropLeft = (mid.x - eyeDist * 1.15f).toInt().coerceIn(0, targetW - 16)
-                            cropRight = (mid.x + eyeDist * 1.15f).toInt().coerceIn(cropLeft + 16, targetW)
-                            cropTop = (mid.y - eyeDist * 0.85f).toInt().coerceIn(0, targetH - 16)
-                            cropBottom = (mid.y + eyeDist * 1.65f).toInt().coerceIn(cropTop + 16, targetH)
-                        }
-                    } catch (_: Throwable) {
-                        // Biarkan lanjut ke evaluasi heuristik krominansi kulit di bawah
-                    }
-                }
-
-                // Jika FaceDetector gagal (misal wajah menunduk/miring), evaluasi distribusi piksel warna kulit
-                if (faceFound < 0.5) {
-                    val skinEst = estimateSkinFaceRegion(scaled, targetW, targetH)
-                    if (skinEst.skinRatio >= 0.16) {
                         facesDetectedCount++
                         faceFound = 1.0
-                        confidence = (0.48 + skinEst.skinRatio * 0.65).coerceIn(0.52, 0.82)
-                        cropLeft = skinEst.left
-                        cropTop = skinEst.top
-                        cropRight = skinEst.right
-                        cropBottom = skinEst.bottom
-                        eulerX = ((0.44 - skinEst.centerYNorm) * 48.0).coerceIn(-28.0, 20.0)
-                        eulerY = ((skinEst.centerXNorm - 0.50) * 42.0).coerceIn(-25.0, 25.0)
-                    } else {
-                        faceFound = 0.0
-                        confidence = (skinEst.skinRatio * 2.0).coerceIn(0.05, 0.35)
+                        eulerX = face.headEulerAngleX.toDouble()
+                        eulerY = face.headEulerAngleY.toDouble()
+                        eulerZ = face.headEulerAngleZ.toDouble()
+
+                        val leftEye = face.getLandmark(FaceLandmark.LEFT_EYE)?.position
+                        val rightEye = face.getLandmark(FaceLandmark.RIGHT_EYE)?.position
+                        if (leftEye != null && rightEye != null) {
+                            val eyeDist = hypot(
+                                (rightEye.x - leftEye.x).toDouble(),
+                                (rightEye.y - leftEye.y).toDouble()
+                            ).coerceAtLeast(16.0)
+                            eyeDistRatio = (eyeDist / targetW.toDouble()).coerceIn(0.10, 0.48)
+                            confidence = (0.86 + boxAreaRatio * 0.30).coerceIn(0.84, 0.99)
+                        } else {
+                            eyeDistRatio = (box.width().toDouble() * 0.38 / targetW.toDouble()).coerceIn(0.10, 0.48)
+                            confidence = (0.78 + boxAreaRatio * 0.25).coerceIn(0.75, 0.94)
+                        }
+
+                        cropLeft = box.left.coerceIn(0, targetW - 16)
+                        cropRight = box.right.coerceIn(cropLeft + 16, targetW)
+                        cropTop = box.top.coerceIn(0, targetH - 16)
+                        cropBottom = box.bottom.coerceIn(cropTop + 16, targetH)
                     }
+                } catch (_: Throwable) {
+                    faceFound = 0.0
+                    confidence = 0.0
                 }
 
                 val faceCrop = Bitmap.createBitmap(
@@ -418,11 +411,14 @@ class MainActivity : FlutterActivity() {
 
                 normFace.recycle()
                 faceCrop.recycle()
-                rgb565?.recycle()
                 scaled.recycle()
                 rawBitmap.recycle()
             }
         } finally {
+            try {
+                mlkitDetector.close()
+            } catch (_: Exception) {
+            }
             try {
                 retriever.release()
             } catch (_: Exception) {
@@ -519,92 +515,6 @@ class MainActivity : FlutterActivity() {
             }
         }
         return if (count > 0) sum / count else 0.0
-    }
-
-    private data class SkinRegionEstimate(
-        val skinRatio: Double,
-        val left: Int,
-        val top: Int,
-        val right: Int,
-        val bottom: Int,
-        val centerXNorm: Double,
-        val centerYNorm: Double
-    )
-
-    /**
-     * Heuristik krominansi kulit (YCbCr / RGB) untuk mendeteksi posisi kepala/wajah
-     * ketika FaceDetector gagal (misal karena wajah tertunduk atau miring).
-     */
-    private fun estimateSkinFaceRegion(
-        bitmap: Bitmap,
-        width: Int,
-        height: Int
-    ): SkinRegionEstimate {
-        var skinCount = 0
-        var totalSampled = 0
-        var sumX = 0.0
-        var sumY = 0.0
-        val marginX = (width * 0.10).toInt()
-        val marginY = (height * 0.08).toInt()
-
-        for (y in marginY until (height - marginY) step 3) {
-            for (x in marginX until (width - marginX) step 3) {
-                val c = bitmap.getPixel(x, y)
-                val r = Color.red(c)
-                val g = Color.green(c)
-                val b = Color.blue(c)
-                totalSampled++
-
-                val maxRgb = max(r, max(g, b))
-                val minRgb = min(r, min(g, b))
-                val cb = 128 - 0.168736 * r - 0.331264 * g + 0.5 * b
-                val cr = 128 + 0.5 * r - 0.418688 * g - 0.081312 * b
-
-                val isSkin = (r > 60 && g > 35 && b > 18 &&
-                        (maxRgb - minRgb) > 12 &&
-                        r > g && r > b &&
-                        cr >= 131.0 && cr <= 178.0 &&
-                        cb >= 75.0 && cb <= 132.0)
-
-                if (isSkin) {
-                    skinCount++
-                    sumX += x
-                    sumY += y
-                }
-            }
-        }
-
-        val ratio = if (totalSampled > 0) skinCount.toDouble() / totalSampled else 0.0
-        if (skinCount < 12) {
-            return SkinRegionEstimate(
-                skinRatio = ratio,
-                left = (width * 0.22).toInt(),
-                top = (height * 0.18).toInt(),
-                right = (width * 0.78).toInt(),
-                bottom = (height * 0.82).toInt(),
-                centerXNorm = 0.5,
-                centerYNorm = 0.48
-            )
-        }
-
-        val cx = sumX / skinCount
-        val cy = sumY / skinCount
-        val boxHalfW = (width * 0.27).toInt().coerceAtLeast(24)
-        val boxHalfH = (height * 0.31).toInt().coerceAtLeast(28)
-        val left = (cx.toInt() - boxHalfW).coerceIn(0, width - 32)
-        val right = (cx.toInt() + boxHalfW).coerceIn(left + 32, width)
-        val top = (cy.toInt() - boxHalfH).coerceIn(0, height - 32)
-        val bottom = (cy.toInt() + boxHalfH).coerceIn(top + 32, height)
-
-        return SkinRegionEstimate(
-            skinRatio = ratio,
-            left = left,
-            top = top,
-            right = right,
-            bottom = bottom,
-            centerXNorm = (cx / width.coerceAtLeast(1)).coerceIn(0.15, 0.85),
-            centerYNorm = (cy / height.coerceAtLeast(1)).coerceIn(0.15, 0.85)
-        )
     }
 
     /**
