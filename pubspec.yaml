@@ -84,6 +84,10 @@ flutter:
     - assets/models/fedmind_regressor.onnx
     - assets/models/train_norm_stats.json
     - assets/models/xai_baseline.json
+    - assets/models/fedmind_edge_client.onnx
+    - assets/models/fedmind_edge_regressor.onnx
+    - assets/models/train_norm_stats_edge.json
+    - assets/models/xai_baseline_edge.json
     - assets/models/mentalbert/mentalbert_mean_pool_int4.onnx
     - assets/models/mentalbert/vocab.txt
     - assets/models/mentalbert/tokenizer_config.json
