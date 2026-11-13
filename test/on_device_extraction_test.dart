@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 import 'package:flutter/services.dart';
@@ -522,5 +523,98 @@ void main() {
         throwsA(isA<String>()),
       );
     });
+
+    test(
+      'OnDeviceWhisperService detects English, falls back to counselorNote, and preserves negation polarity',
+      () async {
+        expect(
+          OnDeviceWhisperService.isLikelyEnglishText(
+            'I have been feeling okay lately and sleeping well every night.',
+          ),
+          isTrue,
+        );
+        expect(
+          OnDeviceWhisperService.isLikelyEnglishText(
+            'Saya merasa baik-baik saja dan tidak ada yang membuat saya sedih.',
+          ),
+          isFalse,
+        );
+
+        final samples = List<double>.generate(
+          16000,
+          (i) => 0.02 * sin(2 * pi * 140 * i / 16000),
+        );
+
+        // 1) English input passed via counselorNote when clientTranscript is empty -> direct bypass
+        final enBypass = await OnDeviceWhisperService.transcribeAndTranslate(
+          videoPath: tempFileA.path,
+          pcmSamples: samples,
+          sourceSampleRate: 16000,
+          durationSec: 5.0,
+          counselorNote:
+              'Nothing has made me feel sad today and I slept quite well.',
+        );
+        expect(enBypass.isSuccess, isTrue);
+        expect(
+          enBypass.englishTranscript,
+          equals('Nothing has made me feel sad today and I slept quite well.'),
+        );
+
+        // 2) Negation parity guard prevents ML Kit flipping "tidak ada yang membuat saya sedih" -> "has made me sad"
+        final guarded = OnDeviceWhisperService.enforceNegationParity(
+          'tidak ada yang membuat saya sedih',
+          'has made me sad',
+        );
+        expect(guarded.toLowerCase(), contains('sad'));
+        expect(
+          RegExp(r'\b(not|nothing|no|never)\b', caseSensitive: false)
+              .hasMatch(guarded),
+          isTrue,
+        );
+
+        // 3) Dictionary translator directly preserves negation on "tidak ada yang membuat saya sedih"
+        final dictTranslated = OnDeviceWhisperService.translateIndonesianToEnglish(
+          'tidak ada yang membuat saya sedih',
+        );
+        expect(dictTranslated.toLowerCase(), contains('nothing'));
+        expect(dictTranslated.toLowerCase(), contains('sad'));
+      },
+    );
+
+    test(
+      'Visual 75D & Audio 248D match training schema & healthy z-scores against train_norm_stats.json',
+      () async {
+        final feat = await MultimodalExtractorService.extractFromLocalVideo(
+          videoPath: tempFileA.path,
+          participantId: 'P_PARITY_01',
+        );
+
+        expect(feat.visualFeatures.length, equals(75));
+        expect(feat.audioFeatures.length, equals(248));
+
+        // Visual fraction columns must stay within [0, 1]
+        for (int au = 0; au < 16; au++) {
+          final fracGt1 = feat.visualFeatures[au * 4 + 3];
+          expect(fracGt1, inInclusiveRange(0.0, 1.0));
+        }
+        expect(feat.visualFeatures[64], inInclusiveRange(0.0, 1.0)); // Duchenne
+        expect(feat.visualFeatures[68], inInclusiveRange(0.0, 1.0)); // Gaze < -0.1 rad
+
+        // Verify z-scores against train_norm_stats.json
+        final statsMap = json.decode(
+          await File('assets/models/train_norm_stats.json').readAsString(),
+        ) as Map<String, dynamic>;
+        final visMean = (statsMap['visual']['mean'] as List).cast<num>();
+        final visStd = (statsMap['visual']['std'] as List).cast<num>();
+
+        // Index 6 (p75 of AU02_r) previously spiked to +23.8 sigma; now must be well bounded
+        final zIdx6 = (feat.visualFeatures[6] - visMean[6].toDouble()) /
+            (visStd[6].toDouble() + 1e-7);
+        expect(zIdx6.abs(), lessThan(8.0));
+
+        // Audio[12] is OpenSMILE c0 log-energy mean (training mean ~75.96) -> must be strongly positive
+        expect(feat.audioFeatures[12], greaterThan(20.0));
+      },
+    );
   });
 }

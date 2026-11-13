@@ -156,7 +156,7 @@ class MainActivity : FlutterActivity() {
                     }
                     "extractVideoMultimodal" -> {
                         val videoPath = call.argument<String>("videoPath")
-                        val maxFrames = call.argument<Int>("maxFrames") ?: 16
+                        val maxFrames = call.argument<Int>("maxFrames") ?: 24
                         val targetSampleRate = call.argument<Int>("targetSampleRate") ?: 8000
                         val audioWavPath = call.argument<String>("audioWavPath")
 
@@ -227,7 +227,7 @@ class MainActivity : FlutterActivity() {
             val normSize = 64
 
             for (i in 0 until safeFrames) {
-                // Sampling merata dari 5% hingga 95% durasi video agar tidak terjebak di frame hitam awal/akhir
+                // Sampling merata pada titik tengah tiap segmen ((i + 0.5) / safeFrames) dari awal hingga akhir durasi video
                 val progress = (i + 0.5) / safeFrames.toDouble()
                 val timeUs = ((durationMs * 1000L) * progress).toLong().coerceAtLeast(0L)
                 val rawBitmap = try {
@@ -258,6 +258,11 @@ class MainActivity : FlutterActivity() {
                 var eulerY = 0.0
                 var eulerZ = 0.0
                 var eyeDistRatio = 0.25
+                var smilingProb = -1.0
+                var leftEyeOpenProb = -1.0
+                var rightEyeOpenProb = -1.0
+                var gazeAngleX = 0.0
+                var gazeAngleY = 0.16
 
                 // Default bounding box tengah jika wajah tidak terdeteksi
                 var cropLeft = (targetW * 0.22).toInt()
@@ -283,9 +288,16 @@ class MainActivity : FlutterActivity() {
                         eulerX = face.headEulerAngleX.toDouble()
                         eulerY = face.headEulerAngleY.toDouble()
                         eulerZ = face.headEulerAngleZ.toDouble()
+                        smilingProb = face.smilingProbability?.toDouble()?.coerceIn(0.0, 1.0) ?: -1.0
+                        leftEyeOpenProb = face.leftEyeOpenProbability?.toDouble()?.coerceIn(0.0, 1.0) ?: -1.0
+                        rightEyeOpenProb = face.rightEyeOpenProbability?.toDouble()?.coerceIn(0.0, 1.0) ?: -1.0
 
                         val leftEye = face.getLandmark(FaceLandmark.LEFT_EYE)?.position
                         val rightEye = face.getLandmark(FaceLandmark.RIGHT_EYE)?.position
+                        val noseBase = face.getLandmark(FaceLandmark.NOSE_BASE)?.position
+                        val pitchRad = -eulerX * Math.PI / 180.0
+                        val yawRad = eulerY * Math.PI / 180.0
+
                         if (leftEye != null && rightEye != null) {
                             val eyeDist = hypot(
                                 (rightEye.x - leftEye.x).toDouble(),
@@ -293,9 +305,22 @@ class MainActivity : FlutterActivity() {
                             ).coerceAtLeast(16.0)
                             eyeDistRatio = (eyeDist / targetW.toDouble()).coerceIn(0.10, 0.48)
                             confidence = (0.86 + boxAreaRatio * 0.30).coerceIn(0.84, 0.99)
+                            if (noseBase != null) {
+                                val midEyeX = (leftEye.x + rightEye.x) * 0.5
+                                val midEyeY = (leftEye.y + rightEye.y) * 0.5
+                                val dxNorm = ((noseBase.x - midEyeX) / eyeDist).coerceIn(-0.6, 0.6)
+                                val dyNorm = ((noseBase.y - midEyeY) / eyeDist).coerceIn(0.3, 1.2)
+                                gazeAngleX = yawRad * 0.65 + dxNorm * 0.35
+                                gazeAngleY = pitchRad * 0.75 + (dyNorm - 0.68) * 0.35 + 0.16
+                            } else {
+                                gazeAngleX = yawRad
+                                gazeAngleY = pitchRad + 0.16
+                            }
                         } else {
                             eyeDistRatio = (box.width().toDouble() * 0.38 / targetW.toDouble()).coerceIn(0.10, 0.48)
                             confidence = (0.78 + boxAreaRatio * 0.25).coerceIn(0.75, 0.94)
+                            gazeAngleX = yawRad
+                            gazeAngleY = pitchRad + 0.16
                         }
 
                         cropLeft = box.left.coerceIn(0, targetW - 16)
@@ -399,6 +424,11 @@ class MainActivity : FlutterActivity() {
                         "eulerY" to eulerY,
                         "eulerZ" to eulerZ,
                         "eyeDistRatio" to eyeDistRatio,
+                        "smilingProb" to smilingProb,
+                        "leftEyeOpenProb" to leftEyeOpenProb,
+                        "rightEyeOpenProb" to rightEyeOpenProb,
+                        "gazeAngleX" to gazeAngleX,
+                        "gazeAngleY" to gazeAngleY,
                         "browActivation" to browActivation,
                         "eyeOpenness" to eyeOpenness,
                         "cheekActivation" to cheekActivation,

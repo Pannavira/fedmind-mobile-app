@@ -77,29 +77,37 @@ void main() {
       expect(
         () => MultimodalExtractorService.validateVisualFacePresence(
           facesDetectedCount: 0,
-          framesAnalyzed: 16,
+          framesAnalyzed: 24,
         ),
         throwsA(isA<FaceNotDetectedException>()),
       );
     });
 
-    test('melempar FaceNotDetectedException jika rasio deteksi di bawah ambang 20%', () {
+    test('melempar FaceNotDetectedException jika rasio deteksi di bawah ambang default 40%', () {
       expect(
         () => MultimodalExtractorService.validateVisualFacePresence(
-          facesDetectedCount: 2,
-          framesAnalyzed: 16,
-          minFaceDetectionRate: 0.20,
+          facesDetectedCount: 9,
+          framesAnalyzed: 24,
         ),
         throwsA(isA<FaceNotDetectedException>()),
       );
     });
 
-    test('lolos validasi jika wajah terdeteksi memenuhi ambang minimal', () {
+    test('melempar FaceNotDetectedException jika jumlah frame wajah valid di bawah batas minimal 6 frame', () {
       expect(
         () => MultimodalExtractorService.validateVisualFacePresence(
-          facesDetectedCount: 4,
-          framesAnalyzed: 16,
-          minFaceDetectionRate: 0.20,
+          facesDetectedCount: 5,
+          framesAnalyzed: 12,
+        ),
+        throwsA(isA<FaceNotDetectedException>()),
+      );
+    });
+
+    test('lolos validasi jika wajah terdeteksi memenuhi ambang 40% dan minimal 6 frame', () {
+      expect(
+        () => MultimodalExtractorService.validateVisualFacePresence(
+          facesDetectedCount: 10,
+          framesAnalyzed: 24,
         ),
         returnsNormally,
       );
