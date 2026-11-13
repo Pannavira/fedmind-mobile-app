@@ -51,6 +51,7 @@ dependencies:
   google_mlkit_translation: ^1.0.2
   ffmpeg_kit_flutter_new_min: ^2.1.0
   speech_to_text: ^7.5.0
+  google_mlkit_face_detection: ^1.0.3
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -83,6 +84,10 @@ flutter:
     - assets/models/fedmind_regressor.onnx
     - assets/models/train_norm_stats.json
     - assets/models/xai_baseline.json
+    - assets/models/mentalbert/mentalbert_mean_pool_int4.onnx
+    - assets/models/mentalbert/vocab.txt
+    - assets/models/mentalbert/tokenizer_config.json
+    - assets/models/mentalbert/special_tokens_map.json
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

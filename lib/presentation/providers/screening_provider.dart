@@ -110,6 +110,9 @@ class ScreeningProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  bool get isMentalBertLoaded => repository.localInferenceService.isMentalBertLoaded;
+  String? get mentalBertError => repository.localInferenceService.mentalBertError;
+
   /// Cek kesiapan engine inferensi on-device (ONNX Edge Mobile)
   Future<void> checkServerHealth() async {
     _isCheckingHealth = true;
@@ -122,9 +125,14 @@ class ScreeningProvider extends ChangeNotifier {
       _isModelLoaded = true;
       _isEdgeHealthy = true;
       _serverDevice = 'Mobile NPU/CPU';
+      final mentalBertReady = repository.localInferenceService.isMentalBertLoaded;
+      final mentalBertErr = repository.localInferenceService.mentalBertError;
       _modelInfo = {
         'model': 'FedAvg FL-IID v1.0.0 (On-Device)',
         'architecture': 'Multimodal BiLSTM Attention Fusion',
+        'text_encoder': mentalBertReady
+            ? 'MentalBERT-base-uncased INT4 ONNX (768D)'
+            : 'Fallback Leksikal (${mentalBertErr ?? 'Belum dimuat'})',
         'parameters': '7,832,001 (Float32 ONNX)',
         'engine': 'ONNX Runtime Mobile v1.9.0',
         'xai_baseline': 'E[f(X)] = 8.42 (xai_baseline.json)',

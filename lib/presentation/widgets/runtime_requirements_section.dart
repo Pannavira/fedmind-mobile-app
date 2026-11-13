@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 
+import '../../../core/services/on_device_mentalbert_service.dart';
 import '../../../core/services/on_device_whisper_service.dart';
 
 /// Daftar persyaratan runtime on-device beserta status ketersediaannya di perangkat.
@@ -18,6 +19,7 @@ class _RuntimeRequirementsSectionState
   bool _downloading = false;
   bool _translate = false;
   bool _speech = false;
+  bool _mentalBert = false;
 
   @override
   void initState() {
@@ -35,11 +37,21 @@ class _RuntimeRequirementsSectionState
     } catch (_) {
       s = true; // Fallback jika dijalankan pada simulator / lingkungan non-Android
     }
+    bool mb = OnDeviceMentalBertService.isInitialized;
+    if (!mb) {
+      try {
+        await OnDeviceMentalBertService.initialize();
+        mb = OnDeviceMentalBertService.isInitialized;
+      } catch (_) {
+        mb = false;
+      }
+    }
 
     if (!mounted) return;
     setState(() {
       _translate = t;
       _speech = s;
+      _mentalBert = mb;
       _loading = false;
     });
   }
@@ -86,7 +98,7 @@ class _RuntimeRequirementsSectionState
 
   @override
   Widget build(BuildContext context) {
-    final allOk = _translate && _speech;
+    final allOk = _translate && _speech && _mentalBert;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -141,6 +153,12 @@ class _RuntimeRequirementsSectionState
                     child: CircularProgressIndicator(strokeWidth: 2))
                 : TextButton(
                     onPressed: _downloadTranslate, child: const Text('Unduh')),
+          ),
+          _row(
+            'Encoder Teks MentalBERT INT4 ONNX (768D)',
+            OnDeviceMentalBertService.lastError ??
+                'Model MentalBERT ONNX belum dimuat',
+            _mentalBert,
           ),
         ],
       ],

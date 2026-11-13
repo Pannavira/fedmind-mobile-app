@@ -65,6 +65,47 @@ class OnDeviceWhisperService {
   static const int whisperSampleRate = 16000;
   static const int melBins = 80;
 
+  /// Mendeteksi apakah teks sudah berbahasa Inggris agar tidak melewati translasi ID->EN
+  static bool isLikelyEnglishText(String text) {
+    final trimmed = text.trim();
+    if (trimmed.isEmpty) return false;
+    final words = trimmed
+        .toLowerCase()
+        .split(RegExp(r"[^a-zA-Z']+"))
+        .where((w) => w.isNotEmpty)
+        .toList();
+    if (words.isEmpty) return false;
+
+    const enMarkers = {
+      'i', 'am', 'is', 'are', 'was', 'were', 'the', 'and', 'but', 'not',
+      'no', 'never', 'nothing', 'feel', 'feeling', 'felt', 'sleep', 'sleeping',
+      'slept', 'have', 'has', 'had', 'lately', 'tired', 'exhausted', 'sad',
+      'depressed', 'depression', 'anxious', 'worried', 'my', 'me', 'with',
+      'because', 'really', 'very', 'good', 'happy', 'calm', 'better',
+      "don't", "didn't", "can't", 'cannot', 'anything', 'nobody',
+      'trouble', 'focusing', 'daily', 'routines', 'work', 'life', 'today',
+      'night', 'makes', 'made', 'staying', 'talking', 'living',
+    };
+    const idMarkers = {
+      'saya', 'aku', 'tidak', 'tak', 'bukan', 'belum', 'jangan', 'tanpa',
+      'merasa', 'perasaan', 'sedih', 'lelah', 'capek', 'tidur', 'dengan',
+      'yang', 'dan', 'atau', 'ini', 'itu', 'untuk', 'karena', 'sudah',
+      'akhir', 'membuat', 'bikin', 'ada', 'bisa', 'sangat', 'cemas',
+      'kurang', 'sulit', 'susah', 'gak', 'ga', 'nggak', 'enggak', 'ndak',
+      'hari', 'malam', 'kerja', 'pekerjaan', 'pikiran', 'gelisah', 'tenang',
+      'baik', 'senang', 'bahagia', 'lumayan', 'selalu', 'sering', 'jarang',
+    };
+
+    int enHits = 0;
+    int idHits = 0;
+    for (final w in words) {
+      if (enMarkers.contains(w)) enHits++;
+      if (idMarkers.contains(w)) idHits++;
+    }
+    if (idHits == 0 && enHits >= 1) return true;
+    return enHits >= 2 && enHits > idHits;
+  }
+
   /// Memproses rekaman video menjadi transkrip riil dwibahasa (ID & EN) secara offline on-device
   static Future<WhisperTranscriptionResult> transcribeAndTranslate({
     String? videoPath,
@@ -80,12 +121,22 @@ class OnDeviceWhisperService {
   }) async {
     final effectiveDuration = durationSec > 0.5 ? durationSec : 30.0;
 
-    // Satu-satunya sumber transkrip: dictation live (SpeechRecognizer Android)
-    // yang berjalan paralel saat perekaman. Tanpa fallback / teks buatan.
-    final spokenText = clientTranscript?.trim() ?? '';
+    // Prioritaskan transkrip ucapan langsung; bila kosong, gunakan catatan klinisi jika tersedia.
+    final clientText = clientTranscript?.trim() ?? '';
+    final noteText = counselorNote?.trim() ?? '';
+    final spokenText = clientText.isNotEmpty ? clientText : noteText;
     if (spokenText.isEmpty) {
       return _buildEmptyResult();
     }
+
+    if (isLikelyEnglishText(spokenText)) {
+      return _buildEnglishDirectResult(
+        text: spokenText,
+        durationSec: effectiveDuration,
+        confidence: 0.98,
+      );
+    }
+
     return _retranslateWithMlKit(
       _buildSegmentedResultFromText(
         text: spokenText,
@@ -93,6 +144,58 @@ class OnDeviceWhisperService {
         audioSummary: audioSummary,
         confidence: 0.98,
       ),
+    );
+  }
+
+  /// Membangun hasil langsung ketika tuturan/catatan sudah berbahasa Inggris
+  static WhisperTranscriptionResult _buildEnglishDirectResult({
+    required String text,
+    required double durationSec,
+    double confidence = 0.98,
+  }) {
+    final sentences = text
+        .split(RegExp(r'(?<=[.!?])\s+|\n+'))
+        .map((s) => s.trim())
+        .where((s) => s.isNotEmpty)
+        .toList();
+    if (sentences.isEmpty) sentences.add(text);
+
+    final segCount = max(1, sentences.length);
+    final segments = <TranscriptSegmentItem>[];
+    for (int i = 0; i < segCount; i++) {
+      final cleanText = sentences[i];
+      final tStart = (durationSec * i / segCount).round();
+      final tEnd = max(tStart + 1, (durationSec * (i + 1) / segCount).round());
+      final timeLabel = '${_fmtSec(tStart)} - ${_fmtSec(tEnd)}';
+      final note = i == 0
+          ? 'Awal sesi • Mode Bahasa Inggris langsung (tanpa translasi offline)'
+          : (i == segCount - 1
+              ? 'Akhir sesi • Penutupan tuturan • Mode EN langsung'
+              : 'Tengah sesi • Elaborasi keluhan • Mode EN langsung');
+      segments.add(
+        TranscriptSegmentItem(
+          timeRangeLabel: timeLabel,
+          text: cleanText,
+          translatedText: cleanText,
+          detectedKeywords: _extractKeywords(cleanText),
+          prosodyNote: note,
+        ),
+      );
+    }
+
+    return WhisperTranscriptionResult(
+      indonesianTranscript: text,
+      englishTranscript: text,
+      segments: segments,
+      detectedKeywords: _extractKeywords(text),
+      emotionalValence: _computeValence(text),
+      selfPronounCount: _countPronouns(text),
+      linguisticTitle: 'Transkripsi Tuturan Bahasa Inggris Langsung',
+      linguisticDescription:
+          'Teks sudah berbahasa Inggris sehingga langsung diproses ke MentalBERT 768D tanpa melewati mesin terjemahan offline.',
+      confidence: confidence,
+      isWhisperModel: true,
+      isSuccess: true,
     );
   }
 
@@ -410,25 +513,138 @@ class OnDeviceWhisperService {
     }
   }
 
-  /// Terjemahan ID→EN on-device (Google ML Kit, offline). Tanpa fallback kamus;
-  /// model wajib diunduh lewat layar persyaratan awal.
+  static final RegExp _idNegationRegex = RegExp(
+    r'\b(tidak|tak|bukan|belum|tanpa|tiada|gak|ga|nggak|enggak|ndak|jangan)\b',
+    caseSensitive: false,
+  );
+  static final RegExp _idExistentialYangNegRegex = RegExp(
+    r'\b(tidak|tak|tiada|gak|ga|nggak|enggak|ndak)\s+ada\s+(?:(?:hal|sesuatu|apa[\s-]*apa)\s+)?yang\b',
+    caseSensitive: false,
+  );
+  static final RegExp _idExistentialNounNegRegex = RegExp(
+    r'\b(tidak|tak|tiada|gak|ga|nggak|enggak|ndak)\s+ada\b',
+    caseSensitive: false,
+  );
+  static final RegExp _enNegationRegex = RegExp(
+    r"\b(not|no|never|nothing|none|nobody|neither|nor|nowhere|without|hardly|scarcely|rarely|cannot|can't|won't|wouldn't|shouldn't|couldn't|don't|doesn't|didn't|isn't|aren't|wasn't|weren't|haven't|hasn't|hadn't|unable|lack|lacking)\b",
+    caseSensitive: false,
+  );
+
+  /// Menjaga polaritas negasi Bahasa Indonesia agar tidak hilang/terbalik saat diterjemahkan ML Kit.
+  static String enforceNegationParity(
+    String indonesianSource,
+    String englishTranslated,
+  ) {
+    final idTrim = indonesianSource.trim();
+    final enTrim = englishTranslated.trim();
+    if (idTrim.isEmpty || enTrim.isEmpty) return enTrim;
+
+    // Jika hasil terjemahan sudah mengandung token negasi bahasa Inggris yang jelas, pertahankan
+    if (_enNegationRegex.hasMatch(enTrim)) {
+      return enTrim;
+    }
+
+    // Jika klausa Bahasa Indonesia tidak mengandung negasi, tidak perlu koreksi
+    if (!_idNegationRegex.hasMatch(idTrim)) {
+      return enTrim;
+    }
+
+    // Kasus 1: "tidak ada yang <verb>..." yang sering dipotong ML Kit menjadi "has made me sad" / "makes me sad"
+    if (_idExistentialYangNegRegex.hasMatch(idTrim)) {
+      var cleaned = enTrim
+          .replaceFirst(
+            RegExp(r'^(there\s+(is|are|was|were)\s+)?(that\s+|which\s+|who\s+)?', caseSensitive: false),
+            '',
+          )
+          .trim();
+      if (cleaned.isNotEmpty) {
+        cleaned = cleaned[0].toLowerCase() + cleaned.substring(1);
+        return 'Nothing $cleaned';
+      }
+      return 'Nothing makes me feel that way';
+    }
+
+    // Kasus 2: "tidak ada <noun>" -> "there is no <noun>"
+    if (_idExistentialNounNegRegex.hasMatch(idTrim)) {
+      var cleaned = enTrim
+          .replaceFirst(RegExp(r'^there\s+(is|are|was|were)\s+', caseSensitive: false), '')
+          .trim();
+      if (cleaned.isNotEmpty) {
+        cleaned = cleaned[0].toLowerCase() + cleaned.substring(1);
+        return 'There is no $cleaned';
+      }
+    }
+
+    // Kasus 3: Sisipkan "not" setelah auxiliary verb jika ada ("I am sad" -> "I am not sad", "I have slept" -> "I have not slept")
+    final auxMatch = RegExp(
+      r'\b(am|is|are|was|were|have|has|had|can|could|will|would|should|may|might|must|do|does|did)\b',
+      caseSensitive: false,
+    ).firstMatch(enTrim);
+    if (auxMatch != null) {
+      final before = enTrim.substring(0, auxMatch.end);
+      final after = enTrim.substring(auxMatch.end);
+      return '$before not$after'.replaceAll(RegExp(r'\s+'), ' ').trim();
+    }
+
+    // Kasus 4: Kalimat subjek + verb ("I feel sad" -> "I do not feel sad")
+    final subjVerbMatch = RegExp(
+      r'^(i|we|you|they|he|she|it)\s+([a-zA-Z]+)(.*)$',
+      caseSensitive: false,
+    ).firstMatch(enTrim);
+    if (subjVerbMatch != null) {
+      final subj = subjVerbMatch.group(1)!;
+      final verb = subjVerbMatch.group(2)!;
+      final rest = subjVerbMatch.group(3)!;
+      final isThirdPerson = RegExp(r'^(he|she|it)$', caseSensitive: false).hasMatch(subj);
+      final aux = isThirdPerson ? 'does not' : 'do not';
+      return '$subj $aux $verb$rest'.replaceAll(RegExp(r'\s+'), ' ').trim();
+    }
+
+    // Fallback aman: gunakan terjemahan kamus berbasis aturan yang menjaga negasi
+    return translateIndonesianToEnglish(idTrim);
+  }
+
+  /// Terjemahan ID→EN on-device (Google ML Kit, offline) dengan penjaga polaritas negasi
+  /// serta bypass otomatis untuk teks yang sudah berbahasa Inggris.
   static Future<String> translateWithMlKit(String indonesianText) async {
-    if (indonesianText.trim().isEmpty) return '';
+    final trimmed = indonesianText.trim();
+    if (trimmed.isEmpty) return '';
+    if (isLikelyEnglishText(trimmed)) return trimmed;
+
     try {
       _mlKitTranslator ??= OnDeviceTranslator(
         sourceLanguage: TranslateLanguage.indonesian,
         targetLanguage: TranslateLanguage.english,
       );
-      return (await _mlKitTranslator!.translateText(indonesianText)).trim();
+
+      // Proses per klausa agar negasi tidak hilang pada salah satu klausa majemuk
+      final clauses = trimmed
+          .split(RegExp(r'(?<=[,;])(?:\s+)|(?<=[.!?])(?:\s+)'))
+          .map((c) => c.trim())
+          .where((c) => c.isNotEmpty)
+          .toList();
+
+      if (clauses.length <= 1) {
+        final rawEn = (await _mlKitTranslator!.translateText(trimmed)).trim();
+        return enforceNegationParity(trimmed, rawEn);
+      }
+
+      final translatedClauses = <String>[];
+      for (final clause in clauses) {
+        final rawEn = (await _mlKitTranslator!.translateText(clause)).trim();
+        translatedClauses.add(enforceNegationParity(clause, rawEn));
+      }
+      return translatedClauses.join(' ').replaceAll(RegExp(r'\s+'), ' ').trim();
     } catch (e) {
       debugPrint('translateWithMlKit error: $e');
-      return indonesianText;
+      return translateIndonesianToEnglish(trimmed);
     }
   }
 
   /// Menerjemahkan tuturan Bahasa Indonesia klinis ke Bahasa Inggris untuk representasi MentalBERT 768D
   static String translateIndonesianToEnglish(String indonesianText) {
     if (indonesianText.trim().isEmpty) return '';
+    if (isLikelyEnglishText(indonesianText)) return indonesianText.trim();
 
     // 1. Normalisasi fonetik terlebih dahulu
     String normalized = normalizeIndonesianAsrText(indonesianText)
@@ -436,6 +652,20 @@ class OnDeviceWhisperService {
 
     // 2. Terjemahan frasa multi-kata (diproses terlebih dahulu secara descending panjang string)
     const phrasalDictionary = <String, String>{
+      'tidak ada hal yang membuat saya': 'nothing makes me',
+      'tidak ada yang membuat saya': 'nothing makes me',
+      'tidak ada yang bikin saya': 'nothing makes me',
+      'enggak ada yang membuat saya': 'nothing makes me',
+      'nggak ada yang membuat saya': 'nothing makes me',
+      'gak ada yang membuat saya': 'nothing makes me',
+      'tidak ada yang membuat': 'nothing makes',
+      'tidak ada masalah': 'there are no problems',
+      'tidak ada beban': 'there is no burden',
+      'sama sekali tidak': 'not at all',
+      'tidak merasa': 'do not feel',
+      'tidak pernah': 'never',
+      'tidak ada': 'there is no',
+      'bukan karena': 'not because',
       'terima kasih banyak': 'thank you very much',
       'terima kasih': 'thank you',
       'hari ini saya bangun lumayan pagi': 'today I woke up quite early',
@@ -599,7 +829,7 @@ class OnDeviceWhisperService {
       'hal': 'aspects',
       'paling': 'most',
       'membebani': 'burdensome',
-      'membuat': 'causing',
+      'membuat': 'makes',
       'kehilangan': 'loss of',
       'seperti': 'like',
       'tuntutan': 'demands',
@@ -696,9 +926,17 @@ class OnDeviceWhisperService {
       'dapat': 'can',
       'tidak bisa': 'cannot',
       'tidak': 'not',
+      'tak': 'not',
+      'tiada': 'no',
       'nggak': 'not',
+      'gak': 'not',
+      'enggak': 'not',
+      'ndak': 'not',
       'ga': 'not',
       'bukan': 'not',
+      'ada': 'there is',
+      'bikin': 'makes',
+      'sangat': 'very',
       'sudah': 'already',
       'belum': 'not yet',
       'berhenti': 'stop',
@@ -836,40 +1074,6 @@ class OnDeviceWhisperService {
       count += RegExp('\\b$p\\b').allMatches(lower).length;
     }
     return count;
-  }
-
-  static List<double> _resampleTo16k(List<double> samples, int sourceRate) {
-    if (sourceRate <= 0 || sourceRate == whisperSampleRate || samples.isEmpty) {
-      return samples;
-    }
-    final ratio = sourceRate / whisperSampleRate;
-    final targetLength = max(1, (samples.length / ratio).round());
-    final output = List<double>.filled(targetLength, 0.0);
-
-    for (int i = 0; i < targetLength; i++) {
-      final srcIdx = i * ratio;
-      final i0 = srcIdx.floor().clamp(0, samples.length - 1);
-      final i1 = srcIdx.ceil().clamp(0, samples.length - 1);
-      final frac = srcIdx - i0;
-      output[i] = samples[i0] * (1.0 - frac) + samples[i1] * frac;
-    }
-    return output;
-  }
-
-  static double _calculateRms(List<double> samples) {
-    if (samples.isEmpty) return 0.0;
-    double sumSq = 0.0;
-    for (final s in samples) {
-      sumSq += s * s;
-    }
-    return sqrt(sumSq / samples.length);
-  }
-
-  static String _formatTime(double sec) {
-    final s = sec.round();
-    final m = s ~/ 60;
-    final rem = s % 60;
-    return '${m.toString().padLeft(2, '0')}:${rem.toString().padLeft(2, '0')}';
   }
 
   static String _fmtSec(int sec) {

@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter/services.dart';
 import 'package:flutter_onnxruntime/flutter_onnxruntime.dart';
 
@@ -8,6 +9,7 @@ import '../../data/models/multimodal_inspection_models.dart';
 import '../../data/models/screening_models.dart';
 import '../constants/clinical_constants.dart';
 import 'local_preprocessing_service.dart';
+import 'on_device_mentalbert_service.dart';
 
 class LocalInferenceService {
   static const String _modelAssetPath = 'assets/models/fedmind_multimodal.onnx';
@@ -42,6 +44,9 @@ class LocalInferenceService {
   bool _isInitialized = false;
   bool get isInitialized => _isInitialized;
 
+  bool get isMentalBertLoaded => OnDeviceMentalBertService.isInitialized;
+  String? get mentalBertError => OnDeviceMentalBertService.lastError;
+
   /// Memuat model ONNX dan konstanta XAI ke memori
   Future<void> initialize() async {
     if (_isInitialized) return;
@@ -49,9 +54,14 @@ class LocalInferenceService {
     // 1. Inisialisasi Preprocessor
     await _preprocessor.initialize();
 
-    // 2. Inisialisasi Sesi ONNX
+    // 2. Inisialisasi Sesi ONNX (Multimodal Fusion + Shapley Regressor + MentalBERT INT4)
     _mainSession = await _ort.createSessionFromAsset(_modelAssetPath);
     _regSession = await _ort.createSessionFromAsset(_regressorAssetPath);
+    try {
+      await OnDeviceMentalBertService.initialize();
+    } catch (e) {
+      debugPrint('[LocalInference] Peringatan gagal pra-muat MentalBERT ONNX: $e');
+    }
 
     // 3. Memuat Baseline Laten XAI
     final xaiStr = await rootBundle.loadString(_xaiBaselineAssetPath);
