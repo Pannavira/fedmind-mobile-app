@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import '../../core/services/local_preprocessing_service.dart';
 import '../../core/services/multimodal_extractor_service.dart';
 import '../../data/models/multimodal_inspection_models.dart';
 import '../../data/models/screening_models.dart';
@@ -12,6 +13,12 @@ class ScreeningProvider extends ChangeNotifier {
   // --- Health & Diagnostic State ---
   bool _isCheckingHealth = false;
   bool get isCheckingHealth => _isCheckingHealth;
+
+  bool _isSwitchingModel = false;
+  bool get isSwitchingModel => _isSwitchingModel;
+
+  FedMindModelVariant get selectedModelVariant =>
+      repository.localInferenceService.selectedVariant;
 
   bool _isServerHealthy = false;
   bool get isServerHealthy => _isServerHealthy;
@@ -113,6 +120,57 @@ class ScreeningProvider extends ChangeNotifier {
   bool get isMentalBertLoaded => repository.localInferenceService.isMentalBertLoaded;
   String? get mentalBertError => repository.localInferenceService.mentalBertError;
 
+  Map<String, dynamic> _buildModelInfoMap() {
+    final inference = repository.localInferenceService;
+    final variant = inference.selectedVariant;
+    final mentalBertReady = inference.isMentalBertLoaded;
+    final mentalBertErr = inference.mentalBertError;
+    final v000 = inference.v000Baseline;
+    return {
+      'variant': variant.shortLabel,
+      'model': variant.displayName,
+      'checkpoint': variant.checkpointFileName,
+      'architecture': variant.architectureName,
+      'text_encoder': mentalBertReady
+          ? 'MentalBERT-base-uncased INT4 ONNX (768D)'
+          : 'Fallback Leksikal (${mentalBertErr ?? 'Belum dimuat'})',
+      'parameters': variant.parameterSummary,
+      'latent_dim': '${variant.latentDim}D × 3 (${variant.fusedLatentDim}D Fused)',
+      'threshold': 'PHQ-8 ≥ ${inference.binaryThreshold.toStringAsFixed(1)}',
+      'engine': 'ONNX Runtime Mobile v1.9.0',
+      'xai_baseline':
+          'E[f(X)] = ${v000.toStringAsFixed(2)} (${variant.xaiBaselineFileName})',
+      'privacy': '100% On-Device (Zero-Leakage)',
+    };
+  }
+
+  /// Mengganti varian model inferensi on-device (Model 3 default vs Model 2 legacy)
+  Future<void> selectModelVariant(FedMindModelVariant variant) async {
+    if (_isSwitchingModel ||
+        (repository.localInferenceService.selectedVariant == variant &&
+            _isModelLoaded)) {
+      return;
+    }
+
+    _isSwitchingModel = true;
+    _errorMessage = null;
+    notifyListeners();
+
+    try {
+      await repository.localInferenceService.setModelVariant(variant);
+      _isServerHealthy = true;
+      _isModelLoaded = true;
+      _isEdgeHealthy = true;
+      _serverDevice = 'Mobile NPU/CPU';
+      _modelInfo = _buildModelInfoMap();
+    } catch (e) {
+      _errorMessage = 'Gagal mengganti model inferensi: $e';
+    } finally {
+      _isSwitchingModel = false;
+      notifyListeners();
+    }
+  }
+
   /// Cek kesiapan engine inferensi on-device (ONNX Edge Mobile)
   Future<void> checkServerHealth() async {
     _isCheckingHealth = true;
@@ -125,19 +183,7 @@ class ScreeningProvider extends ChangeNotifier {
       _isModelLoaded = true;
       _isEdgeHealthy = true;
       _serverDevice = 'Mobile NPU/CPU';
-      final mentalBertReady = repository.localInferenceService.isMentalBertLoaded;
-      final mentalBertErr = repository.localInferenceService.mentalBertError;
-      _modelInfo = {
-        'model': 'FedAvg FL-IID v1.0.0 (On-Device)',
-        'architecture': 'Multimodal BiLSTM Attention Fusion',
-        'text_encoder': mentalBertReady
-            ? 'MentalBERT-base-uncased INT4 ONNX (768D)'
-            : 'Fallback Leksikal (${mentalBertErr ?? 'Belum dimuat'})',
-        'parameters': '7,832,001 (Float32 ONNX)',
-        'engine': 'ONNX Runtime Mobile v1.9.0',
-        'xai_baseline': 'E[f(X)] = 8.42 (xai_baseline.json)',
-        'privacy': '100% On-Device (Zero-Leakage)',
-      };
+      _modelInfo = _buildModelInfoMap();
     } catch (e) {
       _isServerHealthy = false;
       _errorMessage = 'Failed to initialize local model: $e';

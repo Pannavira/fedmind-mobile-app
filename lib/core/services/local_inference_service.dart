@@ -12,22 +12,32 @@ import 'local_preprocessing_service.dart';
 import 'on_device_mentalbert_service.dart';
 
 class LocalInferenceService {
-  static const String _modelAssetPath = 'assets/models/fedmind_multimodal.onnx';
-  static const String _regressorAssetPath = 'assets/models/fedmind_regressor.onnx';
-  static const String _xaiBaselineAssetPath = 'assets/models/xai_baseline.json';
-
   final LocalPreprocessingService _preprocessor = LocalPreprocessingService();
   final OnnxRuntime _ort = OnnxRuntime();
 
   OrtSession? _mainSession;
   OrtSession? _regSession;
 
+  FedMindModelVariant _selectedVariant = FedMindModelVariant.model3Edge;
+  FedMindModelVariant get selectedVariant => _selectedVariant;
+
   List<double>? _audioBase;
   List<double>? _visualBase;
   List<double>? _textBase;
-  double _v000Baseline = 8.4164;
-  String _modelKey = 'fl_iid';
-  String _modelName = 'FedAvg FL-IID';
+  double _v000Baseline = FedMindModelVariant.model3Edge.defaultV000Baseline;
+  double get v000Baseline => _v000Baseline;
+
+  double _binaryThreshold = FedMindModelVariant.model3Edge.binaryThreshold;
+  double get binaryThreshold => _binaryThreshold;
+
+  int _latentDim = FedMindModelVariant.model3Edge.latentDim;
+  int get latentDim => _latentDim;
+
+  String _modelKey = FedMindModelVariant.model3Edge.key;
+  String get modelKey => _modelKey;
+
+  String _modelName = FedMindModelVariant.model3Edge.displayName;
+  String get modelName => _modelName;
 
   List<CoalitionStepScore> _lastCoalitionScores = const [];
   List<CoalitionStepScore> get lastCoalitionScores => _lastCoalitionScores;
@@ -47,16 +57,31 @@ class LocalInferenceService {
   bool get isMentalBertLoaded => OnDeviceMentalBertService.isInitialized;
   String? get mentalBertError => OnDeviceMentalBertService.lastError;
 
-  /// Memuat model ONNX dan konstanta XAI ke memori
+  /// Mengganti varian model aktif (Model 3 Edge default vs Model 2 Legacy)
+  Future<void> setModelVariant(FedMindModelVariant variant) async {
+    if (_selectedVariant == variant && _isInitialized) return;
+    _selectedVariant = variant;
+    _v000Baseline = variant.defaultV000Baseline;
+    _binaryThreshold = variant.binaryThreshold;
+    _latentDim = variant.latentDim;
+    _modelKey = variant.key;
+    _modelName = variant.displayName;
+    await dispose();
+    await initialize();
+  }
+
+  /// Memuat model ONNX dan konstanta XAI ke memori sesuai varian aktif
   Future<void> initialize() async {
     if (_isInitialized) return;
 
-    // 1. Inisialisasi Preprocessor
-    await _preprocessor.initialize();
+    final variant = _selectedVariant;
+
+    // 1. Inisialisasi Preprocessor sesuai varian
+    await _preprocessor.initialize(variant);
 
     // 2. Inisialisasi Sesi ONNX (Multimodal Fusion + Shapley Regressor + MentalBERT INT4)
-    _mainSession = await _ort.createSessionFromAsset(_modelAssetPath);
-    _regSession = await _ort.createSessionFromAsset(_regressorAssetPath);
+    _mainSession = await _ort.createSessionFromAsset(variant.modelAssetPath);
+    _regSession = await _ort.createSessionFromAsset(variant.regressorAssetPath);
     try {
       await OnDeviceMentalBertService.initialize();
     } catch (e) {
@@ -64,15 +89,23 @@ class LocalInferenceService {
     }
 
     // 3. Memuat Baseline Laten XAI
-    final xaiStr = await rootBundle.loadString(_xaiBaselineAssetPath);
+    final xaiStr = await rootBundle.loadString(variant.xaiBaselineAssetPath);
     final xaiData = json.decode(xaiStr) as Map<String, dynamic>;
 
-    _v000Baseline = (xaiData['v_000'] as num).toDouble();
-    _modelKey = xaiData['model_key']?.toString() ?? 'fl_iid';
-    _modelName = xaiData['model_name']?.toString() ?? 'FedAvg FL-IID';
-    _audioBase = (xaiData['audio_base'] as List).map((e) => (e as num).toDouble()).toList();
-    _visualBase = (xaiData['visual_base'] as List).map((e) => (e as num).toDouble()).toList();
-    _textBase = (xaiData['text_base'] as List).map((e) => (e as num).toDouble()).toList();
+    _v000Baseline =
+        (xaiData['v_000'] as num?)?.toDouble() ?? variant.defaultV000Baseline;
+    _binaryThreshold =
+        (xaiData['calibrated_threshold'] as num?)?.toDouble() ??
+            variant.binaryThreshold;
+    _latentDim = (xaiData['latent_dim'] as num?)?.toInt() ?? variant.latentDim;
+    _modelKey = xaiData['model_key']?.toString() ?? variant.key;
+    _modelName = xaiData['model_name']?.toString() ?? variant.displayName;
+    _audioBase =
+        (xaiData['audio_base'] as List).map((e) => (e as num).toDouble()).toList();
+    _visualBase =
+        (xaiData['visual_base'] as List).map((e) => (e as num).toDouble()).toList();
+    _textBase =
+        (xaiData['text_base'] as List).map((e) => (e as num).toDouble()).toList();
 
     _isInitialized = true;
   }
@@ -90,21 +123,26 @@ class LocalInferenceService {
   }) async {
     await initialize();
 
+    final activeVariant = _selectedVariant;
+    final latentDim = _latentDim;
+    final fusedDim = latentDim * 3;
+
     final now = DateTime.now().toUtc();
     final screeningId = sessionId ?? 'SCR-LOCAL-${now.millisecondsSinceEpoch}';
 
-    // 1. Preprocessing & Tensor Shaping
+    // 1. Preprocessing & Tensor Shaping sesuai varian model aktif
     final prep = await _preprocessor.prepareMultimodalTensors(
       audioInput: audioFeatures,
       visualInput: visualFeatures,
       textInput: textFeatures,
       disableVisualBranch: disableVisualBranch,
+      variant: activeVariant,
     );
 
     // 2. Siapkan OrtValue untuk Model Utama
-    final audioOrt = await OrtValue.fromList(prep.audio, [1, 512, 80]);
-    final visualOrt = await OrtValue.fromList(prep.visual, [1, 512, 72, 3]);
-    final textOrt = await OrtValue.fromList(prep.text, [1, 512, 768]);
+    final audioOrt = await OrtValue.fromList(prep.audio, prep.audioShape);
+    final visualOrt = await OrtValue.fromList(prep.visual, prep.visualShape);
+    final textOrt = await OrtValue.fromList(prep.text, prep.textShape);
 
     Map<String, OrtValue>? mainOutputs;
     Map<String, OrtValue>? regOutputs;
@@ -127,15 +165,15 @@ class LocalInferenceService {
       final tIList = (await mainOutputs['text_latent']!.asFlattenedList()).map((e) => (e as num).toDouble()).toList();
 
       // 4. Hitung 8 Koalisi Exact Shapley menggunakan Regressor ONNX
-      // Koalisi: (a, v, t) berukuran 768D (256 + 256 + 256)
-      final coalitionBatch = Float32List(8 * 768);
+      // Koalisi: (a, v, t) berukuran fusedDim (384D untuk Model 3 atau 768D untuk Model 2)
+      final coalitionBatch = Float32List(8 * fusedDim);
 
       void copyCoalition(int row, List<double> a, List<double> v, List<double> t) {
-        final offset = row * 768;
-        for (int i = 0; i < 256; i++) {
+        final offset = row * fusedDim;
+        for (int i = 0; i < latentDim; i++) {
           coalitionBatch[offset + i] = a[i];
-          coalitionBatch[offset + 256 + i] = v[i];
-          coalitionBatch[offset + 512 + i] = t[i];
+          coalitionBatch[offset + latentDim + i] = v[i];
+          coalitionBatch[offset + (latentDim * 2) + i] = t[i];
         }
       }
 
@@ -156,7 +194,7 @@ class LocalInferenceService {
       // S7: v_111 (Ai, Vi, Ti)
       copyCoalition(7, aIList, vIList, tIList);
 
-      fusedOrt = await OrtValue.fromList(coalitionBatch, [8, 768]);
+      fusedOrt = await OrtValue.fromList(coalitionBatch, [8, fusedDim]);
       regOutputs = await _regSession!.run({'fused_latents': fusedOrt});
 
       final scoresList = (await regOutputs['scores']!.asFlattenedList()).map((e) => (e as num).toDouble()).toList();
@@ -192,7 +230,7 @@ class LocalInferenceService {
         CoalitionStepScore(
           coalitionCode: 'S1 (v₁₀₀)',
           label: 'Modalitas Akustik / Prosodi Audio Tunggal',
-          description: 'Estimasi PHQ-8 menggunakan fitur prosodi vokal & MFCC (248D -> 256D)',
+          description: 'Estimasi PHQ-8 menggunakan fitur prosodi vokal & MFCC (248D -> ${latentDim}D)',
           hasAudio: true,
           hasVisual: false,
           hasText: false,
@@ -201,7 +239,7 @@ class LocalInferenceService {
         CoalitionStepScore(
           coalitionCode: 'S2 (v₀₁₀)',
           label: 'Modalitas Visual (Facial Action Units / AUs) Tunggal',
-          description: 'Estimasi PHQ-8 menggunakan aktivasi FACS Action Units & Head Pose (75D -> 256D)',
+          description: 'Estimasi PHQ-8 menggunakan aktivasi FACS Action Units & Head Pose (75D -> ${latentDim}D)',
           hasAudio: false,
           hasVisual: true,
           hasText: false,
@@ -210,7 +248,7 @@ class LocalInferenceService {
         CoalitionStepScore(
           coalitionCode: 'S3 (v₀₀₁)',
           label: 'Modalitas Teks / Linguistik Tunggal',
-          description: 'Estimasi PHQ-8 menggunakan embedding psikolinguistik MentalBERT (768D -> 256D)',
+          description: 'Estimasi PHQ-8 menggunakan embedding psikolinguistik MentalBERT (768D -> ${latentDim}D)',
           hasAudio: false,
           hasVisual: false,
           hasText: true,
@@ -282,7 +320,7 @@ class LocalInferenceService {
       String riskCategory;
       if (phq8Score < 8.0) {
         riskCategory = 'low';
-      } else if (phq8Score < 10.0) {
+      } else if (phq8Score < _binaryThreshold) {
         riskCategory = 'borderline';
       } else if (phq8Score < 15.0) {
         riskCategory = 'moderate';
@@ -290,8 +328,9 @@ class LocalInferenceService {
         riskCategory = 'high';
       }
 
-      final binaryPred = phq8Score >= 10.0 ? 'depression_risk' : 'non_depression';
-      final z = 0.35 * (phq8Score - 10.0);
+      final binaryPred =
+          phq8Score >= _binaryThreshold ? 'depression_risk' : 'non_depression';
+      final z = 0.35 * (phq8Score - _binaryThreshold);
       final probProxy = double.parse((1.0 / (1.0 + exp(-z))).clamp(0.001, 0.999).toStringAsFixed(4));
 
       final completedAt = DateTime.now().toUtc();
@@ -343,11 +382,11 @@ class LocalInferenceService {
         model: ModelMetadata(
           modelId: 'fedmind_edge_mobile_$_modelKey',
           name: '$_modelName (Edge FL Node)',
-          version: '1.0.0',
-          architecture: 'Multimodal BiLSTM Attention Fusion',
-          checkpoint: 'fedmind_multimodal.onnx',
+          version: activeVariant == FedMindModelVariant.model3Edge ? '3.0.0' : '2.4.0',
+          architecture: activeVariant.architectureName,
+          checkpoint: activeVariant.checkpointFileName,
           checksum: 'onnx_float32_sha256_verified',
-          xaiBaseline: 'xai_baseline.json',
+          xaiBaseline: activeVariant.xaiBaselineFileName,
           device: 'mobile_cpu_npu',
         ),
         xai: XAIMetadata(

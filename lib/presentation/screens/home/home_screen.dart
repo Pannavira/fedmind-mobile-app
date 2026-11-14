@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:fedmind_mobile_app/core/constants/clinical_constants.dart';
+import 'package:fedmind_mobile_app/core/services/local_preprocessing_service.dart';
 import 'package:fedmind_mobile_app/presentation/providers/screening_provider.dart';
 import 'package:fedmind_mobile_app/presentation/screens/history/screening_history_screen.dart';
 import 'package:fedmind_mobile_app/presentation/screens/result/screening_result_screen.dart';
@@ -139,12 +140,12 @@ class _HomeScreenState extends State<HomeScreen> {
                   children: [
                     _buildTelemetryRow(
                       'Model Checkpoint',
-                      'FedMind-Multimodal-ONNX v2.4-FL',
+                      '${provider.selectedModelVariant.checkpointLabel} (${provider.selectedModelVariant.checkpointFileName})',
                     ),
                     const Divider(height: 14, color: Color(0xFFE2E8F0)),
                     _buildTelemetryRow(
                       'Baseline Shapley E[f(X)]',
-                      '8.42 poin PHQ-8 (E-DAIC Reference)',
+                      '${provider.repository.localInferenceService.v000Baseline.toStringAsFixed(2)} poin PHQ-8 (Threshold ≥ ${provider.repository.localInferenceService.binaryThreshold.toStringAsFixed(1)})',
                     ),
                     const Divider(height: 14, color: Color(0xFFE2E8F0)),
                     _buildTelemetryRow(

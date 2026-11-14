@@ -31,6 +31,28 @@ class _CalculationFlowStepperState extends State<CalculationFlowStepper> {
     final scr = widget.screening;
     final coalitions = ins.coalitionScores;
 
+    final checkpointName =
+        scr.model?.checkpoint ?? 'fedmind_edge_client.onnx';
+    final isEdgeModel = checkpointName.contains('edge');
+    final statsFile = isEdgeModel
+        ? 'train_norm_stats_edge.json'
+        : 'train_norm_stats.json';
+    final modelDisplayName =
+        scr.model?.name ??
+        (isEdgeModel
+            ? 'FedAvg Edge Client (Model 3)'
+            : 'FedAvg FL-IID (Model 2)');
+    final latentDimLabel = isEdgeModel ? '128D' : '256D';
+    final stage1Desc = isEdgeModel
+        ? 'Setiap modalitas dinormalisasi terhadap parameter populasi referensi ($statsFile) dengan Z-clip ±4.0 menjadi vektor fitur [248, 75, 768]:'
+        : 'Setiap modalitas dinormalisasi terhadap parameter populasi referensi ($statsFile) sebelum dibentuk menjadi tensor sekuensial 512 timestep:';
+    final stage2Title = isEdgeModel
+        ? 'Tahap 2: Pooled Edge MLP & LayerNorm Encoding ($latentDimLabel × 3)'
+        : 'Tahap 2: BiLSTM Temporal Encoding & Attention ($latentDimLabel × 3)';
+    final stage2Desc = isEdgeModel
+        ? 'Arsitektur $checkpointName memproyeksikan masing-masing modalitas ke ruang laten $latentDimLabel (L2-norm energi aktivasi):'
+        : 'Arsitektur $checkpointName memproyeksikan representasi temporal masing-masing modalitas ke ruang laten $latentDimLabel (L2-norm energi aktivasi):';
+
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
@@ -100,9 +122,9 @@ class _CalculationFlowStepperState extends State<CalculationFlowStepper> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
-                  'Setiap modalitas dinormalisasi terhadap parameter populasi referensi (train_norm_stats.json) sebelum dibentuk menjadi tensor sekuensial 512 timestep:',
-                  style: TextStyle(
+                Text(
+                  stage1Desc,
+                  style: const TextStyle(
                     fontSize: 11,
                     color: Color(0xFF475569),
                     height: 1.4,
@@ -131,18 +153,18 @@ class _CalculationFlowStepperState extends State<CalculationFlowStepper> {
           ),
           _buildConnectorArrow(),
 
-          // --- TAHAP 2: FUSI MEMORI BiLSTM & ATTENTION ---
+          // --- TAHAP 2: FUSI MEMORI & ENCODING LATEN ---
           _buildStageContainer(
             stageNumber: '2',
-            title: 'Tahap 2: BiLSTM Temporal Encoding & Attention (256D × 3)',
+            title: stage2Title,
             badgeText: 'ONNX Runtime Mobile',
             accentColor: _clinicalTeal,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
-                  'Arsitektur fedmind_multimodal.onnx memproyeksikan representasi temporal masing-masing modalitas ke ruang laten 256 dimensi (L2-norm energi aktivasi):',
-                  style: TextStyle(
+                Text(
+                  stage2Desc,
+                  style: const TextStyle(
                     fontSize: 11,
                     color: Color(0xFF475569),
                     height: 1.4,
@@ -154,7 +176,7 @@ class _CalculationFlowStepperState extends State<CalculationFlowStepper> {
                     Expanded(
                       child: _buildLatentBox(
                         title: 'Latent Akustik',
-                        dim: '256D',
+                        dim: latentDimLabel,
                         normValue: ins.audioLatentNorm,
                         color: const Color(0xFF6366F1),
                       ),
@@ -163,7 +185,7 @@ class _CalculationFlowStepperState extends State<CalculationFlowStepper> {
                     Expanded(
                       child: _buildLatentBox(
                         title: 'Latent Visual (AUs)',
-                        dim: '256D',
+                        dim: latentDimLabel,
                         normValue: ins.visualLatentNorm,
                         color: _clinicalTeal,
                       ),
@@ -172,7 +194,7 @@ class _CalculationFlowStepperState extends State<CalculationFlowStepper> {
                     Expanded(
                       child: _buildLatentBox(
                         title: 'Latent Linguistik',
-                        dim: '256D',
+                        dim: latentDimLabel,
                         normValue: ins.textLatentNorm,
                         color: const Color(0xFF3B82F6),
                       ),
@@ -339,7 +361,7 @@ class _CalculationFlowStepperState extends State<CalculationFlowStepper> {
                     const SizedBox(width: 6),
                     Expanded(
                       child: Text(
-                        'Checkpoint: ${scr.model?.checkpoint ?? "fedmind_multimodal.onnx"} • ${scr.model?.name ?? "FedAvg FL-IID"}',
+                        'Checkpoint: $checkpointName • $modelDisplayName',
                         style: const TextStyle(
                           fontSize: 10.5,
                           fontWeight: FontWeight.w700,

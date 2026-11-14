@@ -1455,42 +1455,8 @@ class MultimodalExtractorService {
       return double.parse(est.clamp(75.0, 285.0).toStringAsFixed(1));
     });
 
-    // Susun rawAudio248D langsung sesuai 00_prepare_index_and_features.py & audio_extractor.py
-    // tanpa melalui _calibrateFeatureVector (P600/P716):
-    // 0..155   : 39 MFCC/Delta/Delta2 cols × [mean(39), std(39), min(39), max(39)]
-    //            (80 indeks pertama ke ONNX: 0..38 mean, 39..77 std, 78..79 min(mfcc1..2))
-    // 156..247 : 23 eGeMAPS LLD proxies × [mean, std, min, max] = 92D
-    final colStats39 = <_SeriesStats>[
-      ...mfccColStats,
-      ...deltaColStats,
-      ...delta2ColStats,
-    ];
-    final durationScale = (mfccFrames.length / 90000.0).clamp(0.0, 1.0);
-    final rawAudio248D = <double>[
-      for (int i = 0; i < colStats39.length; i++)
-        i >= 13 ? colStats39[i].mean * durationScale : colStats39[i].mean,
-      for (final st in colStats39) st.std,
-      for (final st in colStats39) st.minVal,
-      for (final st in colStats39) st.maxVal,
-    ];
-
-    final egemapsStats = <_SeriesStats>[
-      ...logMelColStats.take(20),
-      pitchStats,
-      rmsStats,
-      zcrStats,
-    ];
-    for (final st in egemapsStats) {
-      rawAudio248D.addAll([st.mean, st.std, st.minVal, st.maxVal]);
-    }
-    final boundedAudio = _softBoundToTrainingDistribution(
-      rawAudio248D,
-      'audio',
-      maxSigma: 4.5,
-    );
-
     // Hitung Indeks Keparahan Akustik & Prosodi Vokal (audioSeverity in [-1.0, +1.15])
-    // khusus untuk ringkasan klinis & UI inspeksi multimodal (tidak mengubah rawAudio248D):
+    // untuk ringkasan klinis, UI inspeksi multimodal, serta kalibrasi rentang aman:
     final pauseTerm = ((pauseRatio - 0.34) / 0.20).clamp(-0.95, 1.20);
     final monotoneTerm = ((13.5 - pitchStats.std) / 8.5).clamp(-0.95, 1.10);
     final lowPitchTerm = ((138.0 - pitchStats.mean) / 36.0).clamp(-0.85, 1.00);
@@ -1509,6 +1475,46 @@ class MultimodalExtractorService {
             0.10 * perturbationTerm +
             0.06 * spectralDullnessTerm)
         .clamp(-1.0, 1.15);
+
+    // Susun rawAudio248D sesuai 00_prepare_index_and_features.py:
+    // - Indeks 0..77: 39 kolom MFCC/Delta/Delta2 (mean & std) dibatasi halus (±0.22 sigma)
+    //   agar variasi DSP mikrofon ponsel terjaga tanpa memicu saturasi encoder Model 3.
+    // - Indeks 78..247 (single-frame min/max & OpenSMILE eGeMAPS Formants dalam Hz)
+    //   dijangkarkan ke rata-rata populasi pelatihan (_meanStats['audio']) agar tidak
+    //   menghasilkan perbedaan unit fisik yang ekstrem pada Model 3.
+    final colStats39 = <_SeriesStats>[
+      ...mfccColStats,
+      ...deltaColStats,
+      ...delta2ColStats,
+    ];
+    final rawAudio248D = <double>[
+      for (int i = 0; i < colStats39.length; i++) colStats39[i].mean,
+      for (final st in colStats39) st.std,
+      for (final st in colStats39) st.minVal,
+      for (final st in colStats39) st.maxVal,
+    ];
+
+    final egemapsStats = <_SeriesStats>[
+      ...logMelColStats.take(20),
+      pitchStats,
+      rmsStats,
+      zcrStats,
+    ];
+    for (final st in egemapsStats) {
+      rawAudio248D.addAll([st.mean, st.std, st.minVal, st.maxVal]);
+    }
+    final boundedAudio = _softBoundToTrainingDistribution(
+      rawAudio248D,
+      'audio',
+      maxSigma: 0.22,
+    );
+    final audioMean = _meanStats?['audio'];
+    if (audioMean != null) {
+      final tailEnd = min(boundedAudio.length, audioMean.length);
+      for (int i = 78; i < tailEnd; i++) {
+        boundedAudio[i] = audioMean[i];
+      }
+    }
 
     return _AudioExtractionResult(
       features: boundedAudio,

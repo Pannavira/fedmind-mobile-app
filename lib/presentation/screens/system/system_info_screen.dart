@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
+import '../../../core/services/local_preprocessing_service.dart';
 import '../../providers/screening_provider.dart';
 import '../../widgets/clinical_disclaimer_dialog.dart';
 import '../../widgets/runtime_requirements_section.dart';
@@ -154,22 +155,27 @@ class SystemInfoScreen extends StatelessWidget {
                       const SizedBox(height: 8),
                       _buildCard(
                         children: [
+                          _buildModelSelectorSection(context, provider),
+                          const Divider(height: 24, color: Color(0xFFF1F5F9)),
                           _buildDetailRow(
                             icon: Icons.memory_rounded,
                             title: 'Model Checkpoint',
-                            subtitle: 'FedMind-Multimodal-ONNX v2.4-FL',
+                            subtitle:
+                                '${provider.selectedModelVariant.checkpointLabel} • ${provider.selectedModelVariant.checkpointFileName}',
                           ),
                           const Divider(height: 20, color: Color(0xFFF1F5F9)),
                           _buildDetailRow(
                             icon: Icons.functions_rounded,
                             title: 'Baseline Shapley E[f(X)]',
-                            subtitle: '8.42 poin PHQ-8 (E-DAIC Reference)',
+                            subtitle:
+                                '${provider.repository.localInferenceService.v000Baseline.toStringAsFixed(2)} poin PHQ-8 (Threshold ≥ ${provider.repository.localInferenceService.binaryThreshold.toStringAsFixed(1)})',
                           ),
                           const Divider(height: 20, color: Color(0xFFF1F5F9)),
                           _buildDetailRow(
                             icon: Icons.layers_outlined,
                             title: 'Dimensi Vektor Fitur',
-                            subtitle: 'Visual: 75D FACS • Audio: 248D COVAREP • Teks: 768D MentalBERT',
+                            subtitle:
+                                'Visual: 75D FACS • Audio: 248D COVAREP • Teks: 768D MentalBERT (${provider.selectedModelVariant.latentDim}D Laten × 3)',
                           ),
                           const Divider(height: 20, color: Color(0xFFF1F5F9)),
                           _buildDetailRow(
@@ -599,6 +605,211 @@ class SystemInfoScreen extends StatelessWidget {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildModelSelectorSection(
+    BuildContext context,
+    ScreeningProvider provider,
+  ) {
+    final activeVariant = provider.selectedModelVariant;
+    final isSwitching = provider.isSwitchingModel;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: _softMintBg,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Icon(
+                Icons.tune_rounded,
+                color: _brandTealDark,
+                size: 18,
+              ),
+            ),
+            const SizedBox(width: 12),
+            const Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Pilihan Model Inferensi On-Device',
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w700,
+                      color: _textPrimary,
+                    ),
+                  ),
+                  SizedBox(height: 2),
+                  Text(
+                    'Pilih arsitektur ONNX untuk skrining lokal (Default: Model 3)',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: _textSecondary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (isSwitching)
+              const SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: _brandTealDark,
+                ),
+              ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        _buildModelOptionTile(
+          context: context,
+          provider: provider,
+          variant: FedMindModelVariant.model3Edge,
+          isSelected: activeVariant == FedMindModelVariant.model3Edge,
+          isSwitching: isSwitching,
+          badgeText: 'DEFAULT',
+        ),
+        const SizedBox(height: 8),
+        _buildModelOptionTile(
+          context: context,
+          provider: provider,
+          variant: FedMindModelVariant.model2Legacy,
+          isSelected: activeVariant == FedMindModelVariant.model2Legacy,
+          isSwitching: isSwitching,
+          badgeText: 'LEGACY',
+        ),
+      ],
+    );
+  }
+
+  Widget _buildModelOptionTile({
+    required BuildContext context,
+    required ScreeningProvider provider,
+    required FedMindModelVariant variant,
+    required bool isSelected,
+    required bool isSwitching,
+    required String badgeText,
+  }) {
+    final borderColor = isSelected ? _brandTeal : _cardBorder;
+    final bgColor = isSelected ? _softMintBg : const Color(0xFFF8FAFC);
+
+    return Material(
+      color: bgColor,
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: isSwitching
+            ? null
+            : () async {
+                HapticFeedback.selectionClick();
+                if (provider.selectedModelVariant == variant &&
+                    provider.isModelLoaded) {
+                  return;
+                }
+                await provider.selectModelVariant(variant);
+                if (!context.mounted) return;
+                final err = provider.errorMessage;
+                ScaffoldMessenger.of(context)
+                  ..hideCurrentSnackBar()
+                  ..showSnackBar(
+                    SnackBar(
+                      behavior: SnackBarBehavior.floating,
+                      duration: const Duration(seconds: 2),
+                      backgroundColor:
+                          err == null ? _brandTealDark : Colors.redAccent,
+                      content: Text(
+                        err ??
+                            'Model aktif diganti ke ${variant.shortLabel} (${variant.checkpointFileName})',
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                    ),
+                  );
+              },
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: borderColor,
+              width: isSelected ? 1.5 : 1.0,
+            ),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.only(top: 1),
+                child: Icon(
+                  isSelected
+                      ? Icons.check_circle_rounded
+                      : Icons.radio_button_unchecked_rounded,
+                  size: 18,
+                  color: isSelected ? _brandTealDark : _textMuted,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            variant.displayName,
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              color: isSelected ? _brandTealDark : _textPrimary,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: isSelected
+                                ? _brandTealDark
+                                : const Color(0xFFE2E8F0),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            badgeText,
+                            style: TextStyle(
+                              fontSize: 9,
+                              fontWeight: FontWeight.w800,
+                              color: isSelected ? Colors.white : _textSecondary,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      variant.settingsSummary,
+                      style: const TextStyle(
+                        fontSize: 10.5,
+                        color: _textSecondary,
+                        height: 1.3,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

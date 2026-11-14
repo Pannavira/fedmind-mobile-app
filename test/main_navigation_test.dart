@@ -143,12 +143,76 @@ void main() {
 
     expect(find.text('Telemetri Federated Learning & CDSS'), findsOneWidget);
     expect(find.text('Arsitektur Federated Learning'), findsOneWidget);
+    expect(find.text('Pilihan Model Inferensi On-Device'), findsOneWidget);
+    expect(
+      find.text(
+        'FedMind-Edge-ONNX v3.0-FL (Model 3) • fedmind_edge_client.onnx',
+      ),
+      findsOneWidget,
+    );
 
     // 5. Kembali ke Home
     await tester.tap(find.text('Home'));
     await tester.pumpAndSettle();
 
     expect(find.text('FEDMIND Prototype 1'), findsOneWidget);
+  });
+
+  testWidgets(
+      'Settings tab defaults to Model 3 and allows switching between Model 2 and Model 3',
+      (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(1080, 2220);
+    tester.view.devicePixelRatio = 2.5;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    await tester.pumpWidget(createTestWidget());
+    await tester.pumpAndSettle();
+    await dismissDisclaimerIfPresent(tester);
+
+    await tester.tap(find.text('Settings'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('Model 3 — FedAvg Edge Client (Terbaru)'),
+      findsOneWidget,
+    );
+    expect(
+      find.text('Model 2 — FedAvg BiLSTM-Attn (Sebelumnya)'),
+      findsOneWidget,
+    );
+    expect(
+      find.text(
+        'FedMind-Edge-ONNX v3.0-FL (Model 3) • fedmind_edge_client.onnx',
+      ),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.text('Model 2 — FedAvg BiLSTM-Attn (Sebelumnya)'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text(
+        'FedMind-Multimodal-ONNX v2.4-FL (Model 2) • fedmind_multimodal.onnx',
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.text('Model aktif diganti ke Model 2 (fedmind_multimodal.onnx)'),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.text('Model 3 — FedAvg Edge Client (Terbaru)'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text(
+        'FedMind-Edge-ONNX v3.0-FL (Model 3) • fedmind_edge_client.onnx',
+      ),
+      findsOneWidget,
+    );
   });
 
   testWidgets(
