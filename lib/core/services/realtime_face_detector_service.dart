@@ -162,51 +162,29 @@ class RealtimeFaceDetectorService {
         ? Size(image.height.toDouble(), image.width.toDouble())
         : Size(image.width.toDouble(), image.height.toDouble());
 
-    if (Platform.isIOS) {
-      final format = InputImageFormatValue.fromRawValue(image.format.raw);
-      if (format != InputImageFormat.bgra8888 || image.planes.isEmpty) {
-        return null;
-      }
-      final plane = image.planes.first;
-      return (
-        inputImage: InputImage.fromBytes(
-          bytes: plane.bytes,
-          metadata: InputImageMetadata(
-            size: Size(image.width.toDouble(), image.height.toDouble()),
-            rotation: rotation,
-            format: format!,
-            bytesPerRow: plane.bytesPerRow,
-          ),
-        ),
-        rotatedSize: rotatedSize,
-      );
+    if (!Platform.isAndroid) return null;
+
+    final Uint8List? nv21Bytes;
+    if (image.planes.length == 1) {
+      nv21Bytes = image.planes.first.bytes;
+    } else if (image.planes.length >= 3) {
+      nv21Bytes = _yuv420ToNv21(image);
+    } else {
+      return null;
     }
 
-    if (Platform.isAndroid) {
-      final Uint8List? nv21Bytes;
-      if (image.planes.length == 1) {
-        nv21Bytes = image.planes.first.bytes;
-      } else if (image.planes.length >= 3) {
-        nv21Bytes = _yuv420ToNv21(image);
-      } else {
-        return null;
-      }
-
-      return (
-        inputImage: InputImage.fromBytes(
-          bytes: nv21Bytes,
-          metadata: InputImageMetadata(
-            size: Size(image.width.toDouble(), image.height.toDouble()),
-            rotation: rotation,
-            format: InputImageFormat.nv21,
-            bytesPerRow: image.width,
-          ),
+    return (
+      inputImage: InputImage.fromBytes(
+        bytes: nv21Bytes,
+        metadata: InputImageMetadata(
+          size: Size(image.width.toDouble(), image.height.toDouble()),
+          rotation: rotation,
+          format: InputImageFormat.nv21,
+          bytesPerRow: image.width,
         ),
-        rotatedSize: rotatedSize,
-      );
-    }
-
-    return null;
+      ),
+      rotatedSize: rotatedSize,
+    );
   }
 
   static InputImageRotation? _resolveRotation(
@@ -214,9 +192,6 @@ class RealtimeFaceDetectorService {
     DeviceOrientation deviceOrientation,
   ) {
     final sensorOrientation = camera.sensorOrientation;
-    if (Platform.isIOS) {
-      return InputImageRotationValue.fromRawValue(sensorOrientation);
-    }
     var rotationCompensation = _orientations[deviceOrientation];
     if (rotationCompensation == null) return null;
 

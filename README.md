@@ -7,39 +7,22 @@ Aplikasi prototipe mobile CDSS berbasis **Flutter & ONNX Runtime** untuk skrinin
 
 ## 📥 Unduh Langsung (*Direct Downloads*)
 
-Anda dapat mengunduh langsung aplikasi untuk **Android** maupun **iOS** melalui halaman [GitHub Releases](https://github.com/Pannavira/fedmind-mobile-app/releases):
+Saat ini prototipe **FedMind Mobile** hanya ditujukan untuk platform **Android (Android 13+ / ARM64 `arm64-v8a`)**. Anda dapat mengunduh langsung berkas APK melalui halaman [GitHub Releases](https://github.com/Pannavira/fedmind-mobile-app/releases):
 
 | Platform | Format File | Tautan Unduhan Langsung | Petunjuk Pemasangan |
 | :--- | :---: | :---: | :--- |
-| **Android** | `.apk` | [**Unduh APK (Rilis Terbaru)**](https://github.com/Pannavira/fedmind-mobile-app/releases/latest/download/fedmind-app-release.apk) | Unduh di HP Android > Buka file > Izinkan *"Install from unknown sources"*. |
-| **iOS (iPhone/iPad)** | `.ipa` | [**Unduh IPA (Rilis Terbaru)**](https://github.com/Pannavira/fedmind-mobile-app/releases/latest/download/fedmind-ios.ipa) | Unduh file `.ipa` > Pasang ke iPhone via [Sideloadly](https://sideloadly.io) / [AltStore](https://altstore.io). |
+| **Android (13+)** | `.apk` | [**Unduh APK (Rilis Terbaru)**](https://github.com/Pannavira/fedmind-mobile-app/releases/latest/download/fedmind-app-release.apk) | Unduh di HP Android > Buka file > Izinkan *"Install from unknown sources"*. |
 
 ---
 
-## 🚀 Panduan Pemasangan Detail
+## 🚀 Panduan Pemasangan (Android)
 
-### 1. Android (`.apk`)
-1. Klik tautan [**Unduh APK**](https://github.com/Pannavira/fedmind-mobile-app/releases/latest/download/fedmind-app-release.apk) langsung dari browser HP Android Anda.
+1. Klik tautan [**Unduh APK**](https://github.com/Pannavira/fedmind-mobile-app/releases/latest/download/fedmind-app-release.apk) langsung dari browser HP Android Anda (minimum Android 13 / API 33 agar pipeline audio-speech dual-channel berjalan penuh).
 2. Buka berkas yang telah diunduh (`fedmind-app-release.apk`).
 3. Jika muncul notifikasi keamanan Google Play Protect / Chrome:
    - Pilih **Pengaturan (Settings)** > Aktifkan **Izinkan dari sumber ini (Allow from this source)**.
    - Ketuk **Instal (Install)**.
 4. Buka aplikasi **FedMind** dan berikan izin sensor kamera serta mikrofon saat diminta untuk sesi observasi klinis.
-
-### 2. iOS (`.ipa` - iPhone / iPad)
-Karena aplikasi prototipe ini belum diunggah ke Apple App Store komersial, berkas `.ipa` dapat dipasang dengan mudah secara gratis (*sideloading*) menggunakan komputer:
-
-#### Cara Sideloading via Sideloadly (Windows / Mac):
-1. Unduh dan instal **Sideloadly** dari [sideloadly.io](https://sideloadly.io).
-2. Hubungkan iPhone Anda ke laptop/PC dengan kabel data (pastikan perangkat dalam status *Unlocked* dan pilih *Trust this Computer* jika ditanya).
-3. Unduh berkas [**`fedmind-ios.ipa`**](https://github.com/Pannavira/fedmind-mobile-app/releases/latest/download/fedmind-ios.ipa).
-4. Buka Sideloadly, tarik (*drag and drop*) file `fedmind-ios.ipa` ke jendela Sideloadly.
-5. Masukkan akun **Apple ID** Anda pada kolom *Apple ID*.
-6. Klik **Start**. Tunggu beberapa menit hingga proses instalasi selesai (*status: Done!*).
-7. Di iPhone Anda:
-   - Buka **Settings (Pengaturan) > General (Umum) > VPN & Device Management (Manajemen Profil & Perangkat)**.
-   - Ketuk nama Apple ID Anda, lalu pilih **Trust (Percayai)**.
-8. Aplikasi **FedMind** siap dibuka dan digunakan di iPhone Anda.
 
 ---
 
