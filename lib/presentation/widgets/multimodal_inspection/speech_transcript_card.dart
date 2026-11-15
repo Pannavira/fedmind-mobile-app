@@ -60,7 +60,7 @@ class SpeechTranscriptCard extends StatelessWidget {
                           Flexible(
                             child: Text(
                               inspection.isWhisperTranscribed
-                                  ? 'Transkrip Wicara & MentalBERT 768D'
+                                  ? 'Transkrip Wicara & Multilingual-E5 768D'
                                   : (inspection.isExplicitTranscript
                                       ? 'Transkrip & Analisis Kata'
                                       : 'Sintesis Tuturan & Perilaku Vokal'),
@@ -87,7 +87,7 @@ class SpeechTranscriptCard extends StatelessWidget {
                             ),
                             child: Text(
                               inspection.isWhisperTranscribed
-                                  ? 'Google Live ASR (ID ➔ EN)'
+                                  ? 'Google Live ASR (ID/EN)'
                                   : (inspection.isExplicitTranscript
                                       ? 'Verbatim'
                                       : 'Sintesis Akustik & Visual'),
@@ -107,7 +107,7 @@ class SpeechTranscriptCard extends StatelessWidget {
                       const SizedBox(height: 2),
                       Text(
                         inspection.isWhisperTranscribed
-                            ? 'Transkripsi tuturan wicara Google STT & translasi on-device ke Bahasa Inggris (MentalBERT)'
+                            ? 'Transkripsi tuturan wicara on-device langsung untuk Multilingual-E5 INT4 (ID/EN)'
                             : (inspection.isExplicitTranscript
                                 ? 'Analisis kata kunci percakapan dan ekspresi semantik emosi klien'
                                 : 'Profil observasi wicara & afek yang disintesis dari biometrik video klien'),
@@ -248,58 +248,6 @@ class SpeechTranscriptCard extends StatelessWidget {
                                 height: 1.45,
                               ),
                             ),
-                            if (seg.translatedText.isNotEmpty) ...[
-                              const SizedBox(height: 6),
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 10,
-                                  vertical: 6,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFF1F5F9),
-                                  borderRadius: BorderRadius.circular(8),
-                                  border: Border.all(
-                                    color: const Color(0xFFE2E8F0),
-                                  ),
-                                ),
-                                child: Row(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 5,
-                                        vertical: 1.5,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: const Color(0xFF6366F1)
-                                            .withValues(alpha: 0.15),
-                                        borderRadius: BorderRadius.circular(4),
-                                      ),
-                                      child: const Text(
-                                        'MentalBERT (EN)',
-                                        style: TextStyle(
-                                          fontSize: 9,
-                                          fontWeight: FontWeight.w800,
-                                          color: Color(0xFF4338CA),
-                                        ),
-                                      ),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    Expanded(
-                                      child: Text(
-                                        '"${seg.translatedText}"',
-                                        style: const TextStyle(
-                                          fontSize: 11.5,
-                                          fontWeight: FontWeight.w500,
-                                          color: Color(0xFF334155),
-                                          fontStyle: FontStyle.italic,
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
                           ],
                         ),
                       ),
@@ -319,7 +267,7 @@ class SpeechTranscriptCard extends StatelessWidget {
                 Text(
                   isSimpleMode
                       ? 'Penanda Leksikal & Afek Kognitif Terdeteksi:'
-                      : 'Token Leksikon Psikolinguistik Terdeteksi (MentalBERT Embedding):',
+                      : 'Token Leksikon Psikolinguistik Terdeteksi (Multilingual-E5 INT4):',
                   style: const TextStyle(
                     fontSize: 11.5,
                     fontWeight: FontWeight.w700,

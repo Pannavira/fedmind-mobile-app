@@ -54,6 +54,8 @@ class ExtractedMultimodalFeatures {
   final int facesDetected;
   final int audioSamplesAnalyzed;
   final bool usedMentalBertOnnx;
+  final bool usedLexiconFallback;
+  final String? textEncoderWarning;
   final String textEmbeddingEngine;
   final bool isVisualBranchDisabled;
   final String? visualBranchWarning;
@@ -72,7 +74,9 @@ class ExtractedMultimodalFeatures {
     this.facesDetected = 0,
     this.audioSamplesAnalyzed = 0,
     this.usedMentalBertOnnx = false,
-    this.textEmbeddingEngine = 'MentalBERT-INT4 ONNX (768D)',
+    this.usedLexiconFallback = false,
+    this.textEncoderWarning,
+    this.textEmbeddingEngine = 'Multilingual-E5-Small INT4 ONNX (768D)',
     this.isVisualBranchDisabled = false,
     this.visualBranchWarning,
     required this.inspectionData,
@@ -90,6 +94,9 @@ class ExtractedMultimodalFeatures {
       'faces_detected': facesDetected,
       'audio_samples_analyzed': audioSamplesAnalyzed,
       'used_mentalbert_onnx': usedMentalBertOnnx,
+      'used_lexicon_fallback': usedLexiconFallback,
+      if (textEncoderWarning != null)
+        'text_encoder_warning': textEncoderWarning,
       'text_embedding_engine': textEmbeddingEngine,
       'visual_branch_disabled': isVisualBranchDisabled,
       if (visualBranchWarning != null)
@@ -111,7 +118,7 @@ class MultimodalExtractorService {
 
   static const MethodChannel _channel =
       MethodChannel('com.fedmind.edge/multimodal_extractor');
-  static const String _statsAssetPath = 'assets/models/train_norm_stats.json';
+  static const String _statsAssetPath = 'assets/models/train_norm_stats_edge.json';
 
   static Map<String, List<double>>? _meanStats;
   static Map<String, List<double>>? _stdStats;
@@ -459,7 +466,7 @@ class MultimodalExtractorService {
         : whisperResult.indonesianTranscript;
     final effectiveEnglishTranscript = whisperResult.englishTranscript;
 
-    // Tahap 5: Multilingual-E5-MentalBERT INT4 ONNX 768D langsung dari tuturan pengguna
+    // Tahap 5: Multilingual-E5-Small INT4 ONNX 768D langsung dari tuturan pengguna
     onProgress?.call(
       'Memproses representasi semantik teks dwibahasa 768D...',
       0.95,
@@ -469,6 +476,8 @@ class MultimodalExtractorService {
         : effectiveEnglishTranscript;
     List<double> textFeatures;
     bool usedMentalBertOnnx = false;
+    bool usedLexiconFallback = false;
+    String? textEncoderWarning;
     String textEmbeddingEngine;
     if (kUseEdgeParityFeatureSpace) {
       if (textForEncoder.trim().isEmpty) {
@@ -482,12 +491,14 @@ class MultimodalExtractorService {
           textFeatures =
               await OnDeviceMentalBertService.embedText(textForEncoder);
           usedMentalBertOnnx = true;
-          textEmbeddingEngine = 'Multilingual-MentalBERT INT4 ONNX (768D)';
-          debugPrint('[MentalBERT] embedding ONNX 768D berhasil (${textForEncoder.length} chars).');
+          textEmbeddingEngine = 'Multilingual-E5-Small INT4 ONNX (768D)';
+          debugPrint('[mE5] embedding ONNX 768D berhasil (${textForEncoder.length} chars).');
         } catch (e, st) {
-          debugPrint('[MentalBERT] fallback ke leksikon: $e\n$st');
+          usedLexiconFallback = true;
+          textEncoderWarning =
+              'Encoder Multilingual-E5 ONNX gagal ($e); sistem beralih sementara ke ekstraktor leksikal 768D.';
+          debugPrint('[mE5] fallback ke leksikon: $e\n$st');
           textFeatures = _computeRealTextFeatures768D(
-            userNote: userNote,
             clientTranscript: textForEncoder,
             visualSummary: visualResult.summaryStats,
             audioSummary: audioResult.summaryStats,
@@ -496,8 +507,8 @@ class MultimodalExtractorService {
         }
       }
     } else {
+      usedLexiconFallback = textForEncoder.trim().isNotEmpty;
       textFeatures = _computeRealTextFeatures768D(
-        userNote: userNote,
         clientTranscript: textForEncoder,
         visualSummary: visualResult.summaryStats,
         audioSummary: audioResult.summaryStats,
@@ -533,6 +544,8 @@ class MultimodalExtractorService {
       realPitchContour: audioResult.pitchContour,
       isVisualBranchDisabled: isVisualBranchDisabled,
       visualBranchWarning: visualBranchWarning,
+      usedLexiconFallback: usedLexiconFallback,
+      textEncoderWarning: textEncoderWarning,
     );
 
     return ExtractedMultimodalFeatures(
@@ -554,6 +567,8 @@ class MultimodalExtractorService {
       facesDetected: facesDetectedCount,
       audioSamplesAnalyzed: pcmSamples.length,
       usedMentalBertOnnx: usedMentalBertOnnx,
+      usedLexiconFallback: usedLexiconFallback,
+      textEncoderWarning: textEncoderWarning,
       textEmbeddingEngine: textEmbeddingEngine,
       isVisualBranchDisabled: isVisualBranchDisabled,
       visualBranchWarning: visualBranchWarning,
@@ -1570,18 +1585,15 @@ class MultimodalExtractorService {
     );
   }
 
-  /// Menghitung 768 fitur Semantik Teks dari cerita pengguna & konteks prosodi-visual
+  /// Menghitung 768 fitur Semantik Teks dari tuturan klien & konteks prosodi-visual
   static List<double> _computeRealTextFeatures768D({
-    String? userNote,
     String? clientTranscript,
     required Map<String, double> visualSummary,
     required Map<String, double> audioSummary,
   }) {
-    final bool hasExplicitText = _isValidSpeechTranscript(clientTranscript) ||
-        _isValidSpeechTranscript(userNote);
+    final bool hasExplicitText = _isValidSpeechTranscript(clientTranscript);
     final effectiveText = _resolveTranscriptText(
       clientTranscript: clientTranscript,
-      counselorNote: userNote,
       visualSummary: visualSummary,
       audioSummary: audioSummary,
     );
@@ -2231,6 +2243,8 @@ class MultimodalExtractorService {
     bool? isExplicitTranscript,
     bool isVisualBranchDisabled = false,
     String? visualBranchWarning,
+    bool usedLexiconFallback = false,
+    String? textEncoderWarning,
     required List<double> visualFeatures,
     required List<double> audioFeatures,
     required List<double> textFeatures,
@@ -2539,8 +2553,7 @@ class MultimodalExtractorService {
       isFromRealVideo: true,
     );
 
-    final hasExplicit = _isValidSpeechTranscript(clientTranscript) ||
-        _isValidSpeechTranscript(userNote);
+    final hasExplicit = _isValidSpeechTranscript(clientTranscript);
 
     return MultimodalInspectionData(
       participantId: participantId,
@@ -2586,6 +2599,8 @@ class MultimodalExtractorService {
       sampleAudioVector: audioFeatures.take(12).toList(),
       sampleTextVector: textFeatures.take(12).toList(),
       isVisualBranchDisabled: isVisualBranchDisabled,
+      usedLexiconFallback: usedLexiconFallback,
+      textEncoderWarning: textEncoderWarning,
     );
   }
 
@@ -2793,18 +2808,14 @@ class MultimodalExtractorService {
     return true;
   }
 
-  /// Menentukan teks transkrip verbatim jika pengguna memasukkan transkrip wawancara atau catatan klinisi
+  /// Menentukan teks transkrip verbatim klien (tanpa mencampur catatan konselor)
   static String _resolveTranscriptText({
     String? clientTranscript,
-    String? counselorNote,
     Map<String, double>? visualSummary,
     Map<String, double>? audioSummary,
   }) {
     if (_isValidSpeechTranscript(clientTranscript)) {
       return clientTranscript!.trim();
-    }
-    if (_isValidSpeechTranscript(counselorNote)) {
-      return counselorNote!.trim();
     }
     return '';
   }
@@ -2824,8 +2835,7 @@ class MultimodalExtractorService {
     Map<String, double>? audioSummary,
     bool isFromRealVideo = false,
   }) {
-    final bool hasExplicit = _isValidSpeechTranscript(clientTranscript) ||
-        _isValidSpeechTranscript(userNote);
+    final bool hasExplicit = _isValidSpeechTranscript(clientTranscript);
 
     const emotionalLexicon = <String, String>{
       'sedih': 'Suasana Hati',
@@ -3021,10 +3031,9 @@ class MultimodalExtractorService {
     final segments = <TranscriptSegmentItem>[];
 
     if (hasExplicit) {
-      // 1. Mode Transkrip Verbatim Nyata (dari input pengguna/konselor atau dataset patokan klinis)
+      // 1. Mode Transkrip Verbatim Nyata (hanya dari ucapan klien / koreksi manual terverifikasi)
       rawTranscript = _resolveTranscriptText(
         clientTranscript: clientTranscript,
-        counselorNote: userNote,
         visualSummary: visualSummary,
         audioSummary: audioSummary,
       );
@@ -3220,7 +3229,7 @@ class MultimodalExtractorService {
       if (negHits > posHits) {
         lingTitle = 'Terdeteksi Ungkapan Kelelahan & Beban Pikiran';
         lingDesc =
-            'Model bahasa (MentalBERT 768D) menangkap ${detectedKeywords.length} penanda leksikal terkait beban emosi/kelelahan serta $pronounCount kata ganti reflektif pada durasi ${durationSec.toStringAsFixed(1)} detik.';
+            'Model bahasa (Multilingual-E5 768D) menangkap ${detectedKeywords.length} penanda leksikal terkait beban emosi/kelelahan serta $pronounCount kata ganti reflektif pada durasi ${durationSec.toStringAsFixed(1)} detik.';
       } else {
         lingTitle = 'Narasi Cerita Terstruktur dengan Upaya Regulasi Diri';
         lingDesc =

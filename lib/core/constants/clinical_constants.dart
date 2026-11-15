@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 
 class ClinicalConstants {
-  // PHQ-8 Thresholds according to Fed-Mind research protocol
+  // PHQ-8 Thresholds aligned with Fed-Mind Model 3 edge protocol (binary cutoff = 9.4)
   static const double scoreLowMax = 7.99;
   static const double scoreBorderlineMin = 8.0;
-  static const double scoreBorderlineMax = 9.99;
-  static const double scoreModerateMin = 10.0;
+  static const double scoreBorderlineMax = 9.39;
+  static const double scoreModerateMin = 9.4;
   static const double scoreModerateMax = 14.99;
   static const double scoreHighMin = 15.0;
   static const double scoreMax = 24.0;
@@ -47,17 +47,17 @@ class ClinicalConstants {
     }
   }
 
-  /// Standardized clinical risk stratification labels (PHQ-8 protocol)
+  /// Standardized clinical risk stratification labels (PHQ-8 Model 3 protocol)
   static String getRiskLabel(String? riskCategory) {
     switch (riskCategory?.toLowerCase()) {
       case 'low':
-        return 'Low Risk / Minimal (PHQ-8: 0–7)';
+        return 'Low Risk / Minimal (PHQ-8 < 8.0)';
       case 'borderline':
-        return 'Borderline (PHQ-8: 8–9)';
+        return 'Borderline (PHQ-8: 8.0–9.3)';
       case 'moderate':
-        return 'Moderate Depressive Symptoms (PHQ-8: 10–14)';
+        return 'Moderate Depressive Symptoms (PHQ-8: 9.4–14.9)';
       case 'high':
-        return 'Severe Depressive Symptoms (PHQ-8: 15–24)';
+        return 'Severe Depressive Symptoms (PHQ-8 ≥ 15.0)';
       default:
         return 'Unclassified Clinical Risk';
     }
@@ -67,13 +67,13 @@ class ClinicalConstants {
   static String getRiskShortBadge(String? riskCategory) {
     switch (riskCategory?.toLowerCase()) {
       case 'low':
-        return 'LOW RISK (0–7)';
+        return 'LOW RISK (< 8.0)';
       case 'borderline':
-        return 'BORDERLINE (8–9)';
+        return 'BORDERLINE (8.0–9.3)';
       case 'moderate':
-        return 'MODERATE (10–14)';
+        return 'MODERATE (9.4–14.9)';
       case 'high':
-        return 'SEVERE / HIGH (15–24)';
+        return 'SEVERE / HIGH (≥ 15.0)';
       default:
         return 'UNCLASSIFIED';
     }
@@ -125,9 +125,9 @@ class ClinicalConstants {
       case 'low':
         return 'Estimasi skor PHQ-8 berada di bawah ambang klinis (< 8.0). Tidak terindikasi simtomatologi depresif mayor pada observasi multimodal.';
       case 'borderline':
-        return 'Estimasi skor PHQ-8 pada rentang subklinis/borderline (8.0–9.9). Memerlukan pemantauan berkala dan evaluasi faktor stresor psikososial.';
+        return 'Estimasi skor PHQ-8 pada rentang subklinis/borderline (8.0–9.3). Memerlukan pemantauan berkala dan evaluasi faktor stresor psikososial.';
       case 'moderate':
-        return 'Estimasi skor PHQ-8 pada rentang 10.0–14.9 (Moderate Depressive Symptoms). Indikasi klinis positif yang memerlukan asesmen diagnostik mendalam dan intervensi psikoterapi terstruktur.';
+        return 'Estimasi skor PHQ-8 pada rentang 9.4–14.9 (Moderate Depressive Symptoms, melampaui cut-off kalibrasi 9.4). Indikasi klinis positif yang memerlukan asesmen diagnostik mendalam dan intervensi psikoterapi terstruktur.';
       case 'high':
         return 'Estimasi skor PHQ-8 ≥ 15.0 (Severe Depressive Symptoms). Prioritas triase tinggi; lakukan evaluasi keselamatan klinis dan kolaborasi psikiatris segera.';
       default:

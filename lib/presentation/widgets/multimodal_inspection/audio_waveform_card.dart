@@ -259,59 +259,62 @@ class _AudioWaveformCardState extends State<AudioWaveformCard> {
             ),
           ),
 
-          // --- KONTUR FREKUENSI FUNDAMENTAL (PITCH F0 SPARKLINE) ---
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-            child: Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: const Color(0xFFF8FAFC),
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: const Color(0xFFE2E8F0)),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Expanded(
-                        child: Text(
-                          'Variasi Nada Suara (Intonasi):',
-                          style: TextStyle(
-                            fontSize: 11.5,
-                            fontWeight: FontWeight.w700,
-                            color: _slateDark,
+          if (!widget.isSimpleMode) ...[
+            // --- KONTUR FREKUENSI FUNDAMENTAL (PITCH F0 SPARKLINE - MODE TEKNIS) ---
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+              child: Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF8FAFC),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Expanded(
+                          child: Text(
+                            'Kontur Nada Dasar F0 (COVAREP / Pitch):',
+                            style: TextStyle(
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w700,
+                              color: _slateDark,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                           ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
                         ),
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        ins.pitchStdHz < 15 ? 'Stabilitas: Wajar & Alami' : 'Stabilitas: Bervariasi',
-                        style: const TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                          color: _brandBlue,
+                        const SizedBox(width: 8),
+                        Text(
+                          'F0: ${ins.avgPitchHz.toStringAsFixed(0)} Hz (±${ins.pitchStdHz.toStringAsFixed(1)} Hz) • Jitter ${ins.jitterPct.toStringAsFixed(2)}%',
+                          style: const TextStyle(
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.w700,
+                            color: _brandBlue,
+                          ),
                         ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  SizedBox(
-                    height: 42,
-                    width: double.infinity,
-                    child: CustomPaint(
-                      painter: _PitchContourPainter(
-                        pitchValues: ins.pitchContourHz,
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      height: 42,
+                      width: double.infinity,
+                      child: CustomPaint(
+                        painter: _PitchContourPainter(
+                          pitchValues: ins.pitchContourHz,
+                        ),
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
-          ),
+          ] else
+            const SizedBox(height: 10),
 
           // --- RINGKASAN OBSERVASI PROSODI VOKAL ---
           Padding(

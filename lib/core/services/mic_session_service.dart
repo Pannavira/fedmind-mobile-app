@@ -61,6 +61,42 @@ class MicSessionService {
     );
   }
 
+  /// Memeriksa ketersediaan layanan pengenalan suara & persyaratan Android 13+ (API 33+).
+  static Future<({bool available, bool isOnDevice, int sdkInt, bool supportsParallelMic})>
+      getSpeechRequirements() async {
+    if (!Platform.isAndroid) {
+      return (
+        available: true,
+        isOnDevice: false,
+        sdkInt: 33,
+        supportsParallelMic: true,
+      );
+    }
+    try {
+      final res = await _ch.invokeMethod<Map<dynamic, dynamic>>(
+        'isSpeechRecognitionAvailable',
+      );
+      final available = res?['available'] == true;
+      final isOnDevice = res?['isOnDevice'] == true;
+      final sdkInt = (res?['sdkInt'] as num?)?.toInt() ?? 0;
+      final supportsParallelMic =
+          res?['supportsParallelMic'] == true || sdkInt >= 33;
+      return (
+        available: available,
+        isOnDevice: isOnDevice,
+        sdkInt: sdkInt,
+        supportsParallelMic: supportsParallelMic,
+      );
+    } catch (_) {
+      return (
+        available: false,
+        isOnDevice: false,
+        sdkInt: 0,
+        supportsParallelMic: false,
+      );
+    }
+  }
+
   /// Path WAV pendamping untuk sebuah berkas video (REC_xxx.mp4 -> REC_xxx.wav)
   static String sidecarWavPath(String videoPath) =>
       videoPath.replaceFirst(RegExp(r'\.[A-Za-z0-9]+$'), '.wav');

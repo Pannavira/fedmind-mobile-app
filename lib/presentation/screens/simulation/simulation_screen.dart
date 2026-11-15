@@ -103,7 +103,7 @@ class _SimulationScreenState extends State<SimulationScreen> {
       _participantId = 'P716';
       _selectedPayload = data;
       _noteController.text =
-          'Kasus Depresi Berat E-DAIC (716_P - Official Test Split): Ground Truth PHQ-8 = 15.0 (Depressed=3, Sleep=3, Tired=2, Failure=2, Concentration=2) • Prediksi ONNX = 19.00/24.0 (Severe Depression).';
+          'Kasus Depresi Berat E-DAIC (716_P - Official Test Split): Ground Truth PHQ-8 = 15.0 (Depressed=3, Sleep=3, Tired=2, Failure=2, Concentration=2) • Uji Inferensi Model 3 ONNX On-Device.';
       _transcriptController.text = excerpt;
       _inspectionPreview =
           MultimodalExtractorService.buildInspectionFromSampleFeatures(
@@ -350,7 +350,7 @@ class _SimulationScreenState extends State<SimulationScreen> {
                           id: 'P716',
                           title: 'Kasus Depresi Berat E-DAIC (P716)',
                           subtitle:
-                              'Ground Truth PHQ-8: 15.0 • Prediksi ONNX: 19.00/24.0 (Severe). Dominan Teks (71.3%) & Visual FACS (27.3%).',
+                              'Ground Truth PHQ-8: 15.0 • Skenario depresi berat (E-DAIC 716_P) via Model 3 ONNX On-Device.',
                           isSelected: _selectedCase == 'P716',
                           badge: 'Depresi Berat',
                           accentColor: const Color(0xFFDC2626),
@@ -421,7 +421,7 @@ class _SimulationScreenState extends State<SimulationScreen> {
                             ),
                             const SizedBox(width: 8),
                             _buildFeatureMetric(
-                              label: 'Teks (MentalBERT)',
+                              label: 'Teks (mE5 INT4)',
                               dim: '768 Dimensi',
                               status: _selectedCase == 'P716'
                                   ? 'Afek Depresif'
@@ -464,7 +464,7 @@ class _SimulationScreenState extends State<SimulationScreen> {
                               if (_selectedCase == 'P716') ...[
                                 const SizedBox(height: 4),
                                 const Text(
-                                  'Profil Klinis E-DAIC: Laki-laki (37 thn) • Ground Truth PHQ-8 = 15.0 (Depressed: 3/3, Sleep: 3/3, Tired: 2/3, Failure: 2/3, Concentration: 2/3) • Prediksi ONNX = 19.00/24.0',
+                                  'Profil Klinis E-DAIC: Laki-laki (37 thn) • Ground Truth PHQ-8 = 15.0 (Depressed: 3/3, Sleep: 3/3, Tired: 2/3, Failure: 2/3, Concentration: 2/3)',
                                   style: TextStyle(
                                     fontSize: 10.5,
                                     fontWeight: FontWeight.w600,

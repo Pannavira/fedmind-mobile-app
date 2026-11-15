@@ -7,7 +7,6 @@ import 'data/datasources/screening_remote_datasource.dart';
 import 'data/repositories/screening_repository.dart';
 import 'presentation/providers/screening_provider.dart';
 import 'presentation/screens/main_navigation_screen.dart';
-import 'presentation/screens/system/setup_requirements_screen.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -36,7 +35,7 @@ class FedMindApp extends StatelessWidget {
         title: 'FED-MIND Clinical',
         debugShowCheckedModeBanner: false,
         theme: AppTheme.lightTheme,
-        home: const SetupGate(child: MainNavigationScreen()),
+        home: const MainNavigationScreen(),
       ),
     );
   }

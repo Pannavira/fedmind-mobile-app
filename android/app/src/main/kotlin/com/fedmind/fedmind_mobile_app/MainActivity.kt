@@ -11,8 +11,6 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.speech.RecognitionListener
-import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import com.google.android.gms.tasks.Tasks
 import com.google.mediapipe.framework.image.BitmapImageBuilder
@@ -44,9 +42,6 @@ class MainActivity : FlutterActivity() {
     private val executor = Executors.newSingleThreadExecutor()
     private val mainHandler = Handler(Looper.getMainLooper())
 
-    private var speechRecognizer: SpeechRecognizer? = null
-    private val liveSpeechTranscript = StringBuilder()
-    private var isRecognizingSpeech = false
     private var methodChannel: MethodChannel? = null
     private var micSession: MicSession? = null
 
@@ -75,90 +70,14 @@ class MainActivity : FlutterActivity() {
                         } else {
                             available
                         }
-                        result.success(hashMapOf("available" to available, "isOnDevice" to isOnDevice))
-                    }
-                    "startLiveSpeechRecognition" -> {
-                        mainHandler.post {
-                            try {
-                                if (speechRecognizer != null) {
-                                    try { speechRecognizer?.destroy() } catch (_: Exception) {}
-                                    speechRecognizer = null
-                                }
-                                liveSpeechTranscript.clear()
-
-                                speechRecognizer = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
-                                    SpeechRecognizer.isOnDeviceRecognitionAvailable(this)) {
-                                    SpeechRecognizer.createOnDeviceSpeechRecognizer(this)
-                                } else {
-                                    SpeechRecognizer.createSpeechRecognizer(this)
-                                }
-
-                                speechRecognizer?.setRecognitionListener(object : RecognitionListener {
-                                    override fun onReadyForSpeech(params: Bundle?) {}
-                                    override fun onBeginningOfSpeech() {}
-                                    override fun onRmsChanged(rmsdB: Float) {}
-                                    override fun onBufferReceived(buffer: ByteArray?) {}
-                                    override fun onEndOfSpeech() {}
-                                    override fun onError(error: Int) {
-                                        // Ignore silence or network timeouts gracefully
-                                    }
-                                    override fun onResults(results: Bundle?) {
-                                        val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                                        if (!matches.isNullOrEmpty()) {
-                                            val text = matches[0]?.trim() ?: ""
-                                            if (text.isNotBlank()) {
-                                                if (liveSpeechTranscript.isNotEmpty()) liveSpeechTranscript.append(" ")
-                                                liveSpeechTranscript.append(text)
-                                            }
-                                        }
-                                    }
-                                    override fun onPartialResults(partialResults: Bundle?) {
-                                        val matches = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                                        if (!matches.isNullOrEmpty()) {
-                                            val text = matches[0]?.trim() ?: ""
-                                            if (text.isNotBlank() && !liveSpeechTranscript.endsWith(text)) {
-                                                // Live partial update
-                                            }
-                                        }
-                                    }
-                                    override fun onEvent(eventType: Int, params: Bundle?) {}
-                                })
-
-                                val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                                    putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                                    putExtra(RecognizerIntent.EXTRA_LANGUAGE, "id-ID")
-                                    putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "id-ID")
-                                    putExtra(RecognizerIntent.EXTRA_ONLY_RETURN_LANGUAGE_PREFERENCE, "id-ID")
-                                    putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-                                    putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
-                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                                        putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
-                                    }
-                                }
-
-                                speechRecognizer?.startListening(intent)
-                                isRecognizingSpeech = true
-                                result.success(true)
-                            } catch (e: Exception) {
-                                result.error("SPEECH_START_ERROR", "Failed to start on-device speech recognizer: ${e.message}", null)
-                            }
-                        }
-                    }
-                    "stopLiveSpeechRecognition" -> {
-                        mainHandler.post {
-                            try {
-                                isRecognizingSpeech = false
-                                speechRecognizer?.stopListening()
-                                mainHandler.postDelayed({
-                                    val finalTranscript = liveSpeechTranscript.toString().trim()
-                                    try { speechRecognizer?.destroy() } catch (_: Exception) {}
-                                    speechRecognizer = null
-                                    result.success(hashMapOf("transcript" to finalTranscript))
-                                }, 350)
-                            } catch (e: Exception) {
-                                result.success(hashMapOf("transcript" to liveSpeechTranscript.toString().trim()))
-                            }
-                        }
+                        result.success(
+                            hashMapOf(
+                                "available" to available,
+                                "isOnDevice" to isOnDevice,
+                                "sdkInt" to Build.VERSION.SDK_INT,
+                                "supportsParallelMic" to (Build.VERSION.SDK_INT >= 33)
+                            )
+                        )
                     }
                     "extractVideoMultimodal" -> {
                         val videoPath = call.argument<String>("videoPath")

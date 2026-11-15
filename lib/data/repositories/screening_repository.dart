@@ -220,6 +220,15 @@ class ScreeningRepository {
     }
   }
 
+  /// Hapus referensi video lokal pada catatan skrining di SQLite
+  Future<void> clearLocalVideoPath(String screeningId) async {
+    try {
+      await localDataSource.clearVideoPath(screeningId);
+    } catch (e) {
+      throw 'Failed to clear local video path: $e';
+    }
+  }
+
   /// Ambil total data skrining tersimpan di SQLite
   Future<int> getLocalScreeningTotalCount() async {
     try {

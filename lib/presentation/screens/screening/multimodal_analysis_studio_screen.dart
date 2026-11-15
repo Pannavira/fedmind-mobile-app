@@ -40,7 +40,7 @@ class _MultimodalAnalysisStudioScreenState
   static const Color _textSecondary = Color(0xFF64748B);
 
   late TabController _tabController;
-  final bool _isSimpleMode = false;
+  bool _isSimpleMode = true;
   double _videoPlaybackProgress = 0.25;
 
   @override
@@ -88,7 +88,7 @@ class _MultimodalAnalysisStudioScreenState
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          // Top bar: Tombol kembali, judul & identitas pasien
+                          // Top bar: Tombol kembali, judul & toggle Ringkas/Teknis
                           Row(
                             children: [
                               Material(
@@ -107,7 +107,7 @@ class _MultimodalAnalysisStudioScreenState
                                   ),
                                 ),
                               ),
-                              const SizedBox(width: 14),
+                              const SizedBox(width: 12),
                               Expanded(
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -116,21 +116,60 @@ class _MultimodalAnalysisStudioScreenState
                                       'Studio Observasi',
                                       style: TextStyle(
                                         color: Colors.white,
-                                        fontSize: 20,
+                                        fontSize: 19,
                                         fontWeight: FontWeight.w800,
                                         letterSpacing: -0.3,
                                       ),
                                     ),
                                     const SizedBox(height: 2),
                                     Text(
-                                      'ID Pasien: ${widget.result.participantId} • Triangulasi Sinyal & XAI',
+                                      'ID Klien: ${widget.result.participantId} \u2022 ${_isSimpleMode ? 'Tampilan Ringkas' : 'Mode Teknis XAI'}',
                                       style: TextStyle(
                                         color: Colors.white.withValues(alpha: 0.90),
-                                        fontSize: 12,
+                                        fontSize: 11.5,
                                         fontWeight: FontWeight.w500,
                                       ),
                                     ),
                                   ],
+                                ),
+                              ),
+                              Material(
+                                color: Colors.white.withValues(alpha: 0.2),
+                                borderRadius: BorderRadius.circular(10),
+                                child: InkWell(
+                                  borderRadius: BorderRadius.circular(10),
+                                  onTap: () {
+                                    setState(() {
+                                      _isSimpleMode = !_isSimpleMode;
+                                    });
+                                  },
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 10,
+                                      vertical: 7,
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(
+                                          _isSimpleMode
+                                              ? Icons.tune_rounded
+                                              : Icons.medical_information_outlined,
+                                          color: Colors.white,
+                                          size: 15,
+                                        ),
+                                        const SizedBox(width: 5),
+                                        Text(
+                                          _isSimpleMode ? 'Teknis' : 'Ringkas',
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.w800,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
                                 ),
                               ),
                             ],

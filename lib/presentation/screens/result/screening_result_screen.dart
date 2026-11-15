@@ -50,6 +50,7 @@ class _ScreeningResultScreenState extends State<ScreeningResultScreen> {
 
   late ScreeningResponse _currentResult;
   late int _currentNavIndex;
+  String? _activeVideoPath;
   bool get _isSim => widget.isSimulation || _currentResult.isSimulation;
   int _selectedSignalTabIndex = 0; // 0: Semua, 1: Wajah, 2: Suara, 3: Transkrip
   double _videoPlaybackProgress = 0.25;
@@ -59,6 +60,8 @@ class _ScreeningResultScreenState extends State<ScreeningResultScreen> {
     super.initState();
     _currentResult = widget.result;
     _currentNavIndex = widget.initialNavIndex;
+    final p = widget.localVideoPath;
+    _activeVideoPath = (p != null && p.trim().isNotEmpty) ? p : null;
   }
 
   String _formatDate(String isoString) {
@@ -147,6 +150,59 @@ Waktu Sesi        : ${_formatDate(_currentResult.createdAt ?? '')}
     );
   }
 
+  Future<void> _confirmAndDeleteRawVideo() async {
+    final path = _activeVideoPath;
+    if (path == null) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text(
+          'Hapus Berkas Video Mentah?',
+          style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800),
+        ),
+        content: const Text(
+          'File video (.mp4) dan audio mentah (.wav) akan dihapus permanen dari penyimpanan perangkat untuk menjaga privasi klien. Hasil skor PHQ-8, profil XAI, dan data verifikasi klinis tetap tersimpan.',
+          style: TextStyle(fontSize: 12.5, height: 1.4),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Batal'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFDC2626),
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Hapus Permanen'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    final provider = context.read<ScreeningProvider>();
+    final ok = await provider.removeRawVideoForScreening(
+      _currentResult.screeningId,
+      path,
+    );
+    if (!mounted) return;
+    if (ok) {
+      setState(() {
+        _activeVideoPath = null;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Berkas video & audio mentah berhasil dihapus; hasil skor tetap tersimpan.',
+          ),
+          backgroundColor: Color(0xFF0F766E),
+        ),
+      );
+    }
+  }
+
   Future<void> _openVerificationScreen() async {
     final updated = await Navigator.push<bool>(
       context,
@@ -154,7 +210,7 @@ Waktu Sesi        : ${_formatDate(_currentResult.createdAt ?? '')}
         builder: (ctx) => ClinicalVerificationScreen(
           screening: _currentResult,
           inspectionData: widget.inspectionData,
-          localVideoPath: widget.localVideoPath,
+          localVideoPath: _activeVideoPath,
           initialNavIndex: _currentNavIndex,
         ),
       ),
@@ -205,9 +261,11 @@ Waktu Sesi        : ${_formatDate(_currentResult.createdAt ?? '')}
           audioFeatures: List.filled(248, 0.2),
           textFeatures: List.filled(768, 0.1),
         );
-    final inspection = (widget.localVideoPath != null && rawInspection.videoPath != widget.localVideoPath)
-        ? rawInspection.copyWith(videoPath: widget.localVideoPath)
-        : rawInspection;
+    final inspection = (_activeVideoPath != null && rawInspection.videoPath != _activeVideoPath)
+        ? rawInspection.copyWith(videoPath: _activeVideoPath)
+        : (rawInspection.videoPath != null && _activeVideoPath == null && widget.localVideoPath != null
+            ? rawInspection.copyWith(videoPath: '')
+            : rawInspection);
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
@@ -712,6 +770,54 @@ Waktu Sesi        : ${_formatDate(_currentResult.createdAt ?? '')}
 
             // Quality Flags Alert (Bila ada isu pencahayaan atau mikrofon)
             QualityFlagAlert(flags: result.qualityFlags),
+            if (inspection.usedLexiconFallback) ...[
+              const SizedBox(height: 12),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFFBEB),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: const Color(0xFFFDE68A)),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(
+                      Icons.warning_amber_rounded,
+                      color: Color(0xFFD97706),
+                      size: 20,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Peringatan Encoder Teks: Mode Fallback Leksikal',
+                            style: TextStyle(
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w800,
+                              color: Color(0xFF92400E),
+                            ),
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            inspection.textEncoderWarning ??
+                                'Encoder Multilingual-E5 INT4 ONNX tidak berjalan pada sesi ini sehingga fitur teks dihitung memakai ekstraktor leksikal 768D sementara.',
+                            style: const TextStyle(
+                              fontSize: 11.5,
+                              color: Color(0xFF78350F),
+                              height: 1.4,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
             const SizedBox(height: 18),
 
             // =================================================================
@@ -898,7 +1004,7 @@ Waktu Sesi        : ${_formatDate(_currentResult.createdAt ?? '')}
     final cat = (result.prediction?.riskCategory ?? 'low').toLowerCase();
     final isLowRisk = cat == 'low' || phqScore < 8.0;
     final isBorderline =
-        cat == 'borderline' || (phqScore >= 8.0 && phqScore < 10.0);
+        cat == 'borderline' || (phqScore >= 8.0 && phqScore < 9.4);
     final probPct =
         ((result.prediction?.riskProbabilityProxy ?? (isLowRisk ? 0.21 : 0.72)) *
                 100)
@@ -937,58 +1043,14 @@ Waktu Sesi        : ${_formatDate(_currentResult.createdAt ?? '')}
           'Indikasi Model: Terindikasi Adanya Kecenderungan Depresi (Risiko Sedang / Tinggi)';
     }
 
-    // Sintesis naratif mengalir
-    final String mainNarrative;
-    if (isLowRisk) {
-      mainNarrative =
-          'Berdasarkan sintesis seluruh rekaman sesi, model menyimpulkan klien tidak menunjukkan indikasi simtomatologi depresi yang signifikan '
-          '(estimasi skor PHQ-8 sebesar ${phqScore.toStringAsFixed(1)} / 24.0 dengan probabilitas depresi $probPct%). '
-          'Sinyal multimodal klien memperlihatkan responsivitas afektif yang dinamis dan adaptif: ekspresi wajah tampak hidup dengan kontak mata yang konsisten, '
-          'ritme dan intonasi suara mengalir natural tanpa adanya jeda bicara yang terhambat, serta pola bahasa tidak didominasi oleh kosakata rasa bersalah '
-          'atau keputusasaan ekstrem.';
-    } else if (isBorderline) {
-      mainNarrative =
-          'Berdasarkan integrasi data sesi, model mengidentifikasi pola afektif subklinis / stresor emosional ringan '
-          '(estimasi skor PHQ-8 sebesar ${phqScore.toStringAsFixed(1)} / 24.0 dengan probabilitas $probPct%). '
-          'Meskipun belum memenuhi ambang depresi mayor, model mencatat adanya sedikit fluktuasi pada keterbukaan emosional: '
-          'kontak mata klien sesekali terputus dengan beberapa jeda bicara yang reflektif, serta teramati sedikit ketegangan pada '
-          'area wajah saat membahas topik tertentu.';
-    } else {
-      mainNarrative =
-          'Berdasarkan integrasi 3 sinyal observasi, model mengindikasikan adanya kecenderungan simtomatologi depresi yang nyata '
-          '(estimasi skor PHQ-8 sebesar ${phqScore.toStringAsFixed(1)} / 24.0 dengan probabilitas depresi $probPct%). '
-          'Model mendeteksi adanya kongruensi indikator distres psikologis: berkurangnya variasi dinamika ekspresi wajah '
-          '(afek cenderung kaku/datar), nada bicara yang cenderung monoton disertai jeda hening yang panjang (perlambatan psikomotorik), '
-          'serta pemilihan kata yang mencerminkan beban emosional, keletihan mental, atau persepsi ketidakberdayaan.';
-    }
+    // Sintesis naratif dinamis mengikuti kontribusi Shapley & telemetry aktual
+    final String mainNarrative =
+        _buildMainNarrative(result, inspection, isLowRisk, isBorderline);
 
     // 3 Pilar Bukti Sinyal Model
     final String visualReason = _buildVisualReason(result, inspection);
-    final String audioReason;
-    final String textReason;
-
-    if (isLowRisk) {
-      audioReason =
-          'Intonasi vokal stabil dan natural (rata-rata ${inspection.avgPitchHz.toStringAsFixed(0)} Hz). '
-          'Proporsi jeda hening berada pada batas wajar (${inspection.pauseRatioPct.toStringAsFixed(0)}% dari durasi), '
-          'menunjukkan kelancaran bicara yang baik tanpa hambatan psikomotorik vokal.';
-      textReason =
-          'Tuturan kata tersusun runtut dan terbuka. '
-          'Tidak ditemukan dominasi kata-kata bernuansa negatif ekstrem, putus asa, atau isolasi diri yang lazim menyertai episode depresi klinis.';
-    } else if (isBorderline) {
-      audioReason =
-          'Intonasi suara cenderung lebih pelan dengan jeda hening sekitar ${inspection.pauseRatioPct.toStringAsFixed(0)}% dari total sesi, '
-          'menandakan adanya momen perenungan atau keletihan situasional.';
-      textReason =
-          'Pemilihan kata mengindikasikan adanya stresor kehidupan atau kelelahan mental ringan, namun struktur bahasa klien tetap adaptif.';
-    } else {
-      audioReason =
-          'Variasi nada bicara (F0) cenderung datar dengan proporsi jeda hening yang tinggi (${inspection.pauseRatioPct.toStringAsFixed(0)}% dari durasi). '
-          'Hal ini selaras dengan manifestasi perlambatan produksi suara vokal pada kondisi depresi.';
-      textReason =
-          'Transkrip tuturan menangkap frekuensi kata atau frasa yang mencerminkan beban kognitif tinggi, penurunan minat, '
-          'atau rasa putus asa yang memperkuat sinyal non-verbal.';
-    }
+    final String audioReason = _buildAudioReason(result, inspection);
+    final String textReason = _buildTextReason(result, inspection);
 
     return Container(
       decoration: BoxDecoration(
@@ -1248,6 +1310,175 @@ Waktu Sesi        : ${_formatDate(_currentResult.createdAt ?? '')}
         'Sudut Bibir Turun (AU15) $au15Pct%, Dinamika Motorik $motorPct%.$qualityNote';
   }
 
+  /// Menyusun sintesis naratif utama berdasarkan skor PHQ-8 aktual, deviasi baseline E[f(X)],
+  /// modalitas pendorong Shapley dominan, serta integritas kualitas sinyal multimodal.
+  String _buildMainNarrative(
+    ScreeningResponse result,
+    MultimodalInspectionData inspection,
+    bool isLowRisk,
+    bool isBorderline,
+  ) {
+    final phqScore = result.prediction?.phq8Score ?? 0.0;
+    final probPct =
+        ((result.prediction?.riskProbabilityProxy ?? (isLowRisk ? 0.21 : 0.72)) *
+                100)
+            .toStringAsFixed(0);
+    final baseline = result.xai?.baselineExpectedValue ?? 10.07;
+    final netDelta = phqScore - baseline;
+    final deltaStr =
+        '${netDelta >= 0 ? '+' : ''}${netDelta.toStringAsFixed(2)}';
+
+    final pT = result.patientModalityAttribution?.shapValues.text ?? 0.0;
+    final pV = result.patientModalityAttribution?.shapValues.visual ?? 0.0;
+    final pA = result.patientModalityAttribution?.shapValues.audio ?? 0.0;
+    final textPct = result.patientModalityAttribution?.textPct ?? 0.0;
+    final visualPct = result.patientModalityAttribution?.visualPct ?? 0.0;
+    final audioPct = result.patientModalityAttribution?.audioPct ?? 0.0;
+
+    final domModality =
+        result.patientModalityAttribution?.dominantModality ?? 'text';
+    final domLabel = ClinicalConstants.getModalityClinicalName(domModality);
+    final double domShap;
+    final double domPct;
+    switch (domModality.toLowerCase()) {
+      case 'visual':
+        domShap = pV;
+        domPct = visualPct;
+        break;
+      case 'audio':
+        domShap = pA;
+        domPct = audioPct;
+        break;
+      default:
+        domShap = pT;
+        domPct = textPct;
+        break;
+    }
+
+    final domEffect = domShap > 0.15
+        ? 'mendorong kenaikan skor risiko sebesar +${domShap.toStringAsFixed(2)} poin'
+        : (domShap < -0.15
+            ? 'menekan/menurunkan estimasi skor risiko sebesar ${domShap.toStringAsFixed(2)} poin'
+            : 'memberikan kontribusi mendekati netral (${domShap >= 0 ? '+' : ''}${domShap.toStringAsFixed(2)} poin)');
+
+    final String summaryClause;
+    if (isLowRisk) {
+      summaryClause =
+          'Model memprediksi skor PHQ-8 sebesar ${phqScore.toStringAsFixed(1)} / 24.0 '
+          '(risiko rendah / di bawah cut-off 9.4, probabilitas proksi $probPct%).';
+    } else if (isBorderline) {
+      summaryClause =
+          'Model memprediksi skor PHQ-8 sebesar ${phqScore.toStringAsFixed(1)} / 24.0 '
+          '(rentang borderline 8.0–9.3 mendekati cut-off 9.4, probabilitas proksi $probPct%).';
+    } else {
+      summaryClause =
+          'Model memprediksi skor PHQ-8 sebesar ${phqScore.toStringAsFixed(1)} / 24.0 '
+          '(melampaui ambang kalibrasi ≥ 9.4, probabilitas proksi $probPct%).';
+    }
+
+    final warnings = <String>[
+      if (inspection.usedLexiconFallback)
+        'encoder teks beralih ke fallback leksikal (ONNX mE5 tidak aktif)',
+      if (!inspection.isExplicitTranscript)
+        'tanpa transkrip verbal eksplisit (memakai baseline prosodi-visual)',
+      if (result.qualityFlags?.poorAudioQuality == true) 'SNR/kualitas audio rendah',
+      if (result.qualityFlags?.poorVisualQuality == true)
+        'variansi/deteksi visual rendah (${inspection.faceDetectionRatePct.toStringAsFixed(0)}%)',
+    ];
+
+    final qualityClause = warnings.isEmpty
+        ? 'Ketiga sensor (visual ${inspection.faceDetectionRatePct.toStringAsFixed(0)}%, audio ${inspection.voicedRatioPct.toStringAsFixed(0)}% suara aktif, transkrip ${inspection.isExplicitTranscript ? 'terverifikasi' : 'baseline'}) terbaca tanpa flag degradasi.'
+        : 'Catatan integritas sinyal: ${warnings.join('; ')}. Interpretasi klinis tetap harus dikonfirmasi melalui wawancara langsung.';
+
+    return '$summaryClause Dibandingkan baseline populasi model (${baseline.toStringAsFixed(2)}), '
+        'prediksi bergeser $deltaStr poin dengan kontribusi Shapley terbesar pada $domLabel '
+        '(${domPct.toStringAsFixed(1)}%, $domEffect). $qualityClause';
+  }
+
+  /// Menyusun narasi pilar akustik sesuai kontribusi Shapley audio, pitch F0, jeda, dan quality flag.
+  String _buildAudioReason(
+    ScreeningResponse result,
+    MultimodalInspectionData inspection,
+  ) {
+    final pA = result.patientModalityAttribution?.shapValues.audio ?? 0.0;
+    final audioPct = result.patientModalityAttribution?.audioPct ?? 0.0;
+    final poorAudio = result.qualityFlags?.poorAudioQuality == true;
+    final paSigned = '${pA >= 0 ? '+' : ''}${pA.toStringAsFixed(2)}';
+    final pctStr = audioPct.toStringAsFixed(1);
+
+    final String shapDirection;
+    if (pA > 0.15) {
+      shapDirection =
+          'mendorong kenaikan estimasi risiko ($paSigned poin PHQ-8, bobot $pctStr%)';
+    } else if (pA < -0.15) {
+      shapDirection =
+          'menekan/menurunkan estimasi risiko ($paSigned poin PHQ-8, bobot $pctStr%)';
+    } else {
+      shapDirection =
+          'berdampak mendekati netral ($paSigned poin PHQ-8, bobot $pctStr%)';
+    }
+
+    final prosodyObservation =
+        'Rata-rata nada dasar (F0) tercatat ${inspection.avgPitchHz.toStringAsFixed(0)} Hz '
+        '(±${inspection.pitchStdHz.toStringAsFixed(1)} Hz), segmen bicara aktif '
+        '${inspection.voicedRatioPct.toStringAsFixed(0)}%, jeda hening '
+        '${inspection.pauseRatioPct.toStringAsFixed(0)}%, dan jitter '
+        '${inspection.jitterPct.toStringAsFixed(2)}%.';
+    final qualityNote = poorAudio
+        ? ' Peringatan: energi audio / rasio sinyal-ke-bising berada di bawah ambang optimal (poor_audio_quality).'
+        : '';
+
+    return 'Sinyal akustik $shapDirection. $prosodyObservation$qualityNote';
+  }
+
+  /// Menyusun narasi pilar teks/linguistik sesuai mode encoder (mE5 ONNX vs baseline/fallback),
+  /// kata kunci klinis aktual, dan arah Shapley pT.
+  String _buildTextReason(
+    ScreeningResponse result,
+    MultimodalInspectionData inspection,
+  ) {
+    final pT = result.patientModalityAttribution?.shapValues.text ?? 0.0;
+    final textPct = result.patientModalityAttribution?.textPct ?? 0.0;
+    final lowText = result.qualityFlags?.lowTextInformation == true;
+    final ptSigned = '${pT >= 0 ? '+' : ''}${pT.toStringAsFixed(2)}';
+    final pctStr = textPct.toStringAsFixed(1);
+
+    final String shapDirection;
+    if (pT > 0.15) {
+      shapDirection =
+          'mendorong kenaikan estimasi risiko ($ptSigned poin PHQ-8, bobot $pctStr%)';
+    } else if (pT < -0.15) {
+      shapDirection =
+          'menekan/menurunkan estimasi risiko ($ptSigned poin PHQ-8, bobot $pctStr%)';
+    } else {
+      shapDirection =
+          'berdampak netral ($ptSigned poin PHQ-8, bobot $pctStr%)';
+    }
+
+    if (!inspection.isExplicitTranscript) {
+      return 'Transkrip verbal pasien tidak tersedia (kosong); cabang teks memakai baseline netral prosodi-visual. '
+          'Atribusi cabang teks: $shapDirection.${lowText ? ' Flag low_text_information aktif.' : ''}';
+    }
+
+    final wordsCount = inspection.fullTranscript
+        .trim()
+        .split(RegExp(r'\s+'))
+        .where((w) => w.isNotEmpty)
+        .length;
+    final kwSummary = inspection.detectedKeywords.isEmpty
+        ? 'tidak ditemukan penanda kata distres utama pada kamus inspeksi'
+        : '${inspection.detectedKeywords.length} penanda kata (${inspection.detectedKeywords.take(4).join(', ')})';
+    final fallbackNote = inspection.usedLexiconFallback
+        ? ' Peringatan: encoder Multilingual-E5 ONNX gagal berjalan sehingga menggunakan fallback leksikal sementara.'
+        : ' Diproses langsung melalui Multilingual-E5 INT4 ONNX (768D).';
+    final densityNote = lowText
+        ? ' Densitas token atau variasi kata tergolong rendah (low_text_information).'
+        : '';
+
+    return 'Sinyal linguistik $shapDirection dari $wordsCount kata transkrip dengan $kwSummary.'
+        '$fallbackNote$densityNote';
+  }
+
   Widget _buildSummaryPillarItem({
     required IconData icon,
     required Color iconColor,
@@ -1432,12 +1663,12 @@ Waktu Sesi        : ${_formatDate(_currentResult.createdAt ?? '')}
                 ],
               ),
             ),
-            if (widget.localVideoPath != null)
+            if (_activeVideoPath != null) ...[
               OutlinedButton.icon(
                 onPressed: () {
                   LocalVideoPlayerDialog.show(
                     context,
-                    videoPath: widget.localVideoPath!,
+                    videoPath: _activeVideoPath!,
                     participantId: _currentResult.participantId,
                   );
                 },
@@ -1454,6 +1685,25 @@ Waktu Sesi        : ${_formatDate(_currentResult.createdAt ?? '')}
                   style: TextStyle(fontSize: 11.5, color: _textPrimary, fontWeight: FontWeight.w700),
                 ),
               ),
+              if (!_isSim) ...[
+                const SizedBox(width: 6),
+                OutlinedButton.icon(
+                  onPressed: _confirmAndDeleteRawVideo,
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+                    side: const BorderSide(color: Color(0xFFFCA5A5)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                  icon: const Icon(Icons.delete_outline_rounded, size: 15, color: Color(0xFFDC2626)),
+                  label: const Text(
+                    'Hapus',
+                    style: TextStyle(fontSize: 11, color: Color(0xFFDC2626), fontWeight: FontWeight.w700),
+                  ),
+                ),
+              ],
+            ],
           ],
         ),
         const SizedBox(height: 14),

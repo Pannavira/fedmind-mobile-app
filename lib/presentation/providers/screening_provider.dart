@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import '../../core/services/local_preprocessing_service.dart';
+import '../../core/services/local_storage_service.dart';
 import '../../core/services/multimodal_extractor_service.dart';
 import '../../data/models/multimodal_inspection_models.dart';
 import '../../data/models/screening_models.dart';
@@ -97,14 +98,30 @@ class ScreeningProvider extends ChangeNotifier {
   int get verifiedCasesCount =>
       _historyItems.where((item) => item.isVerified).length;
 
-  double get modelConcordanceRatePct {
+  double? get modelConcordanceRatePct {
     final verified = _historyItems.where((item) => item.isVerified).toList();
-    if (verified.isEmpty) return 100.0;
+    if (verified.isEmpty) return null;
     final concordant = verified.where((item) {
       final s = item.concordanceStatus?.toLowerCase();
       return s == 'valid' || s == 'concordant';
     }).length;
     return (concordant / verified.length) * 100.0;
+  }
+
+  /// Mengambil daftar lengkap ScreeningResponse terverifikasi (atau seluruh riwayat) dari SQLite untuk ekspor validasi.
+  Future<List<ScreeningResponse>> loadVerifiedScreeningsForExport({
+    bool includeUnverified = false,
+  }) async {
+    final results = <ScreeningResponse>[];
+    for (final item in _historyItems) {
+      if (!includeUnverified && !item.isVerified) continue;
+      final detail = _localScreeningCache[item.screeningId] ??
+          await repository.getLocalScreeningDetail(item.screeningId);
+      if (detail != null) {
+        results.add(detail);
+      }
+    }
+    return results;
   }
 
   void clearError() {
@@ -132,7 +149,7 @@ class ScreeningProvider extends ChangeNotifier {
       'checkpoint': variant.checkpointFileName,
       'architecture': variant.architectureName,
       'text_encoder': mentalBertReady
-          ? 'MentalBERT-base-uncased INT4 ONNX (768D)'
+          ? 'Multilingual-E5-Small INT4 ONNX (768D)'
           : 'Fallback Leksikal (${mentalBertErr ?? 'Belum dimuat'})',
       'parameters': variant.parameterSummary,
       'latent_dim': '${variant.latentDim}D × 3 (${variant.fusedLatentDim}D Fused)',
@@ -144,7 +161,7 @@ class ScreeningProvider extends ChangeNotifier {
     };
   }
 
-  /// Mengganti varian model inferensi on-device (Model 3 default vs Model 2 legacy)
+  /// Menginisialisasi / memuat ulang varian model inferensi on-device (Model 3 Edge)
   Future<void> selectModelVariant(FedMindModelVariant variant) async {
     if (_isSwitchingModel ||
         (repository.localInferenceService.selectedVariant == variant &&
@@ -256,6 +273,7 @@ class ScreeningProvider extends ChangeNotifier {
             audioFeatures: audioFeatures,
             textFeatures: textFeatures,
             userNote: counselorNote,
+            clientTranscript: transcription,
           );
 
       final enrichedInspection = baseInspection.copyWithCalculation(
@@ -462,6 +480,34 @@ class ScreeningProvider extends ChangeNotifier {
       return success;
     } catch (e) {
       _errorMessage = 'Gagal menghapus riwayat: $e';
+      notifyListeners();
+      return false;
+    }
+  }
+
+  /// Menghapus berkas video & WAV mentah di perangkat sambil mempertahankan skor & ringkasan klinis di SQLite.
+  Future<bool> removeRawVideoForScreening(
+    String screeningId,
+    String? videoPath,
+  ) async {
+    try {
+      if (videoPath != null && videoPath.isNotEmpty) {
+        await LocalStorageService.deleteLocalVideo(videoPath);
+      }
+      await repository.clearLocalVideoPath(screeningId);
+
+      if (_currentInspectionData != null &&
+          _localInspectionCache[screeningId]?.videoPath == videoPath) {
+        _currentInspectionData = _currentInspectionData!.copyWith(videoPath: '');
+      }
+      final cached = _localInspectionCache[screeningId];
+      if (cached != null) {
+        _localInspectionCache[screeningId] = cached.copyWith(videoPath: '');
+      }
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _errorMessage = 'Gagal menghapus berkas video mentah: $e';
       notifyListeners();
       return false;
     }

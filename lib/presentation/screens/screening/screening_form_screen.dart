@@ -1,9 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
-import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:video_player/video_player.dart';
 
 import '../../../core/constants/clinical_constants.dart';
@@ -49,7 +47,7 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
   final _clientNameController = TextEditingController();
   DateTime _sessionDate = DateTime.now();
   final _counselorNoteController = TextEditingController();
-  // Transkrip tuturan kini 100% langsung via Google Native SpeechRecognizer (Live ASR ID ➔ EN MentalBERT)
+  // Transkrip tuturan langsung via Android Native SpeechRecognizer (Multilingual-E5 INT4)
 
   // Sumber data pemeriksaan (1 = Rekaman Video Lokal)
   int _selectedSourceOption = 1;
@@ -59,6 +57,9 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
   String? _lastExtractedVideoPath;
   String? _lastExtractedNote;
   String? _lastExtractedTranscript;
+  String? _speechWarning;
+  bool _recordingConsentGiven = false;
+  bool _deleteRawVideoAfterInference = false;
   ExtractedMultimodalFeatures? _extractedVideoFeatures;
   MultimodalInspectionData? _liveInspectionPreview;
   bool _isExtractingPreview = false;
@@ -72,13 +73,6 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
   bool _isPlaying = false;
   bool _isSubmitting = false;
 
-  // Real-time mic test / voice typing for live transcript validation
-  final stt.SpeechToText _voiceTester = stt.SpeechToText();
-  bool _voiceTesterAvailable = false;
-  bool _isVoiceTesting = false;
-  String _voiceTestTranscript = '';
-  String _voiceTestStatus = 'Siap mendengarkan. Tekan tombol mikrofon.';
-
   @override
   void initState() {
     super.initState();
@@ -90,9 +84,6 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
 
   @override
   void dispose() {
-    if (_voiceTester.isListening) {
-      _voiceTester.stop();
-    }
     _inlineVideoController?.dispose();
     _participantIdController.dispose();
     _clientNameController.dispose();
@@ -105,109 +96,6 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
     setState(() {
       _selectedSourceOption = 1;
     });
-  }
-
-  Future<void> _initializeVoiceTester() async {
-    final micStatus = await Permission.microphone.request();
-    if (!mounted || !micStatus.isGranted) {
-      setState(() {
-        _voiceTesterAvailable = false;
-        _voiceTestStatus = 'Mikrofon belum diizinkan. Beri izin akses mikrofon.';
-      });
-      return;
-    }
-
-    try {
-      _voiceTesterAvailable = await _voiceTester.initialize(
-        onError: (error) {
-          debugPrint('[VOICE_TEST] STT error: ${error.errorMsg}');
-          if (mounted) {
-            setState(() {
-              _isVoiceTesting = false;
-              _voiceTestStatus = 'Error speech recognition: ${error.errorMsg}';
-            });
-          }
-        },
-        onStatus: (status) {
-          debugPrint('[VOICE_TEST] status: $status');
-          if (mounted && status == 'notListening' && _isVoiceTesting) {
-            setState(() {
-              _voiceTestStatus = 'Mendengarkan kembali...';
-            });
-          }
-        },
-      );
-    } catch (e) {
-      debugPrint('[VOICE_TEST] initialize exception: $e');
-      _voiceTesterAvailable = false;
-    }
-
-    if (mounted) {
-      setState(() {
-        _voiceTestStatus = _voiceTesterAvailable
-            ? 'Siap mendengarkan. Tekan tombol mikrofon.'
-            : 'Speech recognition tidak tersedia di perangkat ini.';
-      });
-    }
-  }
-
-  Future<void> _toggleVoiceTest() async {
-    if (!_voiceTesterAvailable) {
-      await _initializeVoiceTester();
-    }
-
-    if (!_voiceTesterAvailable) {
-      return;
-    }
-
-    if (_voiceTester.isListening) {
-      await _voiceTester.stop();
-      if (mounted) {
-        setState(() {
-          _isVoiceTesting = false;
-          _voiceTestStatus = 'Transkripsi suara dihentikan.';
-        });
-      }
-      return;
-    }
-
-    if (mounted) {
-      setState(() {
-        _isVoiceTesting = true;
-        _voiceTestStatus = 'Mendengarkan...';
-      });
-    }
-
-    try {
-      await _voiceTester.listen(
-        localeId: 'id_ID',
-        listenMode: stt.ListenMode.dictation,
-        listenFor: const Duration(seconds: 30),
-        pauseFor: const Duration(seconds: 2),
-        partialResults: true,
-        cancelOnError: false,
-        onResult: (result) {
-          if (!mounted) return;
-          setState(() {
-            _voiceTestTranscript = result.recognizedWords.trim();
-            _voiceTestStatus = result.finalResult
-                ? 'Transkripsi selesai.'
-                : 'Mendengarkan...';
-            if (result.finalResult && _voiceTestTranscript.isNotEmpty) {
-              _isVoiceTesting = false;
-            }
-          });
-        },
-      );
-    } catch (e) {
-      debugPrint('[VOICE_TEST] listen exception: $e');
-      if (mounted) {
-        setState(() {
-          _isVoiceTesting = false;
-          _voiceTestStatus = 'Gagal memulai transkripsi suara.';
-        });
-      }
-    }
   }
 
   void _resetForm() {
@@ -225,14 +113,13 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
       _lastExtractedVideoPath = null;
       _lastExtractedNote = null;
       _lastExtractedTranscript = null;
+      _speechWarning = null;
+      _recordingConsentGiven = false;
+      _deleteRawVideoAfterInference = false;
       _extractedVideoFeatures = null;
       _liveInspectionPreview = null;
       _isInlineVideoInitialized = false;
       _isPlaying = false;
-      _voiceTestTranscript = '';
-      _voiceTestStatus = 'Siap mendengarkan. Tekan tombol mikrofon.';
-      _isVoiceTesting = false;
-      _voiceTesterAvailable = false;
       _dataSourceTitle = 'Pilih atau Unggah Video Observasi';
       _dataSourceSubtitle =
           'Format .mp4 atau .mov dengan pencahayaan wajah memadai';
@@ -276,6 +163,19 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
   }
 
   Future<void> _openClinicalCamera() async {
+    if (!_recordingConsentGiven) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Centang kotak persetujuan perekaman (informed consent) terlebih dahulu sebelum memulai kamera.',
+          ),
+          backgroundColor: Color(0xFFD97706),
+          duration: Duration(seconds: 4),
+        ),
+      );
+      return;
+    }
+
     final pid = _participantIdController.text.trim().isEmpty
         ? 'RM-2026-001'
         : _participantIdController.text.trim();
@@ -296,13 +196,14 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
         await _processLocalVideo(
           result.videoPath,
           realtimeTranscript: result.liveTranscript,
+          speechWarning: result.speechWarning,
         );
 
         if (!mounted) return;
 
-        // Otomatis langsung jalankan inferensi multimodal on-device dan tampilkan hasil
-        // tanpa perlu berpindah manual ke bagian Ringkasan Pemeriksaan Klinis
-        await _submitScreening(openStudioFirst: false);
+        // Berhenti setelah rekam agar klinisi memverifikasi/menyunting transkrip
+        // sebelum menekan tombol Jalankan Inferensi & Hasil.
+        await _editTranscriptDialog(isPostRecordConfirm: true);
       }
     } catch (e) {
       if (!mounted) return;
@@ -319,27 +220,33 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
   Future<void> _processLocalVideo(
     String videoPath, {
     String? realtimeTranscript,
+    String? speechWarning,
   }) async {
     final sizeMb = await LocalStorageService.getFileSizeInMb(videoPath);
+    final trimmedTranscript = realtimeTranscript?.trim();
+    final hasSpeech =
+        trimmedTranscript != null && trimmedTranscript.isNotEmpty;
 
     setState(() {
       _localVideoPath = videoPath;
       _extractedVideoFeatures = null;
+      _liveInspectionPreview = null;
       _isExtractingPreview = false;
-      _lastExtractedTranscript = realtimeTranscript;
+      _lastExtractedTranscript = hasSpeech ? trimmedTranscript : null;
+      _speechWarning = speechWarning;
       _dataSourceTitle =
           'Rekaman Observasi Tersimpan (${sizeMb.toStringAsFixed(1)} MB)';
-      _dataSourceSubtitle = realtimeTranscript != null &&
-              realtimeTranscript.isNotEmpty
-          ? 'Transkrip Real-Time Terdeteksi (${realtimeTranscript.split(' ').length} kata) • Siap dieksekusi.'
-          : 'Tersimpan privat di perangkat lokal • Siap diproses on-device.';
+      _dataSourceSubtitle = hasSpeech
+          ? 'Transkrip ASR tertangkap (${trimmedTranscript.split(RegExp(r'\\s+')).length} kata). Silakan konfirmasi sebelum analisis.'
+          : (speechWarning ??
+              'Tanpa transkrip ASR otomatis; lengkapi manual bila ada tuturan atau lanjutkan dengan Prosody-Visual Baseline.');
     });
 
     // Inisialisasi pemutar video inline secara langsung tanpa komputasi berat di preview
     await _initInlineVideo(videoPath);
   }
 
-  Future<void> _editTranscriptDialog() async {
+  Future<void> _editTranscriptDialog({bool isPostRecordConfirm = false}) async {
     final currentText = _lastExtractedTranscript ??
         _liveInspectionPreview?.fullTranscript ??
         '';
@@ -347,16 +254,65 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text(
-          'Edit Transkrip Tuturan (Bahasa Indonesia)',
-          style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800),
+        title: Text(
+          isPostRecordConfirm
+              ? 'Konfirmasi & Sunting Transkrip Klien'
+              : 'Sunting Transkrip Tuturan Klien',
+          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800),
         ),
-        content: TextField(
-          controller: controller,
-          maxLines: 4,
-          decoration: const InputDecoration(
-            hintText: 'Sesuaikan kalimat tuturan pasien...',
-            border: OutlineInputBorder(),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (_speechWarning != null && _speechWarning!.trim().isNotEmpty) ...[
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  margin: const EdgeInsets.only(bottom: 10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFFFBEB),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: const Color(0xFFFDE68A)),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Icon(Icons.warning_amber_rounded,
+                          size: 16, color: Color(0xFFD97706)),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          _speechWarning!,
+                          style: const TextStyle(
+                            fontSize: 11,
+                            color: Color(0xFF92400E),
+                            height: 1.35,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+              const Text(
+                'Periksa hasil pengenalan suara (ID/EN). Catatan pra-konseling Anda tidak lagi dicampur ke input model. Biarkan kosong jika memang tidak ada ucapan verbal.',
+                style: TextStyle(
+                  fontSize: 11.5,
+                  color: Color(0xFF475569),
+                  height: 1.4,
+                ),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: controller,
+                maxLines: 5,
+                decoration: const InputDecoration(
+                  hintText:
+                      'Ketik/perbaiki tuturan verbatim klien di sini, atau kosongkan untuk Prosody-Visual Baseline...',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ],
           ),
         ),
         actions: [
@@ -367,8 +323,10 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
             style: ElevatedButton.styleFrom(backgroundColor: _brandTealDark),
-            child: const Text('Simpan & Selaraskan',
-                style: TextStyle(color: Colors.white)),
+            child: Text(
+              isPostRecordConfirm ? 'Konfirmasi Transkrip' : 'Simpan & Selaraskan',
+              style: const TextStyle(color: Colors.white),
+            ),
           ),
         ],
       ),
@@ -376,29 +334,35 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
 
     if (confirmed == true && mounted) {
       final newText = controller.text.trim();
-      if (newText.isNotEmpty) {
-        setState(() {
-          _lastExtractedTranscript = newText;
-        });
-        if (_extractedVideoFeatures != null) {
-          final pid = _participantIdController.text.trim().isEmpty
-              ? 'RM-2026-001'
-              : _participantIdController.text.trim();
-          final currentNote = _counselorNoteController.text.trim();
-          final reExtracted =
-              await MultimodalExtractorService.extractFromLocalVideo(
-            videoPath: _localVideoPath!,
-            participantId: pid,
-            userNote: currentNote,
-            clientTranscript: newText,
-          );
-          if (mounted) {
-            setState(() {
-              _extractedVideoFeatures = reExtracted;
-              _liveInspectionPreview = reExtracted.inspectionData;
-              _lastExtractedTranscript = reExtracted.inspectionData.fullTranscript;
-            });
-          }
+      setState(() {
+        _lastExtractedTranscript = newText;
+        _extractedVideoFeatures = null;
+        if (newText.isNotEmpty) {
+          _dataSourceSubtitle =
+              'Transkrip dikonfirmasi (${newText.split(RegExp(r'\\s+')).length} kata). Tekan Jalankan Inferensi.';
+        } else {
+          _dataSourceSubtitle =
+              'Transkrip dikosongkan (cabang teks memakai Prosody-Visual Baseline).';
+        }
+      });
+      if (_liveInspectionPreview != null && _localVideoPath != null) {
+        final pid = _participantIdController.text.trim().isEmpty
+            ? 'RM-2026-001'
+            : _participantIdController.text.trim();
+        final currentNote = _counselorNoteController.text.trim();
+        final reExtracted =
+            await MultimodalExtractorService.extractFromLocalVideo(
+          videoPath: _localVideoPath!,
+          participantId: pid,
+          userNote: currentNote,
+          clientTranscript: newText.isEmpty ? null : newText,
+        );
+        if (mounted) {
+          setState(() {
+            _extractedVideoFeatures = reExtracted;
+            _liveInspectionPreview = reExtracted.inspectionData;
+            _lastExtractedTranscript = reExtracted.inspectionData.fullTranscript;
+          });
         }
       }
     }
@@ -684,7 +648,7 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
                       ),
                       const SizedBox(height: 8),
                       _buildProgressStepRow(
-                        title: '4. Semantik MentalBERT 768D (Translasi)',
+                        title: '4. Semantik Multilingual-E5 768D',
                         isDone: progress >= 0.94,
                         isActive: progress >= 0.85 && progress < 0.94,
                       ),
@@ -866,14 +830,36 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
       if (!mounted) return;
 
       if (success && provider.currentScreening != null) {
-        if (openStudioFirst && provider.currentInspectionData != null) {
+        String? effectiveVideoPath = _localVideoPath;
+        var effectiveInspection = provider.currentInspectionData;
+        if (_deleteRawVideoAfterInference && _localVideoPath != null) {
+          await provider.removeRawVideoForScreening(
+            provider.currentScreening!.screeningId,
+            _localVideoPath,
+          );
+          effectiveVideoPath = null;
+          effectiveInspection = provider.currentInspectionData;
+          if (mounted) {
+            _inlineVideoController?.pause();
+            _inlineVideoController?.dispose();
+            _inlineVideoController = null;
+            setState(() {
+              _localVideoPath = null;
+              _lastExtractedVideoPath = null;
+              _isInlineVideoInitialized = false;
+              _isPlaying = false;
+            });
+          }
+        }
+        if (!mounted) return;
+        if (openStudioFirst && effectiveInspection != null) {
           Navigator.pushReplacement(
             context,
             MaterialPageRoute(
               builder: (context) => MultimodalAnalysisStudioScreen(
                 result: provider.currentScreening!,
-                inspection: provider.currentInspectionData!,
-                localVideoPath: _localVideoPath,
+                inspection: effectiveInspection!,
+                localVideoPath: effectiveVideoPath,
                 isSimulation: false,
               ),
             ),
@@ -884,8 +870,8 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
             MaterialPageRoute(
               builder: (context) => ScreeningResultScreen(
                 result: provider.currentScreening!,
-                localVideoPath: _localVideoPath,
-                inspectionData: provider.currentInspectionData,
+                localVideoPath: effectiveVideoPath,
+                inspectionData: effectiveInspection,
                 isSimulation: false,
                 initialNavIndex: 2,
               ),
@@ -1666,51 +1652,6 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
                           height: 1.4,
                         ),
                       ),
-                      if (_liveInspectionPreview!.translatedTranscript.isNotEmpty) ...[
-                        const SizedBox(height: 8),
-                        Container(
-                          padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: const Color(0xFFE2E8F0)),
-                          ),
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 5,
-                                  vertical: 2,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFEEF2FF),
-                                  borderRadius: BorderRadius.circular(4),
-                                ),
-                                child: const Text(
-                                  'MentalBERT (EN)',
-                                  style: TextStyle(
-                                    fontSize: 9.5,
-                                    fontWeight: FontWeight.w800,
-                                    color: Color(0xFF4338CA),
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  '"${_liveInspectionPreview!.translatedTranscript}"',
-                                  style: const TextStyle(
-                                    fontSize: 11.5,
-                                    fontStyle: FontStyle.italic,
-                                    color: Color(0xFF475569),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
                     ],
                   ),
                 ),
@@ -1764,7 +1705,7 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
                       SizedBox(width: 10),
                       Expanded(
                         child: Text(
-                          'Input manual dihilangkan. Ucapan pasien dalam Bahasa Indonesia ditranskripsikan langsung melalui Google Speech-to-Text mikrofon, lalu diterjemahkan ke Bahasa Inggris untuk MentalBERT 768D.',
+                          'Ucapan pasien dalam Bahasa Indonesia/Inggris ditranskripsikan langsung via SpeechRecognizer Android 13+, dapat dikonfirmasi/disunting pasca-rekam, lalu diproses encoder Multilingual-E5 INT4 768D.',
                           style: TextStyle(
                             fontSize: 11.5,
                             color: Color(0xFF64748B),
@@ -1854,11 +1795,56 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
           stepNumber: '02',
           title: 'Mulai Merekam',
           subtitle:
-              'Rekam wawancara observasi klinis secara langsung on-device dengan panduan protokol E-DAIC / PHQ-8',
+              'Rekam wawancara observasi klinis secara langsung on-device dengan panduan protokol E-DAIC / PHQ-8 (Min. Android 13 / API 33 untuk ASR paralel)',
           icon: Icons.videocam_rounded,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              // Informed Consent Perekaman Video & Audio On-Device
+              Container(
+                margin: const EdgeInsets.only(bottom: 14),
+                child: Material(
+                  color: _recordingConsentGiven
+                      ? const Color(0xFFF0FDF4)
+                      : const Color(0xFFFFFBEB),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    side: BorderSide(
+                      color: _recordingConsentGiven
+                          ? const Color(0xFFBBF7D0)
+                          : const Color(0xFFFDE68A),
+                    ),
+                  ),
+                  clipBehavior: Clip.antiAlias,
+                  child: CheckboxListTile(
+                    value: _recordingConsentGiven,
+                    onChanged: (v) {
+                      setState(() => _recordingConsentGiven = v ?? false);
+                    },
+                    activeColor: _brandTealDark,
+                    controlAffinity: ListTileControlAffinity.leading,
+                    contentPadding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+                    title: const Text(
+                      'Persetujuan Klien (Informed Consent Perekaman)',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                        color: _slateDark,
+                      ),
+                    ),
+                    subtitle: const Text(
+                      'Klien/wali menyetujui perekaman video wajah dan audio suara secara lokal (100% on-device, tanpa unggah video mentah ke cloud) untuk validasi klinis PHQ-8.',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Color(0xFF475569),
+                        height: 1.35,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+
               // Jika video belum dipilih: Tampilkan Area Mulai Merekam
               if (_localVideoPath == null)
                 _buildVideoUploadPrompt()
@@ -1866,6 +1852,40 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
                 // Jika video sudah dipilih: Tampilkan Pemutar Video Inline Langsung & Transkrip
                 _buildInlineVideoPlayer(),
                 _buildTranscriptPreviewCard(),
+                Container(
+                  margin: const EdgeInsets.only(top: 12),
+                  child: Material(
+                    color: const Color(0xFFF8FAFC),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      side: const BorderSide(color: Color(0xFFE2E8F0)),
+                    ),
+                    clipBehavior: Clip.antiAlias,
+                    child: SwitchListTile.adaptive(
+                      value: _deleteRawVideoAfterInference,
+                      onChanged: (val) {
+                        setState(() => _deleteRawVideoAfterInference = val);
+                      },
+                      activeTrackColor: _brandTeal,
+                      dense: true,
+                      contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 2),
+                      title: const Text(
+                        'Hapus berkas video mentah setelah inferensi',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: _slateDark,
+                        ),
+                      ),
+                      subtitle: const Text(
+                        'Video .mp4 & audio .wav otomatis dihapus segera setelah skor & laporan XAI selesai diekstrak.',
+                        style:
+                            TextStyle(fontSize: 10.5, color: _textSecondary),
+                      ),
+                    ),
+                  ),
+                ),
               ],
             ],
           ),
@@ -1877,7 +1897,7 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
           stepNumber: '02.1',
           title: 'Status & Kualitas Sensor Media',
           subtitle:
-              'Pemeriksaan otomatis pencahayaan wajah, validitas frame, dan derau audio',
+              'Ringkasan kesiapan video/audio lokal dan telemetri aktual pasca-ekstraksi',
           icon: Icons.fact_check_outlined,
           child: _buildSensorPreCheckPanel(),
         ),
@@ -1933,7 +1953,7 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
                   ),
                   label: Text(
                     _localVideoPath != null
-                        ? 'Jalankan Inferensi & Hasil'
+                        ? 'Jalankan Analisis & Lihat Hasil'
                         : 'Mulai Merekam',
                     style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800),
                   ),
@@ -1943,85 +1963,6 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
           ],
         ),
       ],
-    );
-  }
-
-  @visibleForTesting
-  Widget buildVoiceTestCard() {
-    final transcriptText = _voiceTestTranscript.trim().isEmpty
-        ? 'Tekan tombol mikrofon lalu ucapkan kalimat percakapan pasien. Transkrip akan tampil secara real-time seperti Android voice typing.'
-        : _voiceTestTranscript;
-
-    return _buildSectionCard(
-      stepNumber: '02.1',
-      title: 'Uji Transkripsi Suara Langsung',
-      subtitle: 'Tes mikrofon dan transkripsi real-time sebelum rekaman final',
-      icon: Icons.mic_none_rounded,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  _voiceTestStatus,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: _textSecondary,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              ElevatedButton.icon(
-                onPressed: _toggleVoiceTest,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: _isVoiceTesting
-                      ? const Color(0xFFEF4444)
-                      : _brandTeal,
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-                icon: Icon(
-                  _isVoiceTesting ? Icons.stop_rounded : Icons.mic_rounded,
-                  size: 18,
-                ),
-                label: Text(
-                  _isVoiceTesting ? 'Stop' : 'Coba Suara',
-                  style: const TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          Container(
-            width: double.infinity,
-            constraints: const BoxConstraints(minHeight: 96),
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: const Color(0xFFF8FAFC),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: const Color(0xFFE2E8F0)),
-            ),
-            child: Text(
-              transcriptText,
-              style: TextStyle(
-                fontSize: 13,
-                color: _voiceTestTranscript.trim().isEmpty
-                    ? _textSecondary
-                    : _slateDark,
-                height: 1.5,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
-        ],
-      ),
     );
   }
 
@@ -2062,7 +2003,7 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
           ),
           const SizedBox(height: 6),
           const Text(
-            'Rekam observasi klinis terpandu pertanyaan interaktif E-DAIC / PHQ-8 dengan transkripsi wicara real-time. Begitu perekaman selesai, model AI on-device akan langsung memproses inferensi dan menampilkan hasilnya secara otomatis.',
+            'Rekam observasi klinis terpandu pertanyaan E-DAIC / PHQ-8 dengan pengenalan suara Google SpeechRecognizer (Android 13+). Setelah selesai rekam, tinjau/sunting transkrip tuturan klien sebelum menekan Jalankan Analisis.',
             textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: 12,
@@ -2077,7 +2018,9 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
             child: ElevatedButton.icon(
               onPressed: _openClinicalCamera,
               style: ElevatedButton.styleFrom(
-                backgroundColor: _brandTeal,
+                backgroundColor: _recordingConsentGiven
+                    ? _brandTeal
+                    : const Color(0xFF94A3B8),
                 foregroundColor: Colors.white,
                 elevation: 0,
                 shape: RoundedRectangleBorder(
@@ -2096,11 +2039,76 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
     );
   }
 
-  /// Kartu Transkrip Tuturan Terdeteksi secara Real-Time / Tersimpan
+  /// Kartu Transkrip Tuturan Terdeteksi atau Status Kosong Pasca-Rekam
   Widget _buildTranscriptPreviewCard() {
-    if (_lastExtractedTranscript == null || _lastExtractedTranscript!.trim().isEmpty) {
-      return const SizedBox.shrink();
+    final transcript = _lastExtractedTranscript?.trim() ?? '';
+    if (transcript.isEmpty) {
+      if (_localVideoPath == null) return const SizedBox.shrink();
+      return Container(
+        margin: const EdgeInsets.only(top: 14),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: const Color(0xFFFFFBEB),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: const Color(0xFFFDE68A)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.voice_over_off_rounded,
+                    color: Color(0xFFD97706), size: 18),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text(
+                    'Transkrip Wicara Belum Tersedia / Kosong',
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w800,
+                      color: Color(0xFF92400E),
+                    ),
+                  ),
+                ),
+                InkWell(
+                  onTap: _editTranscriptDialog,
+                  borderRadius: BorderRadius.circular(6),
+                  child: const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.edit_outlined, size: 14, color: Color(0xFFB45309)),
+                        SizedBox(width: 4),
+                        Text(
+                          'Edit',
+                          style: TextStyle(
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFFB45309),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              _speechWarning ??
+                  'Pengenalan suara otomatis tidak menangkap kalimat. Anda dapat menambahkan transkrip verbatim klien secara manual, atau membiarkannya kosong (cabang teks memakai Prosody-Visual Baseline).',
+              style: const TextStyle(
+                fontSize: 11.5,
+                color: Color(0xFF78350F),
+                height: 1.4,
+              ),
+            ),
+          ],
+        ),
+      );
     }
+
     return Container(
       margin: const EdgeInsets.only(top: 14),
       padding: const EdgeInsets.all(14),
@@ -2119,7 +2127,7 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
               const SizedBox(width: 8),
               const Expanded(
                 child: Text(
-                  'Transkrip Tuturan Terdeteksi (Live ASR):',
+                  'Transkrip Tuturan Klien (Siap Analisis mE5):',
                   style: TextStyle(
                     fontSize: 12.5,
                     fontWeight: FontWeight.w800,
@@ -2151,9 +2159,20 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
               ),
             ],
           ),
+          if (_speechWarning != null) ...[
+            const SizedBox(height: 6),
+            Text(
+              'Peringatan sensor audio: $_speechWarning',
+              style: const TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFFB45309),
+              ),
+            ),
+          ],
           const SizedBox(height: 8),
           Text(
-            _lastExtractedTranscript!,
+            transcript,
             style: const TextStyle(
               fontSize: 12.5,
               color: Color(0xFF14532D),
@@ -2732,9 +2751,87 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
   Widget _buildSensorPreCheckPanel() {
     final isVideo = _localVideoPath != null;
     final preview = _liveInspectionPreview;
-    final faceRate = preview?.faceDetectionRatePct ?? (isVideo ? 94.0 : 0.0);
-    const snrStatus = 'Optimal (SNR > 22 dB)';
-    const snrColor = ClinicalConstants.riskLow;
+    final hasTranscript =
+        (_lastExtractedTranscript?.trim().isNotEmpty == true) ||
+            (preview?.isExplicitTranscript == true);
+    final wordCount = (_lastExtractedTranscript?.trim().isNotEmpty == true)
+        ? _lastExtractedTranscript!.trim().split(RegExp(r'\s+')).length
+        : 0;
+
+    final String frameValue;
+    final String frameSub;
+    final Color frameColor;
+    if (preview != null) {
+      frameValue = '${preview.faceDetectionRatePct.toStringAsFixed(0)}% Wajah';
+      frameSub = '${preview.facesDetected}/${preview.framesAnalyzed} frame';
+      frameColor = preview.isVisualBranchDisabled
+          ? _textSecondary
+          : (preview.faceDetectionRatePct >= 70
+              ? ClinicalConstants.riskLow
+              : ClinicalConstants.riskBorderline);
+    } else if (isVideo) {
+      frameValue = 'Siap Diekstrak';
+      frameSub = 'FACS dihitung saat analisis';
+      frameColor = _brandTealDark;
+    } else {
+      frameValue = 'Belum Ada';
+      frameSub = 'FACS Tracking';
+      frameColor = _textSecondary;
+    }
+
+    final String visualValue;
+    final String visualSub;
+    final Color visualColor;
+    if (preview != null) {
+      if (preview.isVisualBranchDisabled) {
+        visualValue = 'Nonaktif';
+        visualSub = 'Mode Desktop/No-CV';
+        visualColor = _textSecondary;
+      } else {
+        visualValue = preview.faceDetectionRatePct >= 75
+            ? 'Memadai'
+            : 'Perlu Perhatian';
+        visualSub = 'Conf ${preview.avgFaceConfidence.toStringAsFixed(0)}%';
+        visualColor = preview.faceDetectionRatePct >= 75
+            ? ClinicalConstants.riskLow
+            : ClinicalConstants.riskBorderline;
+      }
+    } else if (isVideo) {
+      visualValue = 'Menunggu';
+      visualSub = 'Pra-analisis';
+      visualColor = _brandTealDark;
+    } else {
+      visualValue = 'Belum Ada';
+      visualSub = 'Iluminasi Wajah';
+      visualColor = _textSecondary;
+    }
+
+    final String audioValue;
+    final String audioSub;
+    final Color audioColor;
+    if (preview != null) {
+      audioValue = '${preview.voicedRatioPct.toStringAsFixed(0)}% Aktif';
+      audioSub =
+          'Jeda ${preview.pauseRatioPct.toStringAsFixed(0)}% \u2022 F0 ${preview.avgPitchHz.toStringAsFixed(0)} Hz';
+      audioColor = preview.voicedRatioPct >= 15
+          ? ClinicalConstants.riskLow
+          : ClinicalConstants.riskBorderline;
+    } else if (isVideo) {
+      if (_speechWarning != null && _speechWarning!.isNotEmpty) {
+        audioValue = 'Peringatan';
+        audioSub = hasTranscript ? '$wordCount kata ASR' : 'Cek transkrip';
+        audioColor = ClinicalConstants.riskBorderline;
+      } else {
+        audioValue = 'WAV Siap';
+        audioSub = hasTranscript ? 'ASR: $wordCount kata' : 'STT kosong (opsional)';
+        audioColor =
+            hasTranscript ? ClinicalConstants.riskLow : _brandTealDark;
+      }
+    } else {
+      audioValue = 'Belum Ada';
+      audioSub = 'Standby';
+      audioColor = _textSecondary;
+    }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -2794,48 +2891,36 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
         ),
         const SizedBox(height: 12),
 
-        // 3 Indikator Pre-Check Kualitas Sensor: Frame, Pencahayaan, Kebisingan
+        // 3 Indikator Kualitas Sensor Aktual: Frame Wajah, Kondisi Visual, & Audio/STT
         Row(
           children: [
             Expanded(
               child: _buildSensorMetricTile(
-                label: 'Kualitas Frame',
-                value: isVideo
-                    ? '${faceRate.toStringAsFixed(0)}% Valid'
-                    : 'Belum Ada',
-                sub: 'FACS Tracking',
+                label: 'Deteksi Frame',
+                value: frameValue,
+                sub: frameSub,
                 icon: Icons.videocam_outlined,
-                statusColor: isVideo
-                    ? (faceRate >= 70
-                        ? ClinicalConstants.riskLow
-                        : ClinicalConstants.riskBorderline)
-                    : _textSecondary,
+                statusColor: frameColor,
               ),
             ),
             const SizedBox(width: 8),
             Expanded(
               child: _buildSensorMetricTile(
-                label: 'Pencahayaan',
-                value: isVideo
-                    ? (faceRate >= 75 ? 'Terkalibrasi' : 'Sub-optimal')
-                    : 'Belum Ada',
-                sub: 'Iluminasi Wajah',
+                label: 'Kualitas Visual',
+                value: visualValue,
+                sub: visualSub,
                 icon: Icons.wb_sunny_outlined,
-                statusColor: isVideo
-                    ? (faceRate >= 75
-                        ? ClinicalConstants.riskLow
-                        : ClinicalConstants.riskBorderline)
-                    : _textSecondary,
+                statusColor: visualColor,
               ),
             ),
             const SizedBox(width: 8),
             Expanded(
               child: _buildSensorMetricTile(
-                label: 'Kebisingan (SNR)',
-                value: isVideo ? 'Bersih' : 'Belum Ada',
-                sub: isVideo ? snrStatus : 'Standby',
+                label: 'Audio & Vokal',
+                value: audioValue,
+                sub: audioSub,
                 icon: Icons.graphic_eq_rounded,
-                statusColor: isVideo ? snrColor : _textSecondary,
+                statusColor: audioColor,
               ),
             ),
           ],
@@ -2863,7 +2948,7 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
                     const SizedBox(width: 6),
                     const Expanded(
                       child: Text(
-                        'Telemetri Sinyal Pra-Inferensi:',
+                        'Telemetri Sinyal Pasca-Ekstraksi:',
                         style: TextStyle(
                           fontSize: 11.5,
                           fontWeight: FontWeight.w800,
@@ -2872,7 +2957,7 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
                       ),
                     ),
                     Text(
-                      'F0: ${preview.avgPitchHz.toStringAsFixed(0)} Hz • Voiced: ${preview.voicedRatioPct.toStringAsFixed(0)}%',
+                      'F0: ${preview.avgPitchHz.toStringAsFixed(0)} Hz \u2022 Voiced: ${preview.voicedRatioPct.toStringAsFixed(0)}%',
                       style: const TextStyle(
                         fontSize: 10.5,
                         fontWeight: FontWeight.w700,
@@ -2883,9 +2968,9 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  '• Visual (AUs): ${preview.facialAffectTitle}\n'
-                  '• Akustik: ${preview.vocalProsodyTitle}\n'
-                  '• Linguistik: "${preview.fullTranscript}"',
+                  '\u2022 Visual (AUs): ${preview.facialAffectTitle}\n'
+                  '\u2022 Akustik: ${preview.vocalProsodyTitle}\n'
+                  '\u2022 Linguistik: ${preview.fullTranscript.trim().isNotEmpty ? '"${preview.fullTranscript}"' : '(Tanpa transkrip \u2014 baseline prosodi-visual)'}',
                   maxLines: 4,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(

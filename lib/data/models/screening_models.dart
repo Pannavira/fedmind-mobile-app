@@ -261,6 +261,12 @@ class ClinicalVerificationData {
   final String verifiedBy;
   @JsonKey(name: 'verified_at')
   final String verifiedAt;
+  @JsonKey(name: 'phq8_item_scores')
+  final Map<String, int>? phq8ItemScores;
+  @JsonKey(name: 'validator_name')
+  final String? validatorName;
+  @JsonKey(name: 'validator_role')
+  final String? validatorRole;
 
   const ClinicalVerificationData({
     bool? isVerified = true,
@@ -276,6 +282,9 @@ class ClinicalVerificationData {
     this.soapPlan = '',
     this.verifiedBy = 'Psikolog Klinis / Konselor',
     required this.verifiedAt,
+    this.phq8ItemScores,
+    this.validatorName,
+    this.validatorRole,
   })  : _isVerified = isVerified ?? true,
         _visualPlausible = visualPlausible ?? true,
         _audioPlausible = audioPlausible ?? true,

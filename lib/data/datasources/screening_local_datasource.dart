@@ -132,6 +132,41 @@ class ScreeningLocalDataSource {
     return updated;
   }
 
+  /// Menghapus referensi berkas video mentah di database SQLite setelah dihapus dari penyimpanan
+  Future<void> clearVideoPath(String screeningId) async {
+    final db = await database;
+    String? updatedInspectionJson;
+    final existing = await db.query(
+      tableName,
+      columns: ['inspection_json'],
+      where: 'screening_id = ?',
+      whereArgs: [screeningId],
+      limit: 1,
+    );
+    if (existing.isNotEmpty) {
+      final rawJson = existing.first['inspection_json'] as String?;
+      if (rawJson != null && rawJson.isNotEmpty) {
+        try {
+          final decoded = jsonDecode(rawJson) as Map<String, dynamic>;
+          decoded['videoPath'] = null;
+          updatedInspectionJson = jsonEncode(decoded);
+        } catch (_) {}
+      }
+    }
+
+    final updates = <String, Object?>{'video_path': null};
+    if (updatedInspectionJson != null) {
+      updates['inspection_json'] = updatedInspectionJson;
+    }
+
+    await db.update(
+      tableName,
+      updates,
+      where: 'screening_id = ?',
+      whereArgs: [screeningId],
+    );
+  }
+
   /// Mengambil daftar riwayat (summary) dengan pagination dan filter
   Future<List<ScreeningSummaryItem>> getScreeningHistory({
     int skip = 0,

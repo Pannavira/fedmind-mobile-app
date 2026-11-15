@@ -17,7 +17,7 @@ class InteractiveShapleyBalance extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final baseline = screening.xai?.baselineExpectedValue ?? 8.42;
+    final baseline = screening.xai?.baselineExpectedValue ?? 10.07;
     final attr = screening.patientModalityAttribution;
     final shap = attr?.shapValues;
     final dAudio = shap?.audio ?? 0.0;
@@ -63,22 +63,26 @@ class InteractiveShapleyBalance extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 12),
-              const Expanded(
+              Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Keseimbangan Atribusi Shapley',
-                      style: TextStyle(
+                      isSimpleMode
+                          ? 'Faktor Penentu Skor Risiko'
+                          : 'Keseimbangan Atribusi Shapley',
+                      style: const TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w800,
                         color: _slateDark,
                       ),
                     ),
-                    SizedBox(height: 2),
+                    const SizedBox(height: 2),
                     Text(
-                      'Kontribusi marginal tiap modalitas terhadap deviasi skor baseline',
-                      style: TextStyle(
+                      isSimpleMode
+                          ? 'Bagaimana suara, wajah, dan ucapan menggeser skor dari nilai netral'
+                          : 'Kontribusi marginal tiap modalitas terhadap deviasi skor baseline',
+                      style: const TextStyle(
                         fontSize: 11.5,
                         color: Color(0xFF64748B),
                       ),
@@ -90,62 +94,67 @@ class InteractiveShapleyBalance extends StatelessWidget {
           ),
           const SizedBox(height: 14),
 
-          // --- FORMULA VISUAL DEKOMPOSISI SHAPLEY ---
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-            decoration: BoxDecoration(
-              color: const Color(0xFFF8FAFC),
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: const Color(0xFFE2E8F0)),
-            ),
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  _buildFormulaPill(
-                    title: 'Baseline E[f(X)]',
-                    value: baseline.toStringAsFixed(2),
-                    color: const Color(0xFF475569),
-                  ),
-                  _buildOperatorSign(dAudio >= 0 ? '+' : '−'),
-                  _buildFormulaPill(
-                    title: 'φ Akustik/Prosodi',
-                    value: dAudio.abs().toStringAsFixed(2),
-                    color: ClinicalConstants.audioModalityColor,
-                  ),
-                  _buildOperatorSign(dVisual >= 0 ? '+' : '−'),
-                  _buildFormulaPill(
-                    title: 'φ Visual (AUs)',
-                    value: dVisual.abs().toStringAsFixed(2),
-                    color: _clinicalTeal,
-                  ),
-                  _buildOperatorSign(dText >= 0 ? '+' : '−'),
-                  _buildFormulaPill(
-                    title: 'φ Teks/Linguistik',
-                    value: dText.abs().toStringAsFixed(2),
-                    color: ClinicalConstants.textModalityColor,
-                  ),
-                  _buildOperatorSign('='),
-                  _buildFormulaPill(
-                    title: 'Estimasi PHQ-8',
-                    value: finalScore.toStringAsFixed(2),
-                    color: riskColor,
-                    isHighlighted: true,
-                  ),
-                ],
+          if (!isSimpleMode) ...[
+            // --- FORMULA VISUAL DEKOMPOSISI SHAPLEY (MODE TEKNIS) ---
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF8FAFC),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: const Color(0xFFE2E8F0)),
+              ),
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    _buildFormulaPill(
+                      title: 'Baseline E[f(X)]',
+                      value: baseline.toStringAsFixed(2),
+                      color: const Color(0xFF475569),
+                    ),
+                    _buildOperatorSign(dAudio >= 0 ? '+' : '−'),
+                    _buildFormulaPill(
+                      title: 'φ Akustik/Prosodi',
+                      value: dAudio.abs().toStringAsFixed(2),
+                      color: ClinicalConstants.audioModalityColor,
+                    ),
+                    _buildOperatorSign(dVisual >= 0 ? '+' : '−'),
+                    _buildFormulaPill(
+                      title: 'φ Visual (AUs)',
+                      value: dVisual.abs().toStringAsFixed(2),
+                      color: _clinicalTeal,
+                    ),
+                    _buildOperatorSign(dText >= 0 ? '+' : '−'),
+                    _buildFormulaPill(
+                      title: 'φ Teks/Linguistik',
+                      value: dText.abs().toStringAsFixed(2),
+                      color: ClinicalConstants.textModalityColor,
+                    ),
+                    _buildOperatorSign('='),
+                    _buildFormulaPill(
+                      title: 'Estimasi PHQ-8',
+                      value: finalScore.toStringAsFixed(2),
+                      color: riskColor,
+                      isHighlighted: true,
+                    ),
+                  ],
+                ),
               ),
             ),
-          ),
-          const SizedBox(height: 14),
+            const SizedBox(height: 14),
+          ],
 
           // --- TAHAPAN PERGESERAN SKOR (WATERFALL BREAKDOWN) ---
           _buildWaterfallRow(
             stepNumber: '0',
-            title: 'Baseline Ekspektasi Kohort E[f(X)]',
-            subtitle:
-                'Titik referensi populasi standar (v₀₀₀) sebelum sinyal multimodal pasien diinjeksikan',
-            deltaText: 'Prior E[f]',
+            title: isSimpleMode
+                ? 'Titik Awal Rata-Rata Populasi'
+                : 'Baseline Ekspektasi Kohort E[f(X)]',
+            subtitle: isSimpleMode
+                ? 'Nilai netral awal (${baseline.toStringAsFixed(2)}) sebelum memasukkan sinyal klinis klien'
+                : 'Titik referensi populasi standar (v₀₀₀) sebelum sinyal multimodal pasien diinjeksikan',
+            deltaText: isSimpleMode ? 'Netral' : 'Prior E[f]',
             runningScore: baseline,
             barColor: const Color(0xFF64748B),
             icon: Icons.flag_outlined,
@@ -153,10 +162,12 @@ class InteractiveShapleyBalance extends StatelessWidget {
           const SizedBox(height: 8),
           _buildWaterfallRow(
             stepNumber: '1',
-            title: 'Modalitas Akustik / Prosodi Audio',
+            title: isSimpleMode
+                ? 'Kontribusi Suara & Intonasi'
+                : 'Modalitas Akustik / Prosodi Audio',
             subtitle: dAudio >= 0
-                ? 'Parameter prosodi (pitch F0, jitter, pause ratio) meningkatkan estimasi PHQ-8 sebesar +${dAudio.toStringAsFixed(2)}'
-                : 'Kestabilan prosodi & artikulasi vokal menurunkan estimasi PHQ-8 sebesar ${dAudio.toStringAsFixed(2)}',
+                ? 'Karakter suara & jeda bicara meningkatkan estimasi risiko sebesar +${dAudio.toStringAsFixed(2)} poin'
+                : 'Kestabilan suara & kelancaran bicara menekan estimasi risiko sebesar ${dAudio.toStringAsFixed(2)} poin',
             deltaText:
                 '${dAudio >= 0 ? "+" : ""}${dAudio.toStringAsFixed(2)} (${attr?.audioPct.toStringAsFixed(1) ?? "0"}%)',
             runningScore: afterAudio,
@@ -167,10 +178,12 @@ class InteractiveShapleyBalance extends StatelessWidget {
           const SizedBox(height: 8),
           _buildWaterfallRow(
             stepNumber: '2',
-            title: 'Modalitas Visual (Facial Action Units / AUs)',
+            title: isSimpleMode
+                ? 'Kontribusi Ekspresi Wajah'
+                : 'Modalitas Visual (Facial Action Units / AUs)',
             subtitle: dVisual >= 0
-                ? 'Aktivasi FACS (AU04 Brow Lowerer, AU15 Lip Depressor, hipomimia) menambah skor +${dVisual.toStringAsFixed(2)}'
-                : 'Afek fasial responsif (AU12 Zygomaticus) menurunkan skor sebesar ${dVisual.toStringAsFixed(2)}',
+                ? 'Ekspresi wajah/afek teramati menambah estimasi risiko +${dVisual.toStringAsFixed(2)} poin'
+                : 'Ekspresi wajah responsif menurunkan estimasi risiko sebesar ${dVisual.toStringAsFixed(2)} poin',
             deltaText:
                 '${dVisual >= 0 ? "+" : ""}${dVisual.toStringAsFixed(2)} (${attr?.visualPct.toStringAsFixed(1) ?? "0"}%)',
             runningScore: afterVisual,
@@ -181,10 +194,12 @@ class InteractiveShapleyBalance extends StatelessWidget {
           const SizedBox(height: 8),
           _buildWaterfallRow(
             stepNumber: '3',
-            title: 'Modalitas Teks / Linguistik',
+            title: isSimpleMode
+                ? 'Kontribusi Isi Ucapan (Bahasa)'
+                : 'Modalitas Teks / Linguistik',
             subtitle: dText >= 0
-                ? 'Valensi semantik negatif & indikator keluhan psikolinguistik menambah skor +${dText.toStringAsFixed(2)}'
-                : 'Konstruksi leksikal adaptif menurunkan skor sebesar ${dText.toStringAsFixed(2)}',
+                ? 'Konten ucapan verbal klien menambah estimasi risiko +${dText.toStringAsFixed(2)} poin'
+                : 'Konten ucapan verbal klien menekan estimasi risiko sebesar ${dText.toStringAsFixed(2)} poin',
             deltaText:
                 '${dText >= 0 ? "+" : ""}${dText.toStringAsFixed(2)} (${attr?.textPct.toStringAsFixed(1) ?? "0"}%)',
             runningScore: finalScore,

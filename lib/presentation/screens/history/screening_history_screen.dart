@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:fedmind_mobile_app/core/constants/clinical_constants.dart';
+import 'package:fedmind_mobile_app/core/services/validation_export_service.dart';
 import 'package:fedmind_mobile_app/data/models/screening_models.dart';
 import 'package:fedmind_mobile_app/presentation/providers/screening_provider.dart';
 import 'package:fedmind_mobile_app/presentation/screens/result/screening_result_screen.dart';
@@ -112,6 +114,409 @@ class _ScreeningHistoryScreenState extends State<ScreeningHistoryScreen> {
     }
   }
 
+  Future<void> _openExportSheet(ScreeningProvider provider) async {
+    bool isCsv = true;
+    bool includeUnverified = false;
+    bool isLoading = true;
+    bool isSavingFile = false;
+    List<ScreeningResponse> loadedRecords = [];
+
+    Future<void> reloadRecords(StateSetter setModalState) async {
+      setModalState(() => isLoading = true);
+      final data = await provider.loadVerifiedScreeningsForExport(
+        includeUnverified: includeUnverified,
+      );
+      if (!mounted) return;
+      setModalState(() {
+        loadedRecords = data;
+        isLoading = false;
+      });
+    }
+
+    bool initialized = false;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+      ),
+      builder: (sheetCtx) {
+        return StatefulBuilder(
+          builder: (ctx, setModalState) {
+            if (!initialized) {
+              initialized = true;
+              Future.microtask(() => reloadRecords(setModalState));
+            }
+
+            final stats = ValidationExportService.computeMetrics(loadedRecords);
+            final exportContent = isCsv
+                ? ValidationExportService.buildAnonymizedCsv(loadedRecords)
+                : ValidationExportService.buildAnonymizedJson(loadedRecords);
+            final ext = isCsv ? 'csv' : 'json';
+
+            return SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFE6F7F6),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: const Icon(
+                            Icons.dataset_linked_outlined,
+                            color: Color(0xFF0D9488),
+                            size: 20,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        const Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Ekspor Dataset Validasi Ahli',
+                                style: TextStyle(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w800,
+                                  color: Color(0xFF0F172A),
+                                ),
+                              ),
+                              Text(
+                                'Data teranonimisasi tanpa nama pasien, berkas video/audio, atau teks SOAP mentah.',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: Color(0xFF64748B),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 14),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: ChoiceChip(
+                            label: const Center(child: Text('CSV (Tabel)')),
+                            selected: isCsv,
+                            onSelected: (v) {
+                              if (v) setModalState(() => isCsv = true);
+                            },
+                            selectedColor: const Color(0xFF0D9488),
+                            labelStyle: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              color: isCsv
+                                  ? Colors.white
+                                  : const Color(0xFF475569),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: ChoiceChip(
+                            label: const Center(child: Text('JSON (Lengkap)')),
+                            selected: !isCsv,
+                            onSelected: (v) {
+                              if (v) setModalState(() => isCsv = false);
+                            },
+                            selectedColor: const Color(0xFF0D9488),
+                            labelStyle: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              color: !isCsv
+                                  ? Colors.white
+                                  : const Color(0xFF475569),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    SwitchListTile.adaptive(
+                      dense: true,
+                      contentPadding: EdgeInsets.zero,
+                      activeTrackColor: const Color(0xFF0D9488),
+                      title: const Text(
+                        'Sertakan sesi yang belum diverifikasi',
+                        style: TextStyle(
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF334155),
+                        ),
+                      ),
+                      value: includeUnverified,
+                      onChanged: isLoading
+                          ? null
+                          : (val) {
+                              includeUnverified = val;
+                              reloadRecords(setModalState);
+                            },
+                    ),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF8FAFC),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: const Color(0xFFE2E8F0)),
+                      ),
+                      child: isLoading
+                          ? const Center(
+                              child: Padding(
+                                padding: EdgeInsets.all(8.0),
+                                child: SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Color(0xFF0D9488),
+                                  ),
+                                ),
+                              ),
+                            )
+                          : Text(
+                              'Baris siap ekspor: ${loadedRecords.length} sesi '
+                              '(Terverifikasi: ${stats.verifiedCount}) • '
+                              'MAE: ${stats.mae != null ? stats.mae!.toStringAsFixed(2) : '—'} • '
+                              'RMSE: ${stats.rmse != null ? stats.rmse!.toStringAsFixed(2) : '—'}',
+                              style: const TextStyle(
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.w600,
+                                color: Color(0xFF475569),
+                              ),
+                            ),
+                    ),
+                    const SizedBox(height: 14),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: (isLoading || loadedRecords.isEmpty)
+                                ? null
+                                : () {
+                                    Clipboard.setData(
+                                      ClipboardData(text: exportContent),
+                                    );
+                                    Navigator.pop(sheetCtx);
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: Text(
+                                          'Data ${ext.toUpperCase()} (${loadedRecords.length} sesi) disalin ke Clipboard.',
+                                        ),
+                                        backgroundColor:
+                                            const Color(0xFF0D9488),
+                                      ),
+                                    );
+                                  },
+                            icon: const Icon(Icons.copy_rounded, size: 16),
+                            label: const Text('Salin'),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF0D9488),
+                              foregroundColor: Colors.white,
+                            ),
+                            onPressed: (isLoading ||
+                                    isSavingFile ||
+                                    loadedRecords.isEmpty)
+                                ? null
+                                : () async {
+                                    final sheetNavigator =
+                                        Navigator.of(sheetCtx);
+                                    final messenger =
+                                        ScaffoldMessenger.of(context);
+                                    setModalState(() => isSavingFile = true);
+                                    try {
+                                      final file =
+                                          await ValidationExportService
+                                              .saveExportToAppDocuments(
+                                        content: exportContent,
+                                        extension: ext,
+                                      );
+                                      if (!mounted) return;
+                                      sheetNavigator.pop();
+                                      messenger.showSnackBar(
+                                        SnackBar(
+                                          content: Text(
+                                            'Tersimpan di: ${file.path}',
+                                          ),
+                                          backgroundColor:
+                                              const Color(0xFF0D9488),
+                                        ),
+                                      );
+                                    } catch (e) {
+                                      if (!mounted) return;
+                                      setModalState(() => isSavingFile = false);
+                                      messenger.showSnackBar(
+                                        SnackBar(
+                                          content: Text('Gagal ekspor: $e'),
+                                          backgroundColor:
+                                              const Color(0xFFDC2626),
+                                        ),
+                                      );
+                                    }
+                                  },
+                            icon: const Icon(Icons.save_alt_rounded, size: 16),
+                            label: Text(
+                              isSavingFile ? 'Menyimpan...' : 'Simpan Berkas',
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildValidationSummaryBanner(ScreeningProvider provider) {
+    final stats = ValidationExportService.computeMetricsFromSummary(
+      provider.historyItems,
+    );
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 10, 16, 2),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Expanded(
+                child: Text(
+                  'Ringkasan Validasi Ahli',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF0F172A),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              InkWell(
+                borderRadius: BorderRadius.circular(8),
+                onTap: () => _openExportSheet(provider),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE6F7F6),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.ios_share_rounded,
+                        size: 13,
+                        color: Color(0xFF0D9488),
+                      ),
+                      SizedBox(width: 4),
+                      Text(
+                        'Ekspor CSV/JSON',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF0D9488),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              _buildMetricTile(
+                'Terverifikasi',
+                '${stats.verifiedCount}/${stats.totalRecords}',
+              ),
+              _buildMetricTile(
+                'Konkordansi',
+                stats.concordanceRatePct != null
+                    ? '${stats.concordanceRatePct!.toStringAsFixed(0)}%'
+                    : '—',
+              ),
+              _buildMetricTile(
+                'MAE',
+                stats.mae != null ? stats.mae!.toStringAsFixed(2) : '—',
+              ),
+              _buildMetricTile(
+                'RMSE',
+                stats.rmse != null ? stats.rmse!.toStringAsFixed(2) : '—',
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMetricTile(String label, String value) {
+    return Expanded(
+      child: Container(
+        margin: const EdgeInsets.only(right: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF8FAFC),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              label,
+              style: const TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF64748B),
+              ),
+              overflow: TextOverflow.ellipsis,
+            ),
+            const SizedBox(height: 2),
+            Text(
+              value,
+              style: const TextStyle(
+                fontSize: 12.5,
+                fontWeight: FontWeight.w800,
+                color: Color(0xFF0F172A),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<ScreeningProvider>();
@@ -140,6 +545,11 @@ class _ScreeningHistoryScreenState extends State<ScreeningHistoryScreen> {
           ],
         ),
         actions: [
+          IconButton(
+            onPressed: () => _openExportSheet(provider),
+            icon: const Icon(Icons.ios_share_rounded),
+            tooltip: 'Ekspor Validasi (CSV / JSON)',
+          ),
           IconButton(
             onPressed: () => provider.fetchHistory(limit: 100),
             icon: const Icon(Icons.sync_rounded),
@@ -263,6 +673,7 @@ class _ScreeningHistoryScreenState extends State<ScreeningHistoryScreen> {
               ),
             ),
             const Divider(color: Color(0xFFE2E8F0), height: 1),
+            _buildValidationSummaryBanner(provider),
             Expanded(
               child: _buildBody(provider),
             ),

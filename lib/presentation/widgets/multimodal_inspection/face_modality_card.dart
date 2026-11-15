@@ -509,7 +509,7 @@ class _FaceModalityCardState extends State<FaceModalityCard> {
             ),
 
           // --- GRAFIK GARIS TEMPORAL ACTION UNITS (AU04, AU12, AU15) ---
-          if (ins.visualFrames.length > 1)
+          if (!widget.isSimpleMode && ins.visualFrames.length > 1)
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
               child: Container(

@@ -5,156 +5,54 @@ import 'package:flutter/services.dart';
 
 /// Varian model inferensi on-device yang tersedia pada FedMind.
 enum FedMindModelVariant {
-  /// Model 3: Ultra-light pooled MLP + LayerNorm fusion (default).
+  /// Model 3: Ultra-light pooled MLP + LayerNorm fusion (default & tunggal).
   model3Edge,
-
-  /// Model 2: Multimodal BiLSTM + Attention fusion (legacy).
-  model2Legacy,
 }
 
 extension FedMindModelVariantX on FedMindModelVariant {
-  String get key {
-    switch (this) {
-      case FedMindModelVariant.model3Edge:
-        return 'edge_fl_iid';
-      case FedMindModelVariant.model2Legacy:
-        return 'fl_iid';
-    }
-  }
+  String get key => 'edge_fl_iid';
 
-  String get shortLabel {
-    switch (this) {
-      case FedMindModelVariant.model3Edge:
-        return 'Model 3';
-      case FedMindModelVariant.model2Legacy:
-        return 'Model 2';
-    }
-  }
+  String get shortLabel => 'Model 3';
 
-  String get displayName {
-    switch (this) {
-      case FedMindModelVariant.model3Edge:
-        return 'Model 3 — FedAvg Edge Client (Terbaru)';
-      case FedMindModelVariant.model2Legacy:
-        return 'Model 2 — FedAvg BiLSTM-Attn (Sebelumnya)';
-    }
-  }
+  String get displayName => 'Model 3 — FedAvg Edge Client (Aktif)';
 
-  String get checkpointLabel {
-    switch (this) {
-      case FedMindModelVariant.model3Edge:
-        return 'FedMind-Edge-ONNX v3.0-FL (Model 3)';
-      case FedMindModelVariant.model2Legacy:
-        return 'FedMind-Multimodal-ONNX v2.4-FL (Model 2)';
-    }
-  }
+  String get selectorTitle => 'Model 3 — FedAvg Edge Client (ONNX)';
 
-  String get checkpointFileName {
-    switch (this) {
-      case FedMindModelVariant.model3Edge:
-        return 'fedmind_edge_client.onnx';
-      case FedMindModelVariant.model2Legacy:
-        return 'fedmind_multimodal.onnx';
-    }
-  }
+  String get checkpointLabel => 'FedMind-Edge-ONNX v3.0-FL (Model 3)';
 
-  String get regressorFileName {
-    switch (this) {
-      case FedMindModelVariant.model3Edge:
-        return 'fedmind_edge_regressor.onnx';
-      case FedMindModelVariant.model2Legacy:
-        return 'fedmind_regressor.onnx';
-    }
-  }
+  String get checkpointFileName => 'fedmind_edge_client.onnx';
+
+  String get regressorFileName => 'fedmind_edge_regressor.onnx';
 
   String get modelAssetPath => 'assets/models/$checkpointFileName';
   String get regressorAssetPath => 'assets/models/$regressorFileName';
 
-  String get normStatsFileName {
-    switch (this) {
-      case FedMindModelVariant.model3Edge:
-        return 'train_norm_stats_edge.json';
-      case FedMindModelVariant.model2Legacy:
-        return 'train_norm_stats.json';
-    }
-  }
+  String get normStatsFileName => 'train_norm_stats_edge.json';
 
   String get normStatsAssetPath => 'assets/models/$normStatsFileName';
 
-  String get xaiBaselineFileName {
-    switch (this) {
-      case FedMindModelVariant.model3Edge:
-        return 'xai_baseline_edge.json';
-      case FedMindModelVariant.model2Legacy:
-        return 'xai_baseline.json';
-    }
-  }
+  String get xaiBaselineFileName => 'xai_baseline_edge.json';
 
   String get xaiBaselineAssetPath => 'assets/models/$xaiBaselineFileName';
 
-  String get architectureName {
-    switch (this) {
-      case FedMindModelVariant.model3Edge:
-        return 'Pooled Edge MLP + LayerNorm Fusion';
-      case FedMindModelVariant.model2Legacy:
-        return 'Multimodal BiLSTM Attention Fusion';
-    }
-  }
+  String get architectureName => 'Pooled Edge MLP + LayerNorm Fusion';
 
   String get parameterSummary {
-    switch (this) {
-      case FedMindModelVariant.model3Edge:
-        return 'Ultra-Light Pooled Edge MLP (Float32 ONNX)';
-      case FedMindModelVariant.model2Legacy:
-        return '7,832,001 (Float32 ONNX)';
-    }
+    return 'Ultra-Light Pooled Edge MLP (Float32 ONNX)';
   }
 
-  int get latentDim {
-    switch (this) {
-      case FedMindModelVariant.model3Edge:
-        return 128;
-      case FedMindModelVariant.model2Legacy:
-        return 256;
-    }
-  }
+  int get latentDim => 128;
 
   int get fusedLatentDim => latentDim * 3;
 
-  double get defaultV000Baseline {
-    switch (this) {
-      case FedMindModelVariant.model3Edge:
-        return 10.0736;
-      case FedMindModelVariant.model2Legacy:
-        return 8.4164;
-    }
-  }
+  double get defaultV000Baseline => 10.0736;
 
-  double get binaryThreshold {
-    switch (this) {
-      case FedMindModelVariant.model3Edge:
-        return 9.4;
-      case FedMindModelVariant.model2Legacy:
-        return 10.0;
-    }
-  }
+  double get binaryThreshold => 9.4;
 
-  double? get zClip {
-    switch (this) {
-      case FedMindModelVariant.model3Edge:
-        return 4.0;
-      case FedMindModelVariant.model2Legacy:
-        return null;
-    }
-  }
+  double? get zClip => 4.0;
 
   String get settingsSummary {
-    switch (this) {
-      case FedMindModelVariant.model3Edge:
-        return 'Pooled Edge MLP + mE5 • 128D Laten • Threshold PHQ-8 ≥ 9.4 • Z-Clip ±4.0';
-      case FedMindModelVariant.model2Legacy:
-        return 'BiLSTM + Attention • 256D Laten • Threshold PHQ-8 ≥ 10.0 • Legacy v2.4';
-    }
+    return 'Pooled Edge MLP + mE5 • 128D Laten • Threshold PHQ-8 ≥ 9.4 • Z-Clip ±4.0';
   }
 }
 
@@ -169,13 +67,13 @@ class LocalPreparedTensors {
   final Map<String, dynamic> qualityFlags;
 
   LocalPreparedTensors({
-    this.variant = FedMindModelVariant.model2Legacy,
+    this.variant = FedMindModelVariant.model3Edge,
     required this.audio,
     required this.visual,
     required this.text,
-    this.audioShape = const [1, 512, 80],
-    this.visualShape = const [1, 512, 72, 3],
-    this.textShape = const [1, 512, 768],
+    this.audioShape = const [1, 248],
+    this.visualShape = const [1, 75],
+    this.textShape = const [1, 768],
     required this.qualityFlags,
   });
 }
@@ -194,7 +92,7 @@ class LocalPreprocessingService {
   final Map<FedMindModelVariant, double> _shortTextScaleByVariant = {};
 
   LocalPreprocessingService({
-    this.defaultVariant = FedMindModelVariant.model2Legacy,
+    this.defaultVariant = FedMindModelVariant.model3Edge,
   });
 
   bool get isLoaded => isVariantLoaded(defaultVariant);
@@ -249,79 +147,57 @@ class LocalPreprocessingService {
     final meanStats = _meanStatsByVariant[targetVariant];
     final stdStats = _stdStatsByVariant[targetVariant];
 
-    if (targetVariant == FedMindModelVariant.model3Edge) {
-      final dim = targetDim ?? _expectedDims[modality] ?? raw.length;
-      final clip = zClip ?? targetVariant.zClip ?? 4.0;
-      final out = List<double>.filled(dim, 0.0);
-      final mean = meanStats?[modality];
-      final std = stdStats?[modality];
-      if (mean == null || std == null) {
-        for (int i = 0; i < dim; i++) {
-          final val = i < raw.length ? raw[i] : 0.0;
-          out[i] = (val.isNaN || val.isInfinite) ? 0.0 : val.clamp(-clip, clip);
-        }
-        return out;
-      }
-
-      final zUnclipped = List<double>.filled(dim, 0.0);
+    final dim = targetDim ?? _expectedDims[modality] ?? raw.length;
+    final clip = zClip ?? targetVariant.zClip ?? 4.0;
+    final out = List<double>.filled(dim, 0.0);
+    final mean = meanStats?[modality];
+    final std = stdStats?[modality];
+    if (mean == null || std == null) {
       for (int i = 0; i < dim; i++) {
         final val = i < raw.length ? raw[i] : 0.0;
-        if (val.isNaN || val.isInfinite) {
-          zUnclipped[i] = 0.0;
-          continue;
-        }
-        final m = i < mean.length ? mean[i] : 0.0;
-        final s = max(i < std.length ? std[i] : 1.0, 1e-6);
-        zUnclipped[i] = (val - m) / s;
-      }
-
-      final shortMean = _shortTextMeanByVariant[targetVariant];
-      if (modality == 'text' && shortMean != null && dim > 0) {
-        double sumSq = 0.0;
-        for (int i = 0; i < dim; i++) {
-          sumSq += zUnclipped[i] * zUnclipped[i];
-        }
-        final rms = sqrt(sumSq / dim + 1e-8);
-        if (rms > 2.5) {
-          final shortScale = _shortTextScaleByVariant[targetVariant] ?? 0.06;
-          for (int i = 0; i < dim; i++) {
-            final val = i < raw.length ? raw[i] : 0.0;
-            if (val.isNaN || val.isInfinite) {
-              zUnclipped[i] = 0.0;
-              continue;
-            }
-            final sm = i < shortMean.length
-                ? shortMean[i]
-                : (i < mean.length ? mean[i] : 0.0);
-            final s = max(i < std.length ? std[i] : 1.0, 1e-6);
-            zUnclipped[i] = shortScale * (val - sm) / s;
-          }
-        }
-      }
-
-      for (int i = 0; i < dim; i++) {
-        out[i] = zUnclipped[i].clamp(-clip, clip);
+        out[i] = (val.isNaN || val.isInfinite) ? 0.0 : val.clamp(-clip, clip);
       }
       return out;
     }
 
-    if (meanStats == null || !meanStats.containsKey(modality)) {
-      return List<double>.from(raw);
+    final zUnclipped = List<double>.filled(dim, 0.0);
+    for (int i = 0; i < dim; i++) {
+      final val = i < raw.length ? raw[i] : 0.0;
+      if (val.isNaN || val.isInfinite) {
+        zUnclipped[i] = 0.0;
+        continue;
+      }
+      final m = i < mean.length ? mean[i] : 0.0;
+      final s = max(i < std.length ? std[i] : 1.0, 1e-6);
+      zUnclipped[i] = (val - m) / s;
     }
 
-    final mean = meanStats[modality]!;
-    final std = stdStats![modality]!;
-    final out = List<double>.filled(raw.length, 0.0);
-
-    for (int i = 0; i < raw.length; i++) {
-      final m = i < mean.length ? mean[i] : 0.0;
-      final s = i < std.length ? std[i] : 1.0;
-      final val = raw[i];
-      if (val.isNaN || val.isInfinite) {
-        out[i] = 0.0;
-      } else {
-        out[i] = (val - m) / (s + 1e-7);
+    final shortMean = _shortTextMeanByVariant[targetVariant];
+    if (modality == 'text' && shortMean != null && dim > 0) {
+      double sumSq = 0.0;
+      for (int i = 0; i < dim; i++) {
+        sumSq += zUnclipped[i] * zUnclipped[i];
       }
+      final rms = sqrt(sumSq / dim + 1e-8);
+      if (rms > 2.5) {
+        final shortScale = _shortTextScaleByVariant[targetVariant] ?? 0.06;
+        for (int i = 0; i < dim; i++) {
+          final val = i < raw.length ? raw[i] : 0.0;
+          if (val.isNaN || val.isInfinite) {
+            zUnclipped[i] = 0.0;
+            continue;
+          }
+          final sm = i < shortMean.length
+              ? shortMean[i]
+              : (i < mean.length ? mean[i] : 0.0);
+          final s = max(i < std.length ? std[i] : 1.0, 1e-6);
+          zUnclipped[i] = shortScale * (val - sm) / s;
+        }
+      }
+    }
+
+    for (int i = 0; i < dim; i++) {
+      out[i] = zUnclipped[i].clamp(-clip, clip);
     }
     return out;
   }
@@ -385,89 +261,21 @@ class LocalPreprocessingService {
       disableVisualBranch: disableVisualBranch,
     );
 
-    // 2. Pipeline khusus Model 3 (Pooled Edge MLP) -> vektor pooled [1, 248], [1, 75], [1, 768]
-    if (targetVariant == FedMindModelVariant.model3Edge) {
-      final normAudio = normalizeFeature(audioInput, 'audio', variant: targetVariant);
-      final normVisual = disableVisualBranch
-          ? List<double>.filled(75, 0.0)
-          : normalizeFeature(visualInput, 'visual', variant: targetVariant);
-      final normText = normalizeFeature(textInput, 'text', variant: targetVariant);
-
-      return LocalPreparedTensors(
-        variant: targetVariant,
-        audio: Float32List.fromList(normAudio),
-        visual: Float32List.fromList(normVisual),
-        text: Float32List.fromList(normText),
-        audioShape: const [1, 248],
-        visualShape: const [1, 75],
-        textShape: const [1, 768],
-        qualityFlags: flags,
-      );
-    }
-
-    // 3. Pipeline Model 2 (BiLSTM Legacy) -> adaptasi sekuens temporal (T=512)
+    // 2. Pipeline Model 3 (Pooled Edge MLP) -> vektor pooled [1, 248], [1, 75], [1, 768]
     final normAudio = normalizeFeature(audioInput, 'audio', variant: targetVariant);
     final normVisual = disableVisualBranch
         ? List<double>.filled(75, 0.0)
         : normalizeFeature(visualInput, 'visual', variant: targetVariant);
     final normText = normalizeFeature(textInput, 'text', variant: targetVariant);
 
-    // A. Audio Target: (512, 80) -> Float32List(512 * 80)
-    final audioTensor = Float32List(512 * 80);
-    final vec80 = normAudio.length >= 80
-        ? normAudio.sublist(0, 80)
-        : [...normAudio, ...List.filled(80 - normAudio.length, 0.0)];
-    for (int t = 0; t < 512; t++) {
-      final timeStep = 0.8 + (1.2 - 0.8) * (t / 511.0);
-      final offset = t * 80;
-      for (int j = 0; j < 80; j++) {
-        audioTensor[offset + j] = vec80[j] * timeStep;
-      }
-    }
-
-    // B. Visual Target: (512, 72, 3) -> Total 512 * 216 -> Float32List(512 * 216)
-    final visualTensor = Float32List(512 * 216);
-    // Ulangi 75 feature hingga minimal 216 elemen
-    final vec216 = List<double>.filled(216, 0.0);
-    for (int i = 0; i < 216; i++) {
-      vec216[i] = normVisual[i % normVisual.length];
-    }
-    double vMin = vec216.reduce(min);
-    double vMax = vec216.reduce(max);
-    if (vMax > vMin) {
-      for (int i = 0; i < 216; i++) {
-        vec216[i] = (vec216[i] - vMin) / (vMax - vMin);
-      }
-    }
-    for (int t = 0; t < 512; t++) {
-      final timeStep = 0.9 + (1.1 - 0.9) * (t / 511.0);
-      final offset = t * 216;
-      for (int j = 0; j < 216; j++) {
-        visualTensor[offset + j] = vec216[j] * timeStep;
-      }
-    }
-
-    // C. Text Target: (512, 768) -> Float32List(512 * 768)
-    final textTensor = Float32List(512 * 768);
-    final vec768 = normText.length >= 768
-        ? normText.sublist(0, 768)
-        : [...normText, ...List.filled(768 - normText.length, 0.0)];
-    for (int t = 0; t < 512; t++) {
-      final timeStep = 0.95 + (1.05 - 0.95) * (t / 511.0);
-      final offset = t * 768;
-      for (int j = 0; j < 768; j++) {
-        textTensor[offset + j] = vec768[j] * timeStep;
-      }
-    }
-
     return LocalPreparedTensors(
       variant: targetVariant,
-      audio: audioTensor,
-      visual: visualTensor,
-      text: textTensor,
-      audioShape: const [1, 512, 80],
-      visualShape: const [1, 512, 72, 3],
-      textShape: const [1, 512, 768],
+      audio: Float32List.fromList(normAudio),
+      visual: Float32List.fromList(normVisual),
+      text: Float32List.fromList(normText),
+      audioShape: const [1, 248],
+      visualShape: const [1, 75],
+      textShape: const [1, 768],
       qualityFlags: flags,
     );
   }

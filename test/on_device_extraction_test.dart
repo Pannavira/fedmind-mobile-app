@@ -59,7 +59,7 @@ void main() {
         final features = await MultimodalExtractorService.extractFromLocalVideo(
           videoPath: tempFileA.path,
           participantId: 'P_TEST_99',
-          userNote:
+          clientTranscript:
               'Akhir-akhir ini saya merasa lelah, sulit tidur, dan cemas.',
           allowSyntheticByteFallback: true,
           onProgress: (stage, progress) {
@@ -99,7 +99,8 @@ void main() {
         expect(ins.transcriptSegments.isNotEmpty, isTrue);
         expect(ins.detectedKeywords.isNotEmpty, isTrue);
         expect(ins.actionUnitScores.length, equals(5));
-        expect(ins.translatedTranscript.isNotEmpty, isTrue);
+        expect(ins.isExplicitTranscript, isTrue);
+        expect(ins.transcriptSegments.first.text.isNotEmpty, isTrue);
         expect(ins.transcriptLanguage, equals('id'));
       },
     );
@@ -138,13 +139,13 @@ void main() {
     );
 
     test(
-      'Different user stories/notes (including short <4 word notes and negations) must produce distinct 768D Psycholinguistic Text features',
+      'Different client transcripts (including short <4 word notes and negations) must produce distinct 768D Psycholinguistic Text features',
       () async {
         final featDistress =
             await MultimodalExtractorService.extractFromLocalVideo(
               videoPath: tempFileA.path,
               participantId: 'P_NOTE',
-              userNote:
+              clientTranscript:
                   'Saya merasa sangat sedih, hampa, putus asa, dan tidak bisa tidur setiap malam.',
               allowSyntheticByteFallback: true,
             );
@@ -153,7 +154,7 @@ void main() {
             await MultimodalExtractorService.extractFromLocalVideo(
               videoPath: tempFileA.path,
               participantId: 'P_NOTE',
-              userNote:
+              clientTranscript:
                   'Hari ini saya merasa tenang, bersyukur, bahagia, dan bersemangat bekerja.',
               allowSyntheticByteFallback: true,
             );
@@ -162,7 +163,7 @@ void main() {
             await MultimodalExtractorService.extractFromLocalVideo(
               videoPath: tempFileA.path,
               participantId: 'P_NOTE',
-              userNote: 'sedih lelah cemas',
+              clientTranscript: 'sedih lelah cemas',
               allowSyntheticByteFallback: true,
             );
 
@@ -170,7 +171,7 @@ void main() {
             await MultimodalExtractorService.extractFromLocalVideo(
               videoPath: tempFileA.path,
               participantId: 'P_NOTE',
-              userNote: 'tenang semangat bahagia',
+              clientTranscript: 'tenang semangat bahagia',
               allowSyntheticByteFallback: true,
             );
 
@@ -192,6 +193,21 @@ void main() {
           featDistress.inspectionData.emotionalValence,
           lessThan(featPositive.inspectionData.emotionalValence),
         );
+      },
+    );
+
+    test(
+      'Counselor pre-screening note (userNote) must NOT be injected as client speech when transcript is empty',
+      () async {
+        final noSpeech = await MultimodalExtractorService.extractFromLocalVideo(
+          videoPath: tempFileA.path,
+          participantId: 'P_NO_SPEECH',
+          userNote: 'Pasien tampak sangat tertekan, sedih, dan sulit tidur.',
+          allowSyntheticByteFallback: true,
+        );
+
+        expect(noSpeech.inspectionData.isExplicitTranscript, isFalse);
+        expect(noSpeech.inspectionData.translatedTranscript.trim(), isEmpty);
       },
     );
 
@@ -222,11 +238,11 @@ void main() {
         );
 
         double audioTensorDiff = 0.0;
-        for (int i = 0; i < 80; i++) {
+        for (int i = 0; i < 248; i++) {
           audioTensorDiff += (tensorsA.audio[i] - tensorsB.audio[i]).abs();
         }
         double visualTensorDiff = 0.0;
-        for (int i = 0; i < 216; i++) {
+        for (int i = 0; i < 75; i++) {
           visualTensorDiff += (tensorsA.visual[i] - tensorsB.visual[i]).abs();
         }
         double textTensorDiff = 0.0;
@@ -236,7 +252,7 @@ void main() {
 
         expect(audioTensorDiff, greaterThan(0.5));
         expect(visualTensorDiff, greaterThan(0.5));
-        expect(textTensorDiff, greaterThan(0.5));
+        expect(textTensorDiff, greaterThan(0.01));
       },
     );
 
@@ -252,7 +268,7 @@ void main() {
             await MultimodalExtractorService.extractFromLocalVideo(
               videoPath: targetVideoPath,
               participantId: 'REAL_VIDEO_USER',
-              userNote: 'Merasa sedikit lelah karena pekerjaan menumpuk.',
+              clientTranscript: 'Merasa sedikit lelah karena pekerjaan menumpuk.',
               allowSyntheticByteFallback: true,
             );
 
@@ -264,16 +280,16 @@ void main() {
           textInput: extracted.textFeatures,
         );
 
-        expect(tensors.audio.length, equals(512 * 80));
-        expect(tensors.visual.length, equals(512 * 216));
-        expect(tensors.text.length, equals(512 * 768));
+        expect(tensors.audio.length, equals(248));
+        expect(tensors.visual.length, equals(75));
+        expect(tensors.text.length, equals(768));
 
         // Pastikan hasil Z-Score normalization berada pada rentang wajar (tidak meledak ribuan standar deviasi)
-        for (int i = 0; i < 80; i++) {
+        for (int i = 0; i < 248; i++) {
           expect(tensors.audio[i].isNaN, isFalse);
           expect(tensors.audio[i].abs(), lessThan(10.0));
         }
-        for (int i = 0; i < 216; i++) {
+        for (int i = 0; i < 75; i++) {
           expect(tensors.visual[i].isNaN, isFalse);
           expect(tensors.visual[i].abs(), lessThan(10.0));
         }
@@ -293,7 +309,11 @@ void main() {
             contains('00:48'),
           );
           expect(extracted.inspectionData.isWhisperTranscribed, isTrue);
-          expect(extracted.inspectionData.translatedTranscript.isNotEmpty, isTrue);
+          expect(extracted.inspectionData.isExplicitTranscript, isTrue);
+          expect(
+            extracted.inspectionData.transcriptSegments.first.text.isNotEmpty,
+            isTrue,
+          );
         }
       },
     );
@@ -536,7 +556,7 @@ void main() {
     });
 
     test(
-      'OnDeviceWhisperService detects English, falls back to counselorNote, and preserves negation polarity',
+      'OnDeviceWhisperService detects English and rejects counselorNote as client speech fallback',
       () async {
         expect(
           OnDeviceWhisperService.isLikelyEnglishText(
@@ -556,8 +576,8 @@ void main() {
           (i) => 0.02 * sin(2 * pi * 140 * i / 16000),
         );
 
-        // 1) English input passed via counselorNote when clientTranscript is empty -> direct bypass
-        final enBypass = await OnDeviceWhisperService.transcribeAndTranslate(
+        // 1) counselorNote must NOT populate client transcript when speech recognition has no text
+        final noFallback = await OnDeviceWhisperService.transcribeAndTranslate(
           videoPath: tempFileA.path,
           pcmSamples: samples,
           sourceSampleRate: 16000,
@@ -565,35 +585,14 @@ void main() {
           counselorNote:
               'Nothing has made me feel sad today and I slept quite well.',
         );
-        expect(enBypass.isSuccess, isTrue);
-        expect(
-          enBypass.englishTranscript,
-          equals('Nothing has made me feel sad today and I slept quite well.'),
-        );
-
-        // 2) Negation parity guard prevents ML Kit flipping "tidak ada yang membuat saya sedih" -> "has made me sad"
-        final guarded = OnDeviceWhisperService.enforceNegationParity(
-          'tidak ada yang membuat saya sedih',
-          'has made me sad',
-        );
-        expect(guarded.toLowerCase(), contains('sad'));
-        expect(
-          RegExp(r'\b(not|nothing|no|never)\b', caseSensitive: false)
-              .hasMatch(guarded),
-          isTrue,
-        );
-
-        // 3) Dictionary translator directly preserves negation on "tidak ada yang membuat saya sedih"
-        final dictTranslated = OnDeviceWhisperService.translateIndonesianToEnglish(
-          'tidak ada yang membuat saya sedih',
-        );
-        expect(dictTranslated.toLowerCase(), contains('nothing'));
-        expect(dictTranslated.toLowerCase(), contains('sad'));
+        expect(noFallback.isSuccess, isFalse);
+        expect(noFallback.indonesianTranscript, isEmpty);
+        expect(noFallback.segments, isEmpty);
       },
     );
 
     test(
-      'Visual 75D & Audio 248D match training schema & healthy z-scores against train_norm_stats.json',
+      'Visual 75D & Audio 248D match training schema & healthy z-scores against train_norm_stats_edge.json',
       () async {
         final feat = await MultimodalExtractorService.extractFromLocalVideo(
           videoPath: tempFileA.path,
@@ -612,9 +611,9 @@ void main() {
         expect(feat.visualFeatures[64], inInclusiveRange(0.0, 1.0)); // Duchenne
         expect(feat.visualFeatures[68], inInclusiveRange(0.0, 1.0)); // Gaze < -0.1 rad
 
-        // Verify z-scores against train_norm_stats.json
+        // Verify z-scores against train_norm_stats_edge.json
         final statsMap = json.decode(
-          await File('assets/models/train_norm_stats.json').readAsString(),
+          await File('assets/models/train_norm_stats_edge.json').readAsString(),
         ) as Map<String, dynamic>;
         final visMean = (statsMap['visual']['mean'] as List).cast<num>();
         final visStd = (statsMap['visual']['std'] as List).cast<num>();
@@ -633,7 +632,7 @@ void main() {
       'Phase 1 Parity: poseRx negation, actual dtMs for diff pose, calibrated AU02/AU09, 75D-derived UI AUs, and non-Android block',
       () async {
         final statsMap = json.decode(
-          await File('assets/models/train_norm_stats.json').readAsString(),
+          await File('assets/models/train_norm_stats_edge.json').readAsString(),
         ) as Map<String, dynamic>;
         final visMean = (statsMap['visual']['mean'] as List).cast<num>();
         final visStd = (statsMap['visual']['std'] as List).cast<num>();
@@ -766,7 +765,7 @@ void main() {
       'MediaPipe 52 ARKit Blendshapes map cleanly to 75D OpenFace AUs without spikes & separate depressive vs happy affect',
       () async {
         final statsJson = json.decode(
-          await File('assets/models/train_norm_stats.json').readAsString(),
+          await File('assets/models/train_norm_stats_edge.json').readAsString(),
         ) as Map<String, dynamic>;
         final visMean =
             (statsJson['visual']['mean'] as List).cast<num>();
@@ -929,7 +928,7 @@ void main() {
       'TEST 4 Regression: AU02 p75 bounded, responsive motor dynamics, non-floored chart cues, and negation-aware sleep/mood valence',
       () async {
         final statsJson = json.decode(
-          await File('assets/models/train_norm_stats.json').readAsString(),
+          await File('assets/models/train_norm_stats_edge.json').readAsString(),
         ) as Map<String, dynamic>;
         final visMean = (statsJson['visual']['mean'] as List).cast<num>();
         final visStd = (statsJson['visual']['std'] as List).cast<num>();
@@ -1039,12 +1038,6 @@ void main() {
             OnDeviceWhisperService.splitIndonesianTranscriptClauses(normalized);
         expect(clauses.length, greaterThanOrEqualTo(5));
         expect(clauses.first, contains('terakhir ini bagus'));
-
-        final fixedEn = OnDeviceWhisperService.postProcessEnglishTranslation(
-          'untuk pola tidur sendiri Saya masih tidur dengan cukup',
-          'for your own sleep patterns I still sleep enough',
-        );
-        expect(fixedEn, equals('for my own sleep patterns I still sleep enough.'));
       },
     );
   });

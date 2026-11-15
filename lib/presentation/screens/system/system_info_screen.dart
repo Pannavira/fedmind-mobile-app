@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
@@ -122,7 +122,7 @@ class SystemInfoScreen extends StatelessWidget {
                                 Flexible(
                                   child: Text(
                                     provider.isServerOnline
-                                        ? 'Edge Node Aktif • Komputasi On-Device Siap'
+                                        ? 'Edge Node Aktif â€¢ Komputasi On-Device Siap'
                                         : 'Menyiapkan Edge Runtime On-Device...',
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
@@ -151,37 +151,42 @@ class SystemInfoScreen extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       // SECTION 1: Status Node FL & Spesifikasi
-                      _buildSectionTitle('Arsitektur Federated Learning'),
+                      _buildSectionTitle('Arsitektur Federated Learning (Model 3 Edge)'),
                       const SizedBox(height: 8),
                       _buildCard(
                         children: [
-                          _buildModelSelectorSection(context, provider),
+                          _buildDetailRow(
+                            icon: Icons.hub_rounded,
+                            title: provider.selectedModelVariant.selectorTitle,
+                            subtitle: provider.selectedModelVariant.settingsSummary,
+                            highlightColor: _brandTealDark,
+                          ),
                           const Divider(height: 24, color: Color(0xFFF1F5F9)),
                           _buildDetailRow(
                             icon: Icons.memory_rounded,
                             title: 'Model Checkpoint',
                             subtitle:
-                                '${provider.selectedModelVariant.checkpointLabel} • ${provider.selectedModelVariant.checkpointFileName}',
+                                '${provider.selectedModelVariant.checkpointLabel} \u2022 ${provider.selectedModelVariant.checkpointFileName}',
                           ),
                           const Divider(height: 20, color: Color(0xFFF1F5F9)),
                           _buildDetailRow(
                             icon: Icons.functions_rounded,
                             title: 'Baseline Shapley E[f(X)]',
                             subtitle:
-                                '${provider.repository.localInferenceService.v000Baseline.toStringAsFixed(2)} poin PHQ-8 (Threshold ≥ ${provider.repository.localInferenceService.binaryThreshold.toStringAsFixed(1)})',
+                                '${provider.repository.localInferenceService.v000Baseline.toStringAsFixed(2)} poin PHQ-8 (Threshold \u2265 ${provider.repository.localInferenceService.binaryThreshold.toStringAsFixed(1)})',
                           ),
                           const Divider(height: 20, color: Color(0xFFF1F5F9)),
                           _buildDetailRow(
                             icon: Icons.layers_outlined,
                             title: 'Dimensi Vektor Fitur',
                             subtitle:
-                                'Visual: 75D FACS • Audio: 248D COVAREP • Teks: 768D MentalBERT (${provider.selectedModelVariant.latentDim}D Laten × 3)',
+                                'Visual: 75D FACS \u2022 Audio: 248D COVAREP \u2022 Teks: 768D Multilingual-E5 INT4 (${provider.selectedModelVariant.latentDim}D Laten \u00D7 3)',
                           ),
                           const Divider(height: 20, color: Color(0xFFF1F5F9)),
                           _buildDetailRow(
                             icon: Icons.security_rounded,
                             title: 'Privasi & Keamanan',
-                            subtitle: 'Zero Cloud Media Upload • Inferensi 100% on-device di memori ponsel',
+                            subtitle: 'Zero Cloud Media Upload â€¢ Inferensi 100% on-device di memori ponsel',
                             highlightColor: const Color(0xFF059669),
                           ),
                           const Divider(height: 20, color: Color(0xFFF1F5F9)),
@@ -190,8 +195,8 @@ class SystemInfoScreen extends StatelessWidget {
                       ),
                       const SizedBox(height: 24),
 
-                      // SECTION 2: Konektivitas & Diagnostik
-                      _buildSectionTitle('Diagnostik Jaringan & Server'),
+                      // SECTION 2: Diagnostik Runtime On-Device
+                      _buildSectionTitle('Diagnostik Runtime On-Device'),
                       const SizedBox(height: 8),
                       _buildCard(
                         children: [
@@ -200,16 +205,16 @@ class SystemInfoScreen extends StatelessWidget {
                               Container(
                                 padding: const EdgeInsets.all(10),
                                 decoration: BoxDecoration(
-                                  color: provider.isServerOnline
+                                  color: provider.isModelLoaded
                                       ? const Color(0xFFECFDF5)
                                       : const Color(0xFFFFFBEB),
                                   borderRadius: BorderRadius.circular(12),
                                 ),
                                 child: Icon(
-                                  provider.isServerOnline
-                                      ? Icons.cloud_done_rounded
-                                      : Icons.cloud_queue_rounded,
-                                  color: provider.isServerOnline
+                                  provider.isModelLoaded
+                                      ? Icons.verified_rounded
+                                      : Icons.hourglass_bottom_rounded,
+                                  color: provider.isModelLoaded
                                       ? const Color(0xFF059669)
                                       : const Color(0xFFD97706),
                                   size: 22,
@@ -221,9 +226,9 @@ class SystemInfoScreen extends StatelessWidget {
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Text(
-                                      provider.isServerOnline
-                                          ? 'Server Terhubung'
-                                          : 'Mode Mandiri (Offline / On-Device)',
+                                      provider.isModelLoaded
+                                          ? 'Engine ONNX Siap (On-Device)'
+                                          : 'Menginisialisasi Engine ONNX...',
                                       style: const TextStyle(
                                         fontSize: 14,
                                         fontWeight: FontWeight.w700,
@@ -232,9 +237,9 @@ class SystemInfoScreen extends StatelessWidget {
                                     ),
                                     const SizedBox(height: 2),
                                     Text(
-                                      provider.isServerOnline
-                                          ? 'Sinkronisasi agregasi bobot global tersedia'
-                                          : 'Inferensi tetap dapat berjalan lokal tanpa internet',
+                                      provider.isModelLoaded
+                                          ? 'Inferensi Model 3 & Multilingual-E5 berjalan lokal di perangkat (${provider.serverDevice})'
+                                          : 'Ketuk tombol di bawah untuk memuat ulang sesi ONNX lokal',
                                       style: const TextStyle(
                                         fontSize: 11.5,
                                         color: _textSecondary,
@@ -256,17 +261,18 @@ class SystemInfoScreen extends StatelessWidget {
                                       if (context.mounted) {
                                         ScaffoldMessenger.of(context)
                                             .showSnackBar(
-                                              SnackBar(
-                                                content: Text(
-                                                  provider.isServerOnline
-                                                      ? 'Koneksi server normal.'
-                                                      : 'Server pusat tidak merespons. Mode On-Device aktif.',
-                                                ),
-                                                duration: const Duration(
-                                                  seconds: 2,
-                                                ),
-                                              ),
-                                            );
+                                          SnackBar(
+                                            content: Text(
+                                              provider.isModelLoaded
+                                                  ? 'Runtime ONNX Model 3 siap digunakan.'
+                                                  : (provider.errorMessage ??
+                                                      'Gagal memuat runtime ONNX lokal.'),
+                                            ),
+                                            duration: const Duration(
+                                              seconds: 2,
+                                            ),
+                                          ),
+                                        );
                                       }
                                     },
                               icon: provider.isCheckingHealth
@@ -278,11 +284,11 @@ class SystemInfoScreen extends StatelessWidget {
                                         color: _brandTealDark,
                                       ),
                                     )
-                                  : const Icon(Icons.sync_rounded, size: 18),
+                                  : const Icon(Icons.memory_rounded, size: 18),
                               label: Text(
                                 provider.isCheckingHealth
                                     ? 'Memeriksa...'
-                                    : 'Periksa Konektivitas Server',
+                                    : 'Verifikasi Engine ONNX On-Device',
                               ),
                               style: OutlinedButton.styleFrom(
                                 foregroundColor: _brandTealDark,
@@ -329,7 +335,7 @@ class SystemInfoScreen extends StatelessWidget {
                           ),
                           const SizedBox(height: 16),
                           const Text(
-                            'Kategori Skor PHQ-8 Terstandarisasi:',
+                            'Kategori Skor PHQ-8 Model 3 (Kalibrasi Cut-Off \u2265 9.4):',
                             style: TextStyle(
                               fontSize: 12,
                               fontWeight: FontWeight.w700,
@@ -338,28 +344,23 @@ class SystemInfoScreen extends StatelessWidget {
                           ),
                           const SizedBox(height: 10),
                           _buildPhqScaleRow(
-                            '0 – 4',
-                            'Minimal / Normal',
+                            '0 \u2013 7.9',
+                            'Risiko Rendah / Minimal',
                             const Color(0xFF10B981),
                           ),
                           _buildPhqScaleRow(
-                            '5 – 9',
-                            'Gejala Ringan (Borderline)',
-                            const Color(0xFF0284C7),
-                          ),
-                          _buildPhqScaleRow(
-                            '10 – 14',
-                            'Depresi Sedang',
+                            '8.0 \u2013 9.3',
+                            'Borderline / Pemantauan Subklinis',
                             const Color(0xFFF59E0B),
                           ),
                           _buildPhqScaleRow(
-                            '15 – 19',
-                            'Sedang - Berat',
-                            const Color(0xFFEA580C),
+                            '9.4 \u2013 14.9',
+                            'Depresi Sedang (Positif Ambang \u2265 9.4)',
+                            const Color(0xFFF97316),
                           ),
                           _buildPhqScaleRow(
-                            '20 – 24',
-                            'Depresi Berat (Kritis)',
+                            '15.0 \u2013 24.0',
+                            'Depresi Berat (Prioritas Tinggi)',
                             const Color(0xFFEF4444),
                           ),
                           const SizedBox(height: 16),
@@ -439,7 +440,7 @@ class SystemInfoScreen extends StatelessWidget {
                             ),
                             const SizedBox(height: 4),
                             const Text(
-                              'Versi 0.0.1+1 (Prototype)',
+                              'Versi 3.0.0-edge (Validasi Klinis)',
                               style: TextStyle(fontSize: 11, color: _textMuted),
                             ),
                           ],
@@ -605,211 +606,6 @@ class SystemInfoScreen extends StatelessWidget {
               ),
             ),
           ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildModelSelectorSection(
-    BuildContext context,
-    ScreeningProvider provider,
-  ) {
-    final activeVariant = provider.selectedModelVariant;
-    final isSwitching = provider.isSwitchingModel;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: _softMintBg,
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: const Icon(
-                Icons.tune_rounded,
-                color: _brandTealDark,
-                size: 18,
-              ),
-            ),
-            const SizedBox(width: 12),
-            const Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Pilihan Model Inferensi On-Device',
-                    style: TextStyle(
-                      fontSize: 12.5,
-                      fontWeight: FontWeight.w700,
-                      color: _textPrimary,
-                    ),
-                  ),
-                  SizedBox(height: 2),
-                  Text(
-                    'Pilih arsitektur ONNX untuk skrining lokal (Default: Model 3)',
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: _textSecondary,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            if (isSwitching)
-              const SizedBox(
-                width: 16,
-                height: 16,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  color: _brandTealDark,
-                ),
-              ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        _buildModelOptionTile(
-          context: context,
-          provider: provider,
-          variant: FedMindModelVariant.model3Edge,
-          isSelected: activeVariant == FedMindModelVariant.model3Edge,
-          isSwitching: isSwitching,
-          badgeText: 'DEFAULT',
-        ),
-        const SizedBox(height: 8),
-        _buildModelOptionTile(
-          context: context,
-          provider: provider,
-          variant: FedMindModelVariant.model2Legacy,
-          isSelected: activeVariant == FedMindModelVariant.model2Legacy,
-          isSwitching: isSwitching,
-          badgeText: 'LEGACY',
-        ),
-      ],
-    );
-  }
-
-  Widget _buildModelOptionTile({
-    required BuildContext context,
-    required ScreeningProvider provider,
-    required FedMindModelVariant variant,
-    required bool isSelected,
-    required bool isSwitching,
-    required String badgeText,
-  }) {
-    final borderColor = isSelected ? _brandTeal : _cardBorder;
-    final bgColor = isSelected ? _softMintBg : const Color(0xFFF8FAFC);
-
-    return Material(
-      color: bgColor,
-      borderRadius: BorderRadius.circular(14),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(14),
-        onTap: isSwitching
-            ? null
-            : () async {
-                HapticFeedback.selectionClick();
-                if (provider.selectedModelVariant == variant &&
-                    provider.isModelLoaded) {
-                  return;
-                }
-                await provider.selectModelVariant(variant);
-                if (!context.mounted) return;
-                final err = provider.errorMessage;
-                ScaffoldMessenger.of(context)
-                  ..hideCurrentSnackBar()
-                  ..showSnackBar(
-                    SnackBar(
-                      behavior: SnackBarBehavior.floating,
-                      duration: const Duration(seconds: 2),
-                      backgroundColor:
-                          err == null ? _brandTealDark : Colors.redAccent,
-                      content: Text(
-                        err ??
-                            'Model aktif diganti ke ${variant.shortLabel} (${variant.checkpointFileName})',
-                        style: const TextStyle(fontSize: 12),
-                      ),
-                    ),
-                  );
-              },
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(
-              color: borderColor,
-              width: isSelected ? 1.5 : 1.0,
-            ),
-          ),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Padding(
-                padding: const EdgeInsets.only(top: 1),
-                child: Icon(
-                  isSelected
-                      ? Icons.check_circle_rounded
-                      : Icons.radio_button_unchecked_rounded,
-                  size: 18,
-                  color: isSelected ? _brandTealDark : _textMuted,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            variant.displayName,
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w700,
-                              color: isSelected ? _brandTealDark : _textPrimary,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 6),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 6,
-                            vertical: 2,
-                          ),
-                          decoration: BoxDecoration(
-                            color: isSelected
-                                ? _brandTealDark
-                                : const Color(0xFFE2E8F0),
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                          child: Text(
-                            badgeText,
-                            style: TextStyle(
-                              fontSize: 9,
-                              fontWeight: FontWeight.w800,
-                              color: isSelected ? Colors.white : _textSecondary,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                      variant.settingsSummary,
-                      style: const TextStyle(
-                        fontSize: 10.5,
-                        color: _textSecondary,
-                        height: 1.3,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
         ),
       ),
     );

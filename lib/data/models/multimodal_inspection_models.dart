@@ -207,6 +207,8 @@ class MultimodalInspectionData {
   final double textLatentNorm;
   final List<CoalitionStepScore> coalitionScores;
   final bool isVisualBranchDisabled;
+  final bool usedLexiconFallback;
+  final String? textEncoderWarning;
 
   const MultimodalInspectionData({
     required this.participantId,
@@ -254,6 +256,8 @@ class MultimodalInspectionData {
     this.textLatentNorm = 1.0,
     this.coalitionScores = const [],
     this.isVisualBranchDisabled = false,
+    this.usedLexiconFallback = false,
+    this.textEncoderWarning,
   });
 
   MultimodalInspectionData copyWithCalculation({
@@ -308,11 +312,15 @@ class MultimodalInspectionData {
       textLatentNorm: textLatentNorm ?? this.textLatentNorm,
       coalitionScores: coalitionScores ?? this.coalitionScores,
       isVisualBranchDisabled: isVisualBranchDisabled,
+      usedLexiconFallback: usedLexiconFallback,
+      textEncoderWarning: textEncoderWarning,
     );
   }
 
   MultimodalInspectionData copyWith({
     String? videoPath,
+    bool? usedLexiconFallback,
+    String? textEncoderWarning,
   }) {
     return MultimodalInspectionData(
       participantId: participantId,
@@ -360,6 +368,8 @@ class MultimodalInspectionData {
       textLatentNorm: textLatentNorm,
       coalitionScores: coalitionScores,
       isVisualBranchDisabled: isVisualBranchDisabled,
+      usedLexiconFallback: usedLexiconFallback ?? this.usedLexiconFallback,
+      textEncoderWarning: textEncoderWarning ?? this.textEncoderWarning,
     );
   }
 
@@ -409,6 +419,8 @@ class MultimodalInspectionData {
     'textLatentNorm': textLatentNorm,
     'coalitionScores': coalitionScores.map((e) => e.toJson()).toList(),
     'isVisualBranchDisabled': isVisualBranchDisabled,
+    'usedLexiconFallback': usedLexiconFallback,
+    if (textEncoderWarning != null) 'textEncoderWarning': textEncoderWarning,
   };
 
   factory MultimodalInspectionData.fromJson(Map<String, dynamic> json) => MultimodalInspectionData(
@@ -487,5 +499,7 @@ class MultimodalInspectionData {
             .toList() ??
         const [],
     isVisualBranchDisabled: json['isVisualBranchDisabled'] as bool? ?? false,
+    usedLexiconFallback: json['usedLexiconFallback'] as bool? ?? false,
+    textEncoderWarning: json['textEncoderWarning'] as String?,
   );
 }

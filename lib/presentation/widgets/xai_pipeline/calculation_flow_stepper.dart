@@ -33,25 +33,16 @@ class _CalculationFlowStepperState extends State<CalculationFlowStepper> {
 
     final checkpointName =
         scr.model?.checkpoint ?? 'fedmind_edge_client.onnx';
-    final isEdgeModel = checkpointName.contains('edge');
-    final statsFile = isEdgeModel
-        ? 'train_norm_stats_edge.json'
-        : 'train_norm_stats.json';
+    final statsFile = 'train_norm_stats_edge.json';
     final modelDisplayName =
-        scr.model?.name ??
-        (isEdgeModel
-            ? 'FedAvg Edge Client (Model 3)'
-            : 'FedAvg FL-IID (Model 2)');
-    final latentDimLabel = isEdgeModel ? '128D' : '256D';
-    final stage1Desc = isEdgeModel
-        ? 'Setiap modalitas dinormalisasi terhadap parameter populasi referensi ($statsFile) dengan Z-clip ±4.0 menjadi vektor fitur [248, 75, 768]:'
-        : 'Setiap modalitas dinormalisasi terhadap parameter populasi referensi ($statsFile) sebelum dibentuk menjadi tensor sekuensial 512 timestep:';
-    final stage2Title = isEdgeModel
-        ? 'Tahap 2: Pooled Edge MLP & LayerNorm Encoding ($latentDimLabel × 3)'
-        : 'Tahap 2: BiLSTM Temporal Encoding & Attention ($latentDimLabel × 3)';
-    final stage2Desc = isEdgeModel
-        ? 'Arsitektur $checkpointName memproyeksikan masing-masing modalitas ke ruang laten $latentDimLabel (L2-norm energi aktivasi):'
-        : 'Arsitektur $checkpointName memproyeksikan representasi temporal masing-masing modalitas ke ruang laten $latentDimLabel (L2-norm energi aktivasi):';
+        scr.model?.name ?? 'FedAvg Edge Client (Model 3)';
+    final latentDimLabel = '128D';
+    final stage1Desc =
+        'Setiap modalitas dinormalisasi terhadap parameter populasi referensi ($statsFile) dengan Z-clip ±4.0 menjadi vektor fitur [248, 75, 768]:';
+    final stage2Title =
+        'Tahap 2: Pooled Edge MLP & LayerNorm Encoding ($latentDimLabel × 3)';
+    final stage2Desc =
+        'Arsitektur $checkpointName memproyeksikan masing-masing modalitas ke ruang laten $latentDimLabel (L2-norm energi aktivasi):';
 
     return Container(
       padding: const EdgeInsets.all(18),
@@ -86,22 +77,26 @@ class _CalculationFlowStepperState extends State<CalculationFlowStepper> {
                 ),
               ),
               const SizedBox(width: 12),
-              const Expanded(
+              Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Alur Inferensi Model & Koalisi Laten',
-                      style: TextStyle(
+                      widget.isSimpleMode
+                          ? 'Ringkasan Proses Keputusan Model'
+                          : 'Alur Inferensi Model & Koalisi Laten',
+                      style: const TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w800,
                         color: _slateDark,
                       ),
                     ),
-                    SizedBox(height: 2),
+                    const SizedBox(height: 2),
                     Text(
-                      'Transparansi kalkulasi fitur hingga verifikasi aksioma efisiensi',
-                      style: TextStyle(
+                      widget.isSimpleMode
+                          ? 'Alur ringkas dari observasi perilaku hingga estimasi skor PHQ-8'
+                          : 'Transparansi kalkulasi fitur hingga verifikasi aksioma efisiensi',
+                      style: const TextStyle(
                         fontSize: 11.5,
                         color: Color(0xFF64748B),
                       ),
@@ -113,267 +108,314 @@ class _CalculationFlowStepperState extends State<CalculationFlowStepper> {
           ),
           const SizedBox(height: 16),
 
-          // --- TAHAP 1: VEKTORISASI 1.091 FITUR ---
-          _buildStageContainer(
-            stageNumber: '1',
-            title: 'Tahap 1: Ekstraksi Fitur & Normalisasi Z-Score (1.091D)',
-            badgeText: '75 + 248 + 768 = 1.091D',
-            accentColor: const Color(0xFF0284C7),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  stage1Desc,
-                  style: const TextStyle(
-                    fontSize: 11,
-                    color: Color(0xFF475569),
-                    height: 1.4,
-                  ),
+          if (widget.isSimpleMode) ...[
+            _buildStageContainer(
+              stageNumber: '1',
+              title: 'Tahap 1: Penangkapan Sinyal Perilaku',
+              badgeText: 'Multimodal On-Device',
+              accentColor: const Color(0xFF0284C7),
+              child: Text(
+                'Sistem merangkum ekspresi wajah (${ins.faceDetectionRatePct.toStringAsFixed(0)}% deteksi wajah), prosodi vokal (${ins.voicedRatioPct.toStringAsFixed(0)}% bicara aktif, jeda ${ins.pauseRatioPct.toStringAsFixed(0)}%), dan konten verbal (${ins.isExplicitTranscript ? 'transkrip klien terverifikasi' : 'baseline prosodi-visual'}).',
+                style: const TextStyle(
+                  fontSize: 11.5,
+                  color: Color(0xFF475569),
+                  height: 1.45,
                 ),
-                const SizedBox(height: 10),
-                _buildVectorPreviewRow(
-                  label: 'Modalitas Visual (Facial AUs • 75D)',
-                  values: ins.sampleVisualVector,
-                  color: _clinicalTeal,
-                ),
-                const SizedBox(height: 6),
-                _buildVectorPreviewRow(
-                  label: 'Modalitas Akustik / Prosodi (248D)',
-                  values: ins.sampleAudioVector,
-                  color: const Color(0xFF6366F1),
-                ),
-                const SizedBox(height: 6),
-                _buildVectorPreviewRow(
-                  label: 'Modalitas Teks / Linguistik (768D)',
-                  values: ins.sampleTextVector,
-                  color: const Color(0xFF3B82F6),
-                ),
-              ],
+              ),
             ),
-          ),
-          _buildConnectorArrow(),
-
-          // --- TAHAP 2: FUSI MEMORI & ENCODING LATEN ---
-          _buildStageContainer(
-            stageNumber: '2',
-            title: stage2Title,
-            badgeText: 'ONNX Runtime Mobile',
-            accentColor: _clinicalTeal,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  stage2Desc,
-                  style: const TextStyle(
-                    fontSize: 11,
-                    color: Color(0xFF475569),
-                    height: 1.4,
-                  ),
+            _buildConnectorArrow(),
+            _buildStageContainer(
+              stageNumber: '2',
+              title: 'Tahap 2: Pembobotan Kontribusi Tiap Modalitas',
+              badgeText: 'Atribusi Adil',
+              accentColor: _clinicalTeal,
+              child: Text(
+                'Model menimbang seberapa kuat suara, ekspresi wajah, dan isi ucapan mendorong naik atau menurunkan skor risiko relatif terhadap rata-rata populasi (${(scr.xai?.baselineExpectedValue ?? 10.07).toStringAsFixed(2)}).',
+                style: const TextStyle(
+                  fontSize: 11.5,
+                  color: Color(0xFF475569),
+                  height: 1.45,
                 ),
-                const SizedBox(height: 10),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _buildLatentBox(
-                        title: 'Latent Akustik',
-                        dim: latentDimLabel,
-                        normValue: ins.audioLatentNorm,
-                        color: const Color(0xFF6366F1),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: _buildLatentBox(
-                        title: 'Latent Visual (AUs)',
-                        dim: latentDimLabel,
-                        normValue: ins.visualLatentNorm,
-                        color: _clinicalTeal,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: _buildLatentBox(
-                        title: 'Latent Linguistik',
-                        dim: latentDimLabel,
-                        normValue: ins.textLatentNorm,
-                        color: const Color(0xFF3B82F6),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
+              ),
             ),
-          ),
-          _buildConnectorArrow(),
-
-          // --- TAHAP 3: SIMULASI 8 SKENARIO KOALISI (SHAPLEY GAME THEORY) ---
-          _buildStageContainer(
-            stageNumber: '3',
-            title: 'Tahap 3: Evaluasi 8 Koalisi Laten Exact Shapley (2³ Subset)',
-            badgeText: '8 Koalisi Diuji',
-            accentColor: const Color(0xFF4F46E5),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Regressor ONNX mengevaluasi seluruh 8 kombinasi koalisi modalitas (S₀ s/d S₇) untuk menghitung kontribusi marginal eksak. Ketuk sel koalisi untuk menginspeksi skor:',
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: Color(0xFF475569),
-                    height: 1.4,
-                  ),
+            _buildConnectorArrow(),
+            _buildStageContainer(
+              stageNumber: '3',
+              title: 'Tahap 3: Estimasi Skor PHQ-8 Final',
+              badgeText: checkpointName,
+              accentColor: const Color(0xFF10B981),
+              child: Text(
+                'Skor akhir ${(scr.prediction?.phq8Score ?? 0.0).toStringAsFixed(1)} / 24.0 ditetapkan sebagai penunjang keputusan klinis (cut-off kalibrasi Model 3 \u2265 9.4). Klik "Teknis" di kanan atas untuk melihat vektor fitur dan matriks 8 koalisi Shapley.',
+                style: const TextStyle(
+                  fontSize: 11.5,
+                  color: Color(0xFF475569),
+                  height: 1.45,
                 ),
-                const SizedBox(height: 10),
-                if (coalitions.isNotEmpty) ...[
-                  GridView.builder(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    itemCount: coalitions.length,
-                    gridDelegate:
-                        const SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: 4,
-                      crossAxisSpacing: 6,
-                      mainAxisSpacing: 6,
-                      childAspectRatio: 1.15,
+              ),
+            ),
+          ] else ...[
+            // --- TAHAP 1: VEKTORISASI 1.091 FITUR ---
+            _buildStageContainer(
+              stageNumber: '1',
+              title: 'Tahap 1: Ekstraksi Fitur & Normalisasi Z-Score (1.091D)',
+              badgeText: '75 + 248 + 768 = 1.091D',
+              accentColor: const Color(0xFF0284C7),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    stage1Desc,
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: Color(0xFF475569),
+                      height: 1.4,
                     ),
-                    itemBuilder: (context, idx) {
-                      final c = coalitions[idx];
-                      final isSelected =
-                          _selectedCoalitionIndex.clamp(0, coalitions.length - 1) ==
-                              idx;
-                      return GestureDetector(
-                        onTap: () {
-                          setState(() {
-                            _selectedCoalitionIndex = idx;
-                          });
-                        },
-                        child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 180),
-                          padding: const EdgeInsets.all(6),
-                          decoration: BoxDecoration(
-                            color: isSelected
-                                ? _slateDark
-                                : Colors.white,
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(
-                              color: isSelected
-                                  ? _slateDark
-                                  : const Color(0xFFCBD5E1),
-                              width: isSelected ? 1.5 : 1.0,
-                            ),
-                          ),
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Text(
-                                c.coalitionCode.split(' ').first,
-                                style: TextStyle(
-                                  fontSize: 9.5,
-                                  fontWeight: FontWeight.w800,
-                                  color: isSelected
-                                      ? const Color(0xFF2DD4BF)
-                                      : const Color(0xFF64748B),
-                                ),
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                c.predictedScore.toStringAsFixed(2),
-                                style: TextStyle(
-                                  fontSize: 12.5,
-                                  fontWeight: FontWeight.w900,
-                                  color: isSelected
-                                      ? Colors.white
-                                      : _slateDark,
-                                ),
-                              ),
-                              const SizedBox(height: 3),
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  _buildMiniModDot(
-                                    active: c.hasAudio,
-                                    color: isSelected
-                                        ? Colors.white
-                                        : const Color(0xFF6366F1),
-                                  ),
-                                  const SizedBox(width: 3),
-                                  _buildMiniModDot(
-                                    active: c.hasVisual,
-                                    color: isSelected
-                                        ? Colors.white
-                                        : _clinicalTeal,
-                                  ),
-                                  const SizedBox(width: 3),
-                                  _buildMiniModDot(
-                                    active: c.hasText,
-                                    color: isSelected
-                                        ? Colors.white
-                                        : const Color(0xFF3B82F6),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                      );
-                    },
                   ),
                   const SizedBox(height: 10),
-                  _buildSelectedCoalitionDetail(
-                    coalitions[_selectedCoalitionIndex.clamp(
-                      0,
-                      coalitions.length - 1,
-                    )],
+                  _buildVectorPreviewRow(
+                    label: 'Modalitas Visual (Facial AUs \u2022 75D)',
+                    values: ins.sampleVisualVector,
+                    color: _clinicalTeal,
+                  ),
+                  const SizedBox(height: 6),
+                  _buildVectorPreviewRow(
+                    label: 'Modalitas Akustik / Prosodi (248D)',
+                    values: ins.sampleAudioVector,
+                    color: const Color(0xFF6366F1),
+                  ),
+                  const SizedBox(height: 6),
+                  _buildVectorPreviewRow(
+                    label: 'Modalitas Teks / Linguistik (768D)',
+                    values: ins.sampleTextVector,
+                    color: const Color(0xFF3B82F6),
                   ),
                 ],
-              ],
+              ),
             ),
-          ),
-          _buildConnectorArrow(),
+            _buildConnectorArrow(),
 
-          // --- TAHAP 4: KEPUTUSAN AKHIR & VERIFIKASI AKSIOMA ---
-          _buildStageContainer(
-            stageNumber: '4',
-            title: 'Tahap 4: Verifikasi Aksioma Efisiensi & Stratifikasi PHQ-8',
-            badgeText: scr.xai?.efficiencyAxiomVerified == true
-                ? 'Aksioma Terverifikasi'
-                : 'Terverifikasi',
-            accentColor: const Color(0xFF10B981),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Aksioma Efisiensi Shapley: φ_audio + φ_visual + φ_text = v(1,1,1) − v(0,0,0) terpenuhi secara eksak tanpa aproksimasi stokastik.',
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: Color(0xFF475569),
-                    height: 1.4,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    const Icon(
-                      Icons.verified_rounded,
-                      size: 15,
-                      color: Color(0xFF059669),
+            // --- TAHAP 2: FUSI MEMORI & ENCODING LATEN ---
+            _buildStageContainer(
+              stageNumber: '2',
+              title: stage2Title,
+              badgeText: 'ONNX Runtime Mobile',
+              accentColor: _clinicalTeal,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    stage2Desc,
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: Color(0xFF475569),
+                      height: 1.4,
                     ),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: Text(
-                        'Checkpoint: $checkpointName • $modelDisplayName',
-                        style: const TextStyle(
-                          fontSize: 10.5,
-                          fontWeight: FontWeight.w700,
-                          color: Color(0xFF065F46),
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _buildLatentBox(
+                          title: 'Latent Akustik',
+                          dim: latentDimLabel,
+                          normValue: ins.audioLatentNorm,
+                          color: const Color(0xFF6366F1),
                         ),
                       ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: _buildLatentBox(
+                          title: 'Latent Visual (AUs)',
+                          dim: latentDimLabel,
+                          normValue: ins.visualLatentNorm,
+                          color: _clinicalTeal,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: _buildLatentBox(
+                          title: 'Latent Linguistik',
+                          dim: latentDimLabel,
+                          normValue: ins.textLatentNorm,
+                          color: const Color(0xFF3B82F6),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            _buildConnectorArrow(),
+
+            // --- TAHAP 3: SIMULASI 8 SKENARIO KOALISI (SHAPLEY GAME THEORY) ---
+            _buildStageContainer(
+              stageNumber: '3',
+              title: 'Tahap 3: Evaluasi 8 Koalisi Laten Exact Shapley (2\u00b3 Subset)',
+              badgeText: '8 Koalisi Diuji',
+              accentColor: const Color(0xFF4F46E5),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Regressor ONNX mengevaluasi seluruh 8 kombinasi koalisi modalitas (S\u2080 s/d S\u2087) untuk menghitung kontribusi marginal eksak. Ketuk sel koalisi untuk menginspeksi skor:',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: Color(0xFF475569),
+                      height: 1.4,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  if (coalitions.isNotEmpty) ...[
+                    GridView.builder(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      itemCount: coalitions.length,
+                      gridDelegate:
+                          const SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: 4,
+                        crossAxisSpacing: 6,
+                        mainAxisSpacing: 6,
+                        childAspectRatio: 1.15,
+                      ),
+                      itemBuilder: (context, idx) {
+                        final c = coalitions[idx];
+                        final isSelected =
+                            _selectedCoalitionIndex.clamp(0, coalitions.length - 1) ==
+                                idx;
+                        return GestureDetector(
+                          onTap: () {
+                            setState(() {
+                              _selectedCoalitionIndex = idx;
+                            });
+                          },
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 180),
+                            padding: const EdgeInsets.all(6),
+                            decoration: BoxDecoration(
+                              color: isSelected
+                                  ? _slateDark
+                                  : Colors.white,
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                color: isSelected
+                                    ? _slateDark
+                                    : const Color(0xFFCBD5E1),
+                                width: isSelected ? 1.5 : 1.0,
+                              ),
+                            ),
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Text(
+                                  c.coalitionCode.split(' ').first,
+                                  style: TextStyle(
+                                    fontSize: 9.5,
+                                    fontWeight: FontWeight.w800,
+                                    color: isSelected
+                                        ? const Color(0xFF2DD4BF)
+                                        : const Color(0xFF64748B),
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  c.predictedScore.toStringAsFixed(2),
+                                  style: TextStyle(
+                                    fontSize: 12.5,
+                                    fontWeight: FontWeight.w900,
+                                    color: isSelected
+                                        ? Colors.white
+                                        : _slateDark,
+                                  ),
+                                ),
+                                const SizedBox(height: 3),
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    _buildMiniModDot(
+                                      active: c.hasAudio,
+                                      color: isSelected
+                                          ? Colors.white
+                                          : const Color(0xFF6366F1),
+                                    ),
+                                    const SizedBox(width: 3),
+                                    _buildMiniModDot(
+                                      active: c.hasVisual,
+                                      color: isSelected
+                                          ? Colors.white
+                                          : _clinicalTeal,
+                                    ),
+                                    const SizedBox(width: 3),
+                                    _buildMiniModDot(
+                                      active: c.hasText,
+                                      color: isSelected
+                                          ? Colors.white
+                                          : const Color(0xFF3B82F6),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 10),
+                    _buildSelectedCoalitionDetail(
+                      coalitions[_selectedCoalitionIndex.clamp(
+                        0,
+                        coalitions.length - 1,
+                      )],
                     ),
                   ],
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
+            _buildConnectorArrow(),
+
+            // --- TAHAP 4: KEPUTUSAN AKHIR & VERIFIKASI AKSIOMA ---
+            _buildStageContainer(
+              stageNumber: '4',
+              title: 'Tahap 4: Verifikasi Aksioma Efisiensi & Stratifikasi PHQ-8',
+              badgeText: scr.xai?.efficiencyAxiomVerified == true
+                  ? 'Aksioma Terverifikasi'
+                  : 'Terverifikasi',
+              accentColor: const Color(0xFF10B981),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Aksioma Efisiensi Shapley: \u03c6_audio + \u03c6_visual + \u03c6_text = v(1,1,1) \u2212 v(0,0,0) terpenuhi secara eksak tanpa aproksimasi stokastik.',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: Color(0xFF475569),
+                      height: 1.4,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.verified_rounded,
+                        size: 15,
+                        color: Color(0xFF059669),
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          'Checkpoint: $checkpointName \u2022 $modelDisplayName',
+                          style: const TextStyle(
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFF065F46),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
         ],
       ),
     );

@@ -302,13 +302,13 @@ void main() {
         expect(extracted.usedMentalBertOnnx, isTrue);
         expect(
           extracted.textEmbeddingEngine,
-          equals('Multilingual-MentalBERT INT4 ONNX (768D)'),
+          equals('Multilingual-E5-Small INT4 ONNX (768D)'),
         );
         expect(extracted.textFeatures.length, equals(768));
         expect(extracted.toMetadataMap()['used_mentalbert_onnx'], isTrue);
         expect(
           extracted.extractionSummary,
-          contains('Multilingual-MentalBERT INT4 ONNX (768D)'),
+          contains('Multilingual-E5-Small INT4 ONNX (768D)'),
         );
 
         final prep = LocalPreprocessingService();
@@ -317,7 +317,7 @@ void main() {
           visualInput: extracted.visualFeatures,
           textInput: extracted.textFeatures,
         );
-        expect(tensors.text.length, equals(512 * 768));
+        expect(tensors.text.length, equals(768));
         expect(tensors.text.every((v) => v.isFinite), isTrue);
       } finally {
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger

@@ -157,6 +157,13 @@ class ClinicalDisclaimerDialog extends StatelessWidget {
                           desc:
                               'Inferensi ONNX Runtime dan penyimpanan basis data rekam medis SQLite berjalan 100% lokal di perangkat konselor (Zero Raw Data Leakage).',
                         ),
+                        const SizedBox(height: 10),
+                        _buildProtocolRow(
+                          icon: Icons.phone_android_rounded,
+                          title: '4. Persyaratan Perangkat: Android 13+ (API 33+)',
+                          desc:
+                              'Perekaman video disertai transkripsi ucapan paralel on-device membutuhkan Android 13+ dengan layanan Google Speech Recognition aktif.',
+                        ),
                       ],
                     ),
                   ),

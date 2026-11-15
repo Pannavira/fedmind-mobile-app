@@ -1,16 +1,15 @@
-import 'dart:math';
+﻿import 'dart:math';
 
 import 'package:flutter/foundation.dart';
-import 'package:google_mlkit_translation/google_mlkit_translation.dart';
 
 import '../../data/models/multimodal_inspection_models.dart';
 
-/// Hasil transkripsi tuturan otomatis On-Device Whisper Small-ID (Maleo AI / Multilingual)
+/// Hasil transkripsi tuturan otomatis on-device & analisis psikolinguistik lokal.
 class WhisperTranscriptionResult {
-  /// Transkrip asli dalam Bahasa Indonesia (untuk verifikasi klinis & tampilan konselor)
+  /// Transkrip asli dalam Bahasa Indonesia/Inggris (untuk verifikasi klinis & input Multilingual-E5)
   final String indonesianTranscript;
 
-  /// Transkrip terjemahan langsung dalam Bahasa Inggris (untuk input MentalBERT 768D)
+  /// Field legacy (tidak lagi diisi terjemahan ID->EN; selalu string kosong untuk Model 3)
   final String englishTranscript;
 
   /// Daftar segmen bertanda waktu dan analisis wicara lokal
@@ -31,10 +30,10 @@ class WhisperTranscriptionResult {
   /// Deskripsi interpretasi semantik klinis
   final String linguisticDescription;
 
-  /// Rata-rata keyakinan dekode akustik Whisper (0.0 - 1.0)
+  /// Rata-rata keyakinan dekode akustik STT (0.0 - 1.0)
   final double confidence;
 
-  /// Menandakan apakah transkrip berasal dari model riil Whisper (bukan fallback)
+  /// Menandakan apakah transkrip berasal dari pengenalan suara nyata (bukan fallback)
   final bool isWhisperModel;
 
   /// Status keberhasilan transkripsi
@@ -42,7 +41,7 @@ class WhisperTranscriptionResult {
 
   const WhisperTranscriptionResult({
     required this.indonesianTranscript,
-    required this.englishTranscript,
+    this.englishTranscript = '',
     required this.segments,
     required this.detectedKeywords,
     required this.emotionalValence,
@@ -55,17 +54,16 @@ class WhisperTranscriptionResult {
   });
 }
 
-/// Layanan Pengenalan Suara On-Device Mandiri (100% Local Native)
+/// Layanan Pengenalan Suara & Segmentasi Wicara On-Device Mandiri (100% Local Native)
 ///
-/// Berjalan sepenuhnya on-device tanpa server edge atau koneksi luar:
-/// 1. Menerima transkripsi tuturan langsung dari sensor mikrofon native Android (SpeechRecognizer ID)
-/// 2. Mentranskripsi tuturan rekaman video observasi secara lokal menggunakan Whisper Small-ID (Maleo AI via whisper.cpp GGML)
-/// 3. Menerjemahkan tuturan Bahasa Indonesia ke Bahasa Inggris untuk ruang representasi MentalBERT 768D
+/// Berjalan sepenuhnya on-device untuk encoder dwibahasa `multilingual-e5-small` INT4:
+/// 1. Menerima transkripsi tuturan langsung dari sensor mikrofon native Android (SpeechRecognizer ID/EN)
+/// 2. Menormalisasi artefak ASR dan memecah klausa wicara bertanda waktu tanpa modul translasi ID->EN
 class OnDeviceWhisperService {
   static const int whisperSampleRate = 16000;
   static const int melBins = 80;
 
-  /// Mendeteksi apakah teks sudah berbahasa Inggris agar tidak melewati translasi ID->EN
+  /// Mendeteksi apakah teks tuturan didominasi Bahasa Inggris
   static bool isLikelyEnglishText(String text) {
     final trimmed = text.trim();
     if (trimmed.isEmpty) return false;
@@ -121,10 +119,8 @@ class OnDeviceWhisperService {
   }) async {
     final effectiveDuration = durationSec > 0.5 ? durationSec : 30.0;
 
-    // Prioritaskan transkrip ucapan langsung; bila kosong, gunakan catatan klinisi jika tersedia.
-    final clientText = clientTranscript?.trim() ?? '';
-    final noteText = counselorNote?.trim() ?? '';
-    final spokenText = clientText.isNotEmpty ? clientText : noteText;
+    // Prioritaskan transkrip ucapan langsung; jangan pernah memfallback ke catatan pra-konseling konselor.
+    final spokenText = clientTranscript?.trim() ?? '';
     if (spokenText.isEmpty) {
       return _buildEmptyResult();
     }
@@ -166,10 +162,10 @@ class OnDeviceWhisperService {
       final tEnd = max(tStart + 1, (durationSec * (i + 1) / segCount).round());
       final timeLabel = '${_fmtSec(tStart)} - ${_fmtSec(tEnd)}';
       final note = i == 0
-          ? 'Awal sesi • Mode Bahasa Inggris langsung (tanpa translasi offline)'
+          ? 'Awal sesi â€¢ Mode Bahasa Inggris langsung (tanpa translasi offline)'
           : (i == segCount - 1
-              ? 'Akhir sesi • Penutupan tuturan • Mode EN langsung'
-              : 'Tengah sesi • Elaborasi keluhan • Mode EN langsung');
+              ? 'Akhir sesi â€¢ Penutupan tuturan â€¢ Mode EN langsung'
+              : 'Tengah sesi â€¢ Elaborasi keluhan â€¢ Mode EN langsung');
       segments.add(
         TranscriptSegmentItem(
           timeRangeLabel: timeLabel,
@@ -183,14 +179,14 @@ class OnDeviceWhisperService {
 
     return WhisperTranscriptionResult(
       indonesianTranscript: text,
-      englishTranscript: text,
+      englishTranscript: '',
       segments: segments,
       detectedKeywords: _extractKeywords(text),
       emotionalValence: _computeValence(text),
       selfPronounCount: _countPronouns(text),
       linguisticTitle: 'Transkripsi Tuturan Bahasa Inggris Langsung',
       linguisticDescription:
-          'Teks sudah berbahasa Inggris sehingga langsung diproses ke MentalBERT 768D tanpa melewati mesin terjemahan offline.',
+          'Teks diproses langsung oleh encoder dwibahasa Multilingual-E5 INT4 (768D) tanpa melewati mesin terjemahan offline.',
       confidence: confidence,
       isWhisperModel: true,
       isSuccess: true,
@@ -235,22 +231,21 @@ class OnDeviceWhisperService {
       final tStart = (durationSec * i / segCount).round();
       final tEnd = max(tStart + 1, (durationSec * (i + 1) / segCount).round());
       final timeLabel = '${_fmtSec(tStart)} - ${_fmtSec(tEnd)}';
-      final enSegment = translateIndonesianToEnglish(cleanText);
 
       String note;
       if (i == 0) {
-        note = 'Awal sesi • Artikulasi vokal aktif • Intonasi pembuka';
+        note = 'Awal sesi â€¢ Artikulasi vokal aktif â€¢ Intonasi pembuka';
       } else if (i == segCount - 1) {
-        note = 'Akhir sesi • Penutupan tuturan • Jeda stabil';
+        note = 'Akhir sesi â€¢ Penutupan tuturan â€¢ Jeda stabil';
       } else {
-        note = 'Tengah sesi • Elaborasi keluhan • Ritme teratur';
+        note = 'Tengah sesi â€¢ Elaborasi keluhan â€¢ Ritme teratur';
       }
 
       segments.add(
         TranscriptSegmentItem(
           timeRangeLabel: timeLabel,
           text: cleanText,
-          translatedText: enSegment,
+          translatedText: '',
           detectedKeywords: _extractKeywords(cleanText),
           prosodyNote: note,
         ),
@@ -258,17 +253,17 @@ class OnDeviceWhisperService {
     }
 
     final fullId = text;
-    final fullEn = translateIndonesianToEnglish(text);
 
     return WhisperTranscriptionResult(
       indonesianTranscript: fullId,
-      englishTranscript: fullEn,
+      englishTranscript: '',
       segments: segments,
       detectedKeywords: _extractKeywords(fullId),
       emotionalValence: _computeValence(fullId),
       selfPronounCount: _countPronouns(fullId),
       linguisticTitle: 'Transkripsi Tuturan Pasien On-Device',
-      linguisticDescription: 'Tuturan wicara Bahasa Indonesia berhasil ditranskripsikan dan diselaraskan ke Bahasa Inggris untuk ekstraksi MentalBERT 768D.',
+      linguisticDescription:
+          'Tuturan wicara Bahasa Indonesia diproses langsung oleh encoder dwibahasa Multilingual-E5 INT4 (768D) tanpa terjemahan IDâ†’EN.',
       confidence: confidence,
       isWhisperModel: true,
       isSuccess: true,
@@ -475,596 +470,44 @@ class OnDeviceWhisperService {
     return out;
   }
 
-  /// Merapikan hasil terjemahan klausa ML Kit (penjagaan sudut pandang orang pertama & titik akhir)
-  @visibleForTesting
-  static String postProcessEnglishTranslation(
-    String indonesianSource,
-    String englishTranslated,
-  ) {
-    var result = englishTranslated.trim();
-    if (result.isEmpty) return '';
+  /// Mengekstrak kata kunci klinis/emosional Bahasa Indonesia & Inggris untuk ringkasan inspeksi.
 
-    final idLower = indonesianSource.toLowerCase();
-    final hasSecondPerson =
-        RegExp(r'\b(kamu|anda|kalian|saudara)\b').hasMatch(idLower);
-    final hasFirstPersonOrSelf = RegExp(
-      r'\b(saya|aku|sendiri|diriku|kita|kami)\b',
-    ).hasMatch(idLower);
-
-    if (!hasSecondPerson && hasFirstPersonOrSelf) {
-      result = result
-          .replaceAll(
-            RegExp(r'\bfor your own\b', caseSensitive: false),
-            'for my own',
-          )
-          .replaceAll(
-            RegExp(r'\benjoy your (free|spare) time\b', caseSensitive: false),
-            'enjoy my free time',
-          )
-          .replaceAll(
-            RegExp(r'\byour own sleep\b', caseSensitive: false),
-            'my own sleep',
-          );
-    }
-
-    result = result.replaceAll(RegExp(r'\s+'), ' ').trim();
-    if (result.isNotEmpty && !RegExp(r'[.!?]$').hasMatch(result)) {
-      result = '$result.';
-    }
-    return result;
-  }
-
-  static OnDeviceTranslator? _mlKitTranslator;
-
-  /// Apakah model terjemahan ID dan EN sudah terunduh
-  static Future<bool> isTranslationReady() async {
-    try {
-      final m = OnDeviceTranslatorModelManager();
-      return await m.isModelDownloaded(TranslateLanguage.indonesian.bcpCode) &&
-          await m.isModelDownloaded(TranslateLanguage.english.bcpCode);
-    } catch (_) {
-      return false;
-    }
-  }
-
-  /// Mengunduh model terjemahan ID dan EN. Mengembalikan true bila keduanya siap.
-  static Future<bool> downloadTranslationModels() async {
-    try {
-      final m = OnDeviceTranslatorModelManager();
-      for (final lang in [
-        TranslateLanguage.indonesian,
-        TranslateLanguage.english,
-      ]) {
-        if (!await m.isModelDownloaded(lang.bcpCode)) {
-          await m.downloadModel(lang.bcpCode, isWifiRequired: false);
-        }
-      }
-      return await isTranslationReady();
-    } catch (e) {
-      debugPrint('downloadTranslationModels error: $e');
-      return false;
-    }
-  }
-
-  static final RegExp _idNegationRegex = RegExp(
-    r'\b(tidak|tak|bukan|belum|tanpa|tiada|gak|ga|nggak|enggak|ndak|jangan)\b',
-    caseSensitive: false,
-  );
-  static final RegExp _idExistentialYangNegRegex = RegExp(
-    r'\b(tidak|tak|tiada|gak|ga|nggak|enggak|ndak)\s+ada\s+(?:(?:hal|sesuatu|apa[\s-]*apa)\s+)?yang\b',
-    caseSensitive: false,
-  );
-  static final RegExp _idExistentialNounNegRegex = RegExp(
-    r'\b(tidak|tak|tiada|gak|ga|nggak|enggak|ndak)\s+ada\b',
-    caseSensitive: false,
-  );
-  static final RegExp _enNegationRegex = RegExp(
-    r"\b(not|no|never|nothing|none|nobody|neither|nor|nowhere|without|hardly|scarcely|rarely|cannot|can't|won't|wouldn't|shouldn't|couldn't|don't|doesn't|didn't|isn't|aren't|wasn't|weren't|haven't|hasn't|hadn't|unable|lack|lacking)\b",
-    caseSensitive: false,
-  );
-
-  /// Menjaga polaritas negasi Bahasa Indonesia agar tidak hilang/terbalik saat diterjemahkan ML Kit.
-  static String enforceNegationParity(
-    String indonesianSource,
-    String englishTranslated,
-  ) {
-    final idTrim = indonesianSource.trim();
-    final enTrim = englishTranslated.trim();
-    if (idTrim.isEmpty || enTrim.isEmpty) return enTrim;
-
-    // Jika hasil terjemahan sudah mengandung token negasi bahasa Inggris yang jelas, pertahankan
-    if (_enNegationRegex.hasMatch(enTrim)) {
-      return enTrim;
-    }
-
-    // Jika klausa Bahasa Indonesia tidak mengandung negasi, tidak perlu koreksi
-    if (!_idNegationRegex.hasMatch(idTrim)) {
-      return enTrim;
-    }
-
-    // Kasus 1: "tidak ada yang <verb>..." yang sering dipotong ML Kit menjadi "has made me sad" / "makes me sad"
-    if (_idExistentialYangNegRegex.hasMatch(idTrim)) {
-      var cleaned = enTrim
-          .replaceFirst(
-            RegExp(r'^(there\s+(is|are|was|were)\s+)?(that\s+|which\s+|who\s+)?', caseSensitive: false),
-            '',
-          )
-          .trim();
-      if (cleaned.isNotEmpty) {
-        cleaned = cleaned[0].toLowerCase() + cleaned.substring(1);
-        return 'Nothing $cleaned';
-      }
-      return 'Nothing makes me feel that way';
-    }
-
-    // Kasus 2: "tidak ada <noun>" -> "there is no <noun>"
-    if (_idExistentialNounNegRegex.hasMatch(idTrim)) {
-      var cleaned = enTrim
-          .replaceFirst(RegExp(r'^there\s+(is|are|was|were)\s+', caseSensitive: false), '')
-          .trim();
-      if (cleaned.isNotEmpty) {
-        cleaned = cleaned[0].toLowerCase() + cleaned.substring(1);
-        return 'There is no $cleaned';
-      }
-    }
-
-    // Kasus 3: Sisipkan "not" setelah auxiliary verb jika ada ("I am sad" -> "I am not sad", "I have slept" -> "I have not slept")
-    final auxMatch = RegExp(
-      r'\b(am|is|are|was|were|have|has|had|can|could|will|would|should|may|might|must|do|does|did)\b',
-      caseSensitive: false,
-    ).firstMatch(enTrim);
-    if (auxMatch != null) {
-      final before = enTrim.substring(0, auxMatch.end);
-      final after = enTrim.substring(auxMatch.end);
-      return '$before not$after'.replaceAll(RegExp(r'\s+'), ' ').trim();
-    }
-
-    // Kasus 4: Kalimat subjek + verb ("I feel sad" -> "I do not feel sad")
-    final subjVerbMatch = RegExp(
-      r'^(i|we|you|they|he|she|it)\s+([a-zA-Z]+)(.*)$',
-      caseSensitive: false,
-    ).firstMatch(enTrim);
-    if (subjVerbMatch != null) {
-      final subj = subjVerbMatch.group(1)!;
-      final verb = subjVerbMatch.group(2)!;
-      final rest = subjVerbMatch.group(3)!;
-      final isThirdPerson = RegExp(r'^(he|she|it)$', caseSensitive: false).hasMatch(subj);
-      final aux = isThirdPerson ? 'does not' : 'do not';
-      return '$subj $aux $verb$rest'.replaceAll(RegExp(r'\s+'), ' ').trim();
-    }
-
-    // Fallback aman: gunakan terjemahan kamus berbasis aturan yang menjaga negasi
-    return translateIndonesianToEnglish(idTrim);
-  }
-
-  /// Terjemahan ID→EN on-device (Google ML Kit, offline) dengan penjaga polaritas negasi
-  /// serta bypass otomatis untuk teks yang sudah berbahasa Inggris.
-  static Future<String> translateWithMlKit(String indonesianText) async {
-    final trimmed = indonesianText.trim();
-    if (trimmed.isEmpty) return '';
-    if (isLikelyEnglishText(trimmed)) return trimmed;
-
-    final prepared = normalizeIndonesianAsrText(trimmed);
-
-    try {
-      _mlKitTranslator ??= OnDeviceTranslator(
-        sourceLanguage: TranslateLanguage.indonesian,
-        targetLanguage: TranslateLanguage.english,
-      );
-
-      // Proses per klausa pendek (termasuk penanda wacana bila STT tanpa tanda baca)
-      final clauses = splitIndonesianTranscriptClauses(prepared);
-
-      if (clauses.length <= 1) {
-        final rawEn = (await _mlKitTranslator!.translateText(prepared)).trim();
-        final guarded = enforceNegationParity(prepared, rawEn);
-        return postProcessEnglishTranslation(prepared, guarded);
-      }
-
-      final translatedClauses = <String>[];
-      for (final clause in clauses) {
-        final rawEn = (await _mlKitTranslator!.translateText(clause)).trim();
-        final guarded = enforceNegationParity(clause, rawEn);
-        translatedClauses.add(postProcessEnglishTranslation(clause, guarded));
-      }
-      return translatedClauses.join(' ').replaceAll(RegExp(r'\s+'), ' ').trim();
-    } catch (e) {
-      debugPrint('translateWithMlKit error: $e');
-      return translateIndonesianToEnglish(prepared);
-    }
-  }
-
-  /// Menerjemahkan tuturan Bahasa Indonesia klinis ke Bahasa Inggris untuk representasi MentalBERT 768D
-  static String translateIndonesianToEnglish(String indonesianText) {
-    if (indonesianText.trim().isEmpty) return '';
-    if (isLikelyEnglishText(indonesianText)) return indonesianText.trim();
-
-    // 1. Normalisasi fonetik terlebih dahulu
-    String normalized = normalizeIndonesianAsrText(indonesianText)
-        .toLowerCase();
-
-    // 2. Terjemahan frasa multi-kata (diproses terlebih dahulu secara descending panjang string)
-    const phrasalDictionary = <String, String>{
-      'tidak ada hal yang membuat saya': 'nothing makes me',
-      'tidak ada yang membuat saya': 'nothing makes me',
-      'tidak ada yang bikin saya': 'nothing makes me',
-      'enggak ada yang membuat saya': 'nothing makes me',
-      'nggak ada yang membuat saya': 'nothing makes me',
-      'gak ada yang membuat saya': 'nothing makes me',
-      'tidak ada yang membuat': 'nothing makes',
-      'tidak ada masalah': 'there are no problems',
-      'tidak ada beban': 'there is no burden',
-      'sama sekali tidak': 'not at all',
-      'tidak merasa': 'do not feel',
-      'tidak pernah': 'never',
-      'tidak ada': 'there is no',
-      'bukan karena': 'not because',
-      'terima kasih banyak': 'thank you very much',
-      'terima kasih': 'thank you',
-      'hari ini saya bangun lumayan pagi': 'today I woke up quite early',
-      'bangun lumayan pagi': 'woke up quite early',
-      'bangun pagi': 'wake up early',
-      'semalam saya tidur cukup': 'last night I got sufficient sleep',
-      'semalam tidur cukup': 'last night got sufficient sleep',
-      'tadi malam saya tidur cukup': 'last night I got sufficient sleep',
-      'tadi malam': 'last night',
-      'semalam': 'last night',
-      'tidur cukup': 'sufficient sleep',
-      'jam 10 malam sudah tidur': 'was already asleep by 10 PM',
-      'jam 12 malam': '12 AM midnight',
-      'sudah tidur': 'already asleep',
-      'pada saat banyak kerjaan dengan atasan':
-          'during a heavy workload with my supervisor',
-      'banyak kerjaan dengan atasan': 'heavy workload with my supervisor',
-      'dengan atasan': 'with my supervisor',
-      'banyak kerjaan': 'heavy workload',
-      'banyak pekerjaan': 'heavy workload',
-      'setelah pulang kerja': 'after returning from work',
-      'pulang kerja': 'return from work',
-      'melanjutkan projek dari kampus': 'continuing a project from campus',
-      'projek dari kampus': 'campus project',
-      'dari kampus': 'from campus',
-      'di mana saya melanjutkan projek tersebut':
-          'where I continued working on the project',
-      'melanjutkan projek tersebut': 'continued working on the project',
-      'projek tersebut': 'the project',
-      'melanjutkan projek': 'continue the project',
-      'melanjutkan pekerjaan': 'continue working',
-      'sampai hari ini jam 12 malam': 'until 12 AM midnight',
-      'sampai jam 12 malam': 'until 12 AM midnight',
-      'dan untuk perasaan saya': 'and as for my feelings',
-      'untuk perasaan saya': 'regarding my feelings',
-      'perasaan saya': 'my feelings',
-      'selain lelah saya juga ngantuk':
-          'besides feeling tired I am also sleepy',
-      'selain lelah': 'besides feeling exhausted',
-      'saya juga ngantuk': 'I am also sleepy',
-      'juga ngantuk': 'also sleepy',
-      'mata terasa berat juga': 'eyes feel quite heavy as well',
-      'lumayan mata terasa berat juga': 'and my eyes feel quite heavy as well',
-      'lumayan mata terasa berat': 'eyes feel quite heavy',
-      'mata terasa berat': 'eyes feel heavy',
-      'mata berat': 'eyes feel heavy',
-      'saya bangun': 'I woke up',
-      'saya tidur': 'I went to sleep',
-      'saya merasa': 'I feel',
-      'saya juga': 'I also',
-      'karena saya': 'because I',
-      'di mana saya': 'where I',
-      'untuk saat ini': 'for now',
-      'saat ini': 'currently',
-      'kualitas tidur saya': 'my sleep quality',
-      'kualitas tidur': 'sleep quality',
-      'durasi tidur': 'sleep duration',
-      'dorasi tidur': 'sleep duration',
-      'waktu tidur': 'sleep duration',
-      'sulit tidur': 'trouble sleeping',
-      'susah tidur': 'trouble sleeping',
-      'kurang tidur': 'lack of sleep',
-      'lumayan sedikit': 'somewhat short',
-      'lumayan berkurang': 'quite reduced',
-      'sedikit berkurang': 'slightly reduced',
-      'karena adanya beberapa': 'due to several',
-      'karena adanya': 'due to the presence of',
-      'adanya beberapa': 'several',
-      'pekerjaan yang harus diselesaikan': 'tasks that must be completed',
-      'tugas yang harus diselesaikan': 'tasks that must be completed',
-      'yang harus diselesaikan': 'that must be completed',
-      'harus diselesaikan': 'must be completed',
-      'dan juga untuk': 'and also regarding',
-      'dan juga': 'and also',
-      'hal yang paling membebani ini': 'this most burdensome aspect',
-      'hal yang paling membebani': 'the most burdensome thing',
-      'paling membebani ini': 'this most burdensome part',
-      'paling membebani': 'most burdensome',
-      'membuat kehilangan energi': 'causing loss of energy',
-      'kehilangan energi': 'loss of energy',
-      'kurang bertenaga': 'lacking in energy',
-      'tidak bertenaga': 'out of energy',
-      'tidak ada energi': 'lacking energy',
-      'seperti ini untuk': 'such as regarding',
-      'seperti ini': 'such as this',
-      'tuntutan pekerjaan': 'work demands',
-      'beban pekerjaan': 'workload',
-      'beban tugas': 'task load',
-      'baik itu dari': 'whether from',
-      'baik dari': 'both from',
-      'dari relasi': 'interpersonal relations',
-      'tidak terlalu berkurang': 'not significantly reduced',
-      'tidak terlalu': 'not particularly',
-      'dia selesai ya': 'things feel',
-      'lumayan jenuh': 'quite burned out',
-      'pikiran saya': 'my thoughts',
-      'kondisi saya': 'my condition',
-      'akhir-akhir ini': 'lately',
-      'secara umum': 'in general',
-      'dari biasanya': 'than usual',
-      'lebih malam': 'later at night',
-      'sedikit lebih malam': 'slightly later at night',
-      'sedikit lebih sedikit': 'slightly less',
-      'lebih sedikit': 'less',
-      'lebih banyak': 'more',
-      'sedikit lebih': 'slightly more',
-      'kira-kira ini juga': 'approximately this is also',
-      'kira-kira': 'approximately',
-      'ini juga': 'this is also',
-      'untuk tidur': 'for sleep',
-      'biasa saya': 'typically',
-      'akan berhenti di sini': 'will stop here',
-      'berhenti di sini': 'stop here',
-      'akan berhenti': 'will stop',
-      'sampai di sini': 'up to this point',
-      'sudah cukup': 'is enough',
-      'bisa dijaga': 'manageable',
-      'hari ini': 'today',
-      'pagi ini': 'this morning',
-      'malam ini': 'tonight',
-      'kemarin': 'yesterday',
-      'sulit konsentrasi': 'difficulty concentrating',
-      'hilang minat': 'loss of interest',
-      'nafsu makan': 'appetite',
-    };
-
-    final sortedPhrases = phrasalDictionary.entries.toList()
-      ..sort((a, b) => b.key.length.compareTo(a.key.length));
-    for (final entry in sortedPhrases) {
-      normalized = normalized.replaceAll(
-        RegExp('\\b${RegExp.escape(entry.key)}\\b', caseSensitive: false),
-        entry.value,
-      );
-    }
-
-    // 3. Terjemahan kata per kata (kosakata klinis & percakapan, diurutkan panjangnya)
-    const wordDictionary = <String, String>{
-      'perasaan': 'feeling',
-      'pikiran': 'thoughts',
-      'emosi': 'emotions',
-      'tidur': 'sleep',
-      'istirahat': 'rest',
-      'bangun': 'wake up',
-      'terbangun': 'waking up',
-      'jenuh': 'burned out',
-      'berkurang': 'reduced',
-      'menurun': 'decreased',
-      'meningkat': 'increased',
-      'selesai': 'completed',
-      'energi': 'energy',
-      'durasi': 'duration',
-      'dorasi': 'duration',
-      'lumayan': 'quite',
-      'adanya': 'presence of',
-      'beberapa': 'several',
-      'pekerjaan': 'work',
-      'perkerjaan': 'work',
-      'tugas': 'tasks',
-      'harus': 'must',
-      'diselesaikan': 'be completed',
-      'hal': 'aspects',
-      'paling': 'most',
-      'membebani': 'burdensome',
-      'membuat': 'makes',
-      'kehilangan': 'loss of',
-      'seperti': 'like',
-      'tuntutan': 'demands',
-      'relasi': 'relationships',
-      'saat': 'time',
-      'waktu': 'time',
-      'yang': 'that',
-      'serta': 'as well as',
-      'atau': 'or',
-      'ataupun': 'or',
-      'maupun': 'as well as',
-      'tanpa': 'without',
-      'kantor': 'office',
-      'kuliah': 'college',
-      'sekolah': 'school',
-      'sehari-hari': 'daily routine',
-      'lelah': 'exhausted',
-      'capek': 'tired',
-      'letih': 'fatigued',
-      'lemas': 'weak',
-      'malas': 'lethargic',
-      'cemas': 'anxious',
-      'khawatir': 'worried',
-      'gelisah': 'restless',
-      'sedih': 'sad',
-      'hampa': 'empty',
-      'putus asa': 'hopeless',
-      'takut': 'afraid',
-      'panik': 'panicked',
-      'insomnia': 'insomnia',
-      'tegang': 'tense',
-      'stres': 'stressed',
-      'stress': 'stressed',
-      'tenang': 'calm',
-      'baik': 'good',
-      'stabil': 'stable',
-      'rutinitas': 'routine',
-      'kondisi': 'condition',
-      'kualitas': 'quality',
-      'biasanya': 'usually',
-      'biasa': 'typically',
-      'sedikit': 'slightly',
-      'banyak': 'a lot',
-      'cukup': 'quite',
-      'malam': 'night',
-      'siang': 'daytime',
-      'pagi': 'morning',
-      'sore': 'evening',
-      'lebih': 'more',
-      'kurang': 'less',
-      'sering': 'often',
-      'jarang': 'rarely',
-      'kadang': 'sometimes',
-      'terkadang': 'sometimes',
-      'selalu': 'always',
-      'saya': 'I',
-      'aku': 'I',
-      'kita': 'our',
-      'kami': 'our',
-      'projek': 'project',
-      'kampus': 'campus',
-      'atasan': 'supervisor',
-      'ngantuk': 'sleepy',
-      'nantuk': 'sleepy',
-      'pulang': 'go home',
-      'melanjutkan': 'continue',
-      'sampai': 'until',
-      'selain': 'besides',
-      'pada saat': 'when',
-      'melakukan': 'doing',
-      'merasa': 'feel',
-      'terasa': 'feels',
-      'sedang': 'currently',
-      'masalah': 'issues',
-      'beban': 'burden',
-      'keluarga': 'family',
-      'teman': 'friends',
-      'rumah': 'home',
-      'aktivitas': 'activities',
-      'bicara': 'talk',
-      'berbicara': 'speaking',
-      'cerita': 'story',
-      'menceritakan': 'telling',
-      'mencoba': 'trying',
-      'mungkin': 'maybe',
-      'saja': 'just',
-      'hanya': 'only',
-      'lagi': 'again',
-      'juga': 'also',
-      'akan': 'will',
-      'mau': 'want to',
-      'ingin': 'want to',
-      'bisa': 'can',
-      'dapat': 'can',
-      'tidak bisa': 'cannot',
-      'tidak': 'not',
-      'tak': 'not',
-      'tiada': 'no',
-      'nggak': 'not',
-      'gak': 'not',
-      'enggak': 'not',
-      'ndak': 'not',
-      'ga': 'not',
-      'bukan': 'not',
-      'ada': 'there is',
-      'bikin': 'makes',
-      'sangat': 'very',
-      'sudah': 'already',
-      'belum': 'not yet',
-      'berhenti': 'stop',
-      'di sini': 'here',
-      'di sana': 'there',
-      'dan': 'and',
-      'tetapi': 'but',
-      'tapi': 'but',
-      'namun': 'however',
-      'untuk': 'for',
-      'karena': 'because',
-      'meskipun': 'although',
-      'dari': 'than',
-      'pada': 'at',
-      'di': 'at',
-      'ke': 'to',
-      'dengan': 'with',
-      'ini': 'this',
-      'itu': 'that',
-      'maaf': 'apologies',
-      'mengudahkan': 'taking',
-      'ambil': 'take',
-      'selesa': 'comfortable',
-      'sih': '',
-      'ya': '',
-      'lah': '',
-      'pun': '',
-    };
-
-    final sortedWords = wordDictionary.entries.toList()
-      ..sort((a, b) => b.key.length.compareTo(a.key.length));
-    for (final entry in sortedWords) {
-      normalized = normalized.replaceAll(
-        RegExp('\\b${RegExp.escape(entry.key)}\\b', caseSensitive: false),
-        entry.value,
-      );
-    }
-
-    // 4. Perbaiki tata bahasa pronoun pasca-substitusi
-    String translated = normalized
-        .replaceAll(
-          RegExp(r'\bmy feeling\b', caseSensitive: false),
-          'my feelings',
-        )
-        .replaceAll(
-          RegExp(r'\bI feeling\b', caseSensitive: false),
-          'my feeling',
-        )
-        .replaceAll(
-          RegExp(r'\bI thoughts\b', caseSensitive: false),
-          'my thoughts',
-        )
-        .replaceAll(RegExp(r'\bI sleep\b', caseSensitive: false), 'my sleep')
-        .replaceAll(
-          RegExp(
-            r'\bmy sleep quality for sleep duration\b',
-            caseSensitive: false,
-          ),
-          'my sleep quality, the sleep duration is',
-        )
-        .replaceAll(
-          RegExp(r'\bfor that\b', caseSensitive: false),
-          'regarding that',
-        )
-        .replaceAll(
-          RegExp(r'\bfor this\b', caseSensitive: false),
-          'regarding this',
-        )
-        .replaceAll(
-          RegExp(r'\balso slightly also\b', caseSensitive: false),
-          'also slightly',
-        )
-        .replaceAll(RegExp(r'\bfor I\b', caseSensitive: false), 'for me')
-        .replaceAll(RegExp(r'\s+'), ' ')
-        .trim();
-
-    if (translated.isNotEmpty) {
-      translated = translated[0].toUpperCase() + translated.substring(1);
-    }
-    return translated;
-  }
 
   static List<String> _extractKeywords(String text) {
     final lower = text.toLowerCase();
     const candidates = [
+      'sedih',
+      'murung',
+      'hampa',
+      'putus asa',
+      'kesepian',
+      'menangis',
+      'kehilangan minat',
+      'tidak semangat',
+      'tidak bergairah',
       'jenuh',
       'tidur',
+      'insomnia',
       'energi',
       'kantor',
       'pekerjaan',
       'lelah',
+      'capek',
       'cemas',
+      'gelisah',
+      'tertekan',
+      'stres',
       'pikiran',
       'perasaan',
+      'konsentrasi',
+      'gagal',
+      'bersalah',
       'burnout',
+      'sad',
+      'depressed',
+      'hopeless',
+      'lonely',
+      'anxious',
       'sleep',
       'fatigue',
       'work',
@@ -1082,17 +525,34 @@ class OnDeviceWhisperService {
     final lower = text.toLowerCase();
     double valence = 0.0;
     if (lower.contains('lelah') ||
+        lower.contains('capek') ||
         lower.contains('jenuh') ||
         lower.contains('sedih') ||
-        lower.contains('cemas')) {
+        lower.contains('murung') ||
+        lower.contains('hampa') ||
+        lower.contains('putus asa') ||
+        lower.contains('kesepian') ||
+        lower.contains('menangis') ||
+        lower.contains('tertekan') ||
+        lower.contains('cemas') ||
+        lower.contains('gelisah') ||
+        lower.contains('hopeless') ||
+        lower.contains('depressed') ||
+        lower.contains('sad')) {
       valence -= 0.25;
     }
     if (lower.contains('tidur') &&
-        (lower.contains('kurang') || lower.contains('sulit'))) {
+        (lower.contains('kurang') ||
+            lower.contains('sulit') ||
+            lower.contains('susah') ||
+            lower.contains('terganggu'))) {
       valence -= 0.15;
     }
     if (lower.contains('baik') ||
         lower.contains('tenang') ||
+        lower.contains('nyenyak') ||
+        lower.contains('semangat') ||
+        lower.contains('bahagia') ||
         lower.contains('terjaga') ||
         lower.contains('stabil')) {
       valence += 0.20;

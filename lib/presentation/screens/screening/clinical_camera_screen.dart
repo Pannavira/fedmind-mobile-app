@@ -13,12 +13,14 @@ import 'widgets/interactive_interview_overlay.dart';
 class ClinicalCameraResult {
   final String videoPath;
   final String? liveTranscript;
+  final String? speechWarning;
   final EdaicProtocolMode? protocolMode;
   final int? questionsCompletedCount;
 
   const ClinicalCameraResult({
     required this.videoPath,
     this.liveTranscript,
+    this.speechWarning,
     this.protocolMode,
     this.questionsCompletedCount,
   });
@@ -77,6 +79,7 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
 
   // Real-Time Speech Recognition (Google Native SpeechRecognizer)
   String _liveTranscript = '';
+  String? _speechWarning;
 
   // Real-Time Face Presence Detection (Google ML Kit)
   final RealtimeFaceDetectorService _faceDetectorService =
@@ -496,6 +499,16 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
       await _stopPreviewFaceStream();
       _receivedRecordingStreamFrame = false;
 
+      // Pastikan kesiapan Android 13+ SpeechRecognizer sebelum mulai
+      final speechReq = await MicSessionService.getSpeechRequirements();
+      if (Platform.isAndroid && !speechReq.supportsParallelMic && mounted) {
+        const sdkWarning =
+            'Perangkat terdeteksi Android < 13 (API < 33): SpeechRecognizer paralel tidak didukung. Lanjutkan merekam lalu lengkapi transkrip secara manual.';
+        setState(() => _speechWarning = sdkWarning);
+      } else {
+        setState(() => _speechWarning = null);
+      }
+
       // 1) Mikrofon tunggal (WAV + dictation) dimulai lebih dulu agar menutupi seluruh video
       await MicSessionService.start(
         onTranscript: (text) {
@@ -504,6 +517,7 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
         },
         onProblem: (msg) {
           if (!mounted) return;
+          setState(() => _speechWarning = msg);
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text(msg), backgroundColor: Colors.orange),
           );
@@ -581,6 +595,7 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
       Navigator.of(context).pop(ClinicalCameraResult(
         videoPath: savedPath,
         liveTranscript: finalTranscript.isNotEmpty ? finalTranscript : null,
+        speechWarning: _speechWarning,
         protocolMode: _protocolMode,
         questionsCompletedCount: _currentQuestionIndex + 1,
       ));

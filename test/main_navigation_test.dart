@@ -129,7 +129,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Pemeriksaan Baru'), findsOneWidget);
-    expect(find.text('Pilihan Sumber Modalitas Observasi'), findsOneWidget);
+    expect(find.text('Pilihan Sumber Modalitas Observasi'), findsNothing);
 
     // 3. Pindah ke Tab History
     await tester.tap(find.text('History'));
@@ -142,8 +142,11 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Telemetri Federated Learning & CDSS'), findsOneWidget);
-    expect(find.text('Arsitektur Federated Learning'), findsOneWidget);
-    expect(find.text('Pilihan Model Inferensi On-Device'), findsOneWidget);
+    expect(
+      find.text('Arsitektur Federated Learning (Model 3 Edge)'),
+      findsOneWidget,
+    );
+    expect(find.text('Pilihan Model Inferensi On-Device'), findsNothing);
     expect(
       find.text(
         'FedMind-Edge-ONNX v3.0-FL (Model 3) • fedmind_edge_client.onnx',
@@ -159,7 +162,7 @@ void main() {
   });
 
   testWidgets(
-      'Settings tab defaults to Model 3 and allows switching between Model 2 and Model 3',
+      'Settings tab locks on Model 3 Edge, hides legacy Model 2 selector, and displays Android 13+ requirement',
       (WidgetTester tester) async {
     tester.view.physicalSize = const Size(1080, 2220);
     tester.view.devicePixelRatio = 2.5;
@@ -176,12 +179,12 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(
-      find.text('Model 3 — FedAvg Edge Client (Terbaru)'),
+      find.text('Model 3 — FedAvg Edge Client (ONNX)'),
       findsOneWidget,
     );
     expect(
       find.text('Model 2 — FedAvg BiLSTM-Attn (Sebelumnya)'),
-      findsOneWidget,
+      findsNothing,
     );
     expect(
       find.text(
@@ -189,28 +192,8 @@ void main() {
       ),
       findsOneWidget,
     );
-
-    await tester.tap(find.text('Model 2 — FedAvg BiLSTM-Attn (Sebelumnya)'));
-    await tester.pumpAndSettle();
-
     expect(
-      find.text(
-        'FedMind-Multimodal-ONNX v2.4-FL (Model 2) • fedmind_multimodal.onnx',
-      ),
-      findsOneWidget,
-    );
-    expect(
-      find.text('Model aktif diganti ke Model 2 (fedmind_multimodal.onnx)'),
-      findsOneWidget,
-    );
-
-    await tester.tap(find.text('Model 3 — FedAvg Edge Client (Terbaru)'));
-    await tester.pumpAndSettle();
-
-    expect(
-      find.text(
-        'FedMind-Edge-ONNX v3.0-FL (Model 3) • fedmind_edge_client.onnx',
-      ),
+      find.text('Sistem Operasi Android 13+ (API 33+)'),
       findsOneWidget,
     );
   });

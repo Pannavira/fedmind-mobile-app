@@ -283,7 +283,7 @@ class LocalInferenceService {
         CoalitionStepScore(
           coalitionCode: 'S3 (v₀₀₁)',
           label: 'Modalitas Teks / Linguistik Tunggal',
-          description: 'Estimasi PHQ-8 menggunakan embedding psikolinguistik MentalBERT (768D -> ${latentDim}D)',
+          description: 'Estimasi PHQ-8 menggunakan embedding psikolinguistik Multilingual-E5 INT4 (768D -> ${latentDim}D)',
           hasAudio: false,
           hasVisual: false,
           hasText: true,
@@ -434,7 +434,7 @@ class LocalInferenceService {
         model: ModelMetadata(
           modelId: 'fedmind_edge_mobile_$_modelKey',
           name: '$_modelName (Edge FL Node)',
-          version: activeVariant == FedMindModelVariant.model3Edge ? '3.0.0' : '2.4.0',
+          version: '3.0.0',
           architecture: activeVariant.architectureName,
           checkpoint: activeVariant.checkpointFileName,
           checksum: 'onnx_float32_sha256_verified',
@@ -473,8 +473,7 @@ class LocalInferenceService {
     }
   }
 
-  /// Mengambil tensor output ONNX dengan daftar kandidat nama agar kompatibel
-  /// dengan model Model 3 (`pred_phq8`, `lat_*`) maupun Model 2 legacy (`phq8_pred`, `scores`).
+  /// Mengambil tensor output ONNX Model 3 (`pred_phq8`, `lat_*`) dengan daftar kandidat nama.
   static OrtValue _requireOutput(
     Map<String, OrtValue> outputs,
     List<String> candidateNames,

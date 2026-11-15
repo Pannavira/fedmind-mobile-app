@@ -58,16 +58,25 @@ class LocalStorageService {
     return await file.exists();
   }
 
-  /// Menghapus video lokal secara manual jika konselor menginginkannya
+  /// Menghapus video lokal (dan sidecar WAV bila ada) secara manual jika konselor menginginkannya
   static Future<bool> deleteLocalVideo(String filePath) async {
     try {
       final file = File(filePath);
+      bool deleted = false;
       if (await file.exists()) {
         await file.delete();
+        deleted = true;
         debugPrint('[LOCAL_STORAGE] Video berhasil dihapus: $filePath');
-        return true;
       }
-      return false;
+      final sidecarWav = filePath.replaceFirst(RegExp(r'\.[A-Za-z0-9]+$'), '.wav');
+      if (sidecarWav != filePath) {
+        final wavFile = File(sidecarWav);
+        if (await wavFile.exists()) {
+          await wavFile.delete();
+          debugPrint('[LOCAL_STORAGE] Sidecar WAV dihapus: $sidecarWav');
+        }
+      }
+      return deleted;
     } catch (e) {
       debugPrint('[LOCAL_STORAGE] Gagal menghapus video: $e');
       return false;

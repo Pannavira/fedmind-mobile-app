@@ -34,13 +34,13 @@ void main() {
         textInput: text,
       );
 
-      // Verify dimensions
-      expect(tensors.audio.length, equals(512 * 80)); // 40,960
-      expect(tensors.visual.length, equals(512 * 216)); // 110,592
-      expect(tensors.text.length, equals(512 * 768)); // 393,216
+      // Verify Model 3 pooled dimensions
+      expect(tensors.audio.length, equals(248));
+      expect(tensors.visual.length, equals(75));
+      expect(tensors.text.length, equals(768));
 
       // Verify no NaNs or Infinities
-      for (int i = 0; i < 100; i++) {
+      for (int i = 0; i < 75; i++) {
         expect(tensors.audio[i].isNaN, isFalse);
         expect(tensors.visual[i].isNaN, isFalse);
         expect(tensors.text[i].isNaN, isFalse);
@@ -74,9 +74,9 @@ void main() {
         textInput: text,
       );
 
-      expect(tensors.audio.length, equals(512 * 80));
-      expect(tensors.visual.length, equals(512 * 216));
-      expect(tensors.text.length, equals(512 * 768));
+      expect(tensors.audio.length, equals(248));
+      expect(tensors.visual.length, equals(75));
+      expect(tensors.text.length, equals(768));
       expect(tensors.qualityFlags['low_text_information'], isFalse);
       expect(tensors.qualityFlags['poor_audio_quality'], isFalse);
       expect(tensors.qualityFlags['poor_visual_quality'], isFalse);
