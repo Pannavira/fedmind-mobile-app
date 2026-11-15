@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fedmind_mobile_app/core/services/local_inference_service.dart';
 import 'package:fedmind_mobile_app/core/services/local_preprocessing_service.dart';
@@ -98,9 +99,9 @@ void main() {
     test('LocalInferenceService defaults to Model 3 Edge configuration', () {
       final service = LocalInferenceService();
       expect(service.selectedVariant, equals(FedMindModelVariant.model3Edge));
-      expect(service.binaryThreshold, equals(9.1));
+      expect(service.binaryThreshold, equals(9.4));
       expect(service.latentDim, equals(128));
-      expect(service.v000Baseline, closeTo(9.6691, 1e-4));
+      expect(service.v000Baseline, closeTo(10.0736, 1e-3));
     });
 
     test('LocalPreprocessingService prepares Model 3 pooled tensors with Z-clip [-4, 4] and visual disable zeroing', () async {
@@ -165,6 +166,8 @@ void main() {
         await File('assets/models/train_norm_stats_edge.json').readAsString(),
       ) as Map<String, dynamic>;
       final textStats = normJson['text'] as Map<String, dynamic>;
+      expect((textStats['short_scale'] as num).toDouble(), closeTo(0.06, 1e-4));
+      final textStd = (textStats['std'] as List).map((e) => (e as num).toDouble()).toList();
       final shortMean = (textStats['short_mean'] as List).map((e) => (e as num).toDouble()).toList();
       final normShortMean = preprocessor.normalizeFeature(
         shortMean,
@@ -178,6 +181,21 @@ void main() {
         (prev, v) => v.abs() > prev ? v.abs() : prev,
       );
       expect(maxAbsCalibrated, lessThan(1e-4));
+
+      // A shifted short utterance around short_mean normalizes cleanly into the DualDomain [0.18, 0.42] RMS band
+      final shiftedShort = List<double>.generate(
+        shortMean.length,
+        (i) => shortMean[i] + 4.5 * textStd[i],
+      );
+      final normShifted = preprocessor.normalizeFeature(
+        shiftedShort,
+        'text',
+        variant: FedMindModelVariant.model3Edge,
+      );
+      final shiftedRms = math.sqrt(
+        normShifted.fold<double>(0.0, (acc, v) => acc + v * v) / normShifted.length + 1e-8,
+      );
+      expect(shiftedRms, inInclusiveRange(0.18, 0.42));
     });
   });
 }

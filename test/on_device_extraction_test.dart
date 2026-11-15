@@ -897,6 +897,31 @@ void main() {
           uiHappy['AU12 Lip Corner Puller (Zygomaticus / Smile)']!,
           greaterThan(uiDepr['AU12 Lip Corner Puller (Zygomaticus / Smile)']!),
         );
+
+        // Background 59 OpenFace features must project monotonically along z_high - z_low from happy -> neutral -> depressive
+        final visZLow = (statsJson['visual']['z_low'] as List).cast<num>();
+        final visZHigh = (statsJson['visual']['z_high'] as List).cast<num>();
+        const preservedPhysical = <int>{
+          8, 10, 16, 28, 29, 36, 38, 53, 57, 60, 64, 66, 69, 70, 73, 74,
+        };
+        double projectBackgroundMean(List<double> feat) {
+          double sum = 0.0;
+          int count = 0;
+          for (int i = 0; i < 75; i++) {
+            if (preservedPhysical.contains(i)) continue;
+            final z = (feat[i] - visMean[i].toDouble()) / (visStd[i].toDouble() + 1e-7);
+            final dir = visZHigh[i].toDouble() - visZLow[i].toDouble();
+            sum += z * dir;
+            count++;
+          }
+          return sum / count;
+        }
+
+        final projHappy = projectBackgroundMean(featHappy);
+        final projNeutral = projectBackgroundMean(featNeutral);
+        final projDepr = projectBackgroundMean(featDepr);
+        expect(projNeutral, greaterThan(projHappy));
+        expect(projDepr, greaterThan(projNeutral));
       },
     );
 

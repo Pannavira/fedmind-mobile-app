@@ -124,7 +124,7 @@ extension FedMindModelVariantX on FedMindModelVariant {
   double get defaultV000Baseline {
     switch (this) {
       case FedMindModelVariant.model3Edge:
-        return 9.6691;
+        return 10.0736;
       case FedMindModelVariant.model2Legacy:
         return 8.4164;
     }
@@ -133,7 +133,7 @@ extension FedMindModelVariantX on FedMindModelVariant {
   double get binaryThreshold {
     switch (this) {
       case FedMindModelVariant.model3Edge:
-        return 9.1;
+        return 9.4;
       case FedMindModelVariant.model2Legacy:
         return 10.0;
     }
@@ -151,7 +151,7 @@ extension FedMindModelVariantX on FedMindModelVariant {
   String get settingsSummary {
     switch (this) {
       case FedMindModelVariant.model3Edge:
-        return 'Pooled Edge MLP • 128D Laten • Threshold PHQ-8 ≥ 9.1 • Z-Clip ±4.0';
+        return 'Pooled Edge MLP + mE5 • 128D Laten • Threshold PHQ-8 ≥ 9.4 • Z-Clip ±4.0';
       case FedMindModelVariant.model2Legacy:
         return 'BiLSTM + Attention • 256D Laten • Threshold PHQ-8 ≥ 10.0 • Legacy v2.4';
     }
@@ -283,7 +283,7 @@ class LocalPreprocessingService {
         }
         final rms = sqrt(sumSq / dim + 1e-8);
         if (rms > 2.5) {
-          final shortScale = _shortTextScaleByVariant[targetVariant] ?? 0.45;
+          final shortScale = _shortTextScaleByVariant[targetVariant] ?? 0.06;
           for (int i = 0; i < dim; i++) {
             final val = i < raw.length ? raw[i] : 0.0;
             if (val.isNaN || val.isInfinite) {

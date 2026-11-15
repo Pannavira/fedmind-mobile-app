@@ -88,10 +88,10 @@ flutter:
     - assets/models/fedmind_edge_regressor.onnx
     - assets/models/train_norm_stats_edge.json
     - assets/models/xai_baseline_edge.json
-    - assets/models/mentalbert/mentalbert_mean_pool_int4.onnx
-    - assets/models/mentalbert/vocab.txt
-    - assets/models/mentalbert/tokenizer_config.json
-    - assets/models/mentalbert/special_tokens_map.json
+    - assets/models/multilingual_e5/multilingual_e5_mentalbert_int4.onnx
+    - assets/models/multilingual_e5/tokenizer.json
+    - assets/models/multilingual_e5/tokenizer_config.json
+    - assets/models/multilingual_e5/special_tokens_map.json
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

@@ -115,6 +115,9 @@ class MultimodalExtractorService {
 
   static Map<String, List<double>>? _meanStats;
   static Map<String, List<double>>? _stdStats;
+  static Map<String, List<double>>? _zLowStats;
+  static Map<String, List<double>>? _zMidStats;
+  static Map<String, List<double>>? _zHighStats;
 
   static Future<String> _loadAssetOrFileString(String assetPath) async {
     try {
@@ -139,6 +142,9 @@ class MultimodalExtractorService {
       final data = json.decode(jsonStr) as Map<String, dynamic>;
       _meanStats = {};
       _stdStats = {};
+      _zLowStats = {};
+      _zMidStats = {};
+      _zHighStats = {};
       for (final mod in ['audio', 'visual', 'text']) {
         if (data.containsKey(mod)) {
           final modMap = data[mod] as Map<String, dynamic>;
@@ -148,11 +154,29 @@ class MultimodalExtractorService {
           _stdStats![mod] = (modMap['std'] as List)
               .map((e) => (e as num).toDouble())
               .toList();
+          if (modMap['z_low'] is List && (modMap['z_low'] as List).isNotEmpty) {
+            _zLowStats![mod] = (modMap['z_low'] as List)
+                .map((e) => (e as num).toDouble())
+                .toList();
+          }
+          if (modMap['z_mid'] is List && (modMap['z_mid'] as List).isNotEmpty) {
+            _zMidStats![mod] = (modMap['z_mid'] as List)
+                .map((e) => (e as num).toDouble())
+                .toList();
+          }
+          if (modMap['z_high'] is List && (modMap['z_high'] as List).isNotEmpty) {
+            _zHighStats![mod] = (modMap['z_high'] as List)
+                .map((e) => (e as num).toDouble())
+                .toList();
+          }
         }
       }
     } catch (_) {
       _meanStats ??= {};
       _stdStats ??= {};
+      _zLowStats ??= {};
+      _zMidStats ??= {};
+      _zHighStats ??= {};
     }
   }
 
@@ -428,29 +452,26 @@ class MultimodalExtractorService {
     final bool isRealWhisper = whisperResult.isWhisperModel;
 
     // Tentukan transkrip tuturan efektif:
-    // Transkrip Indonesia untuk tampilan klinisi, dan Terjemahan Inggris untuk MentalBERT 768D
+    // Encoder dwibahasa mE5-MentalBERT memproses teks Bahasa Indonesia ataupun Inggris langsung
+    // tanpa melalui terjemahan Google ML Kit yang sering menghilangkan nuansa klinis kolokial.
     final effectiveIndonesianTranscript = hasExplicitClientText
         ? clientTranscript.trim()
         : whisperResult.indonesianTranscript;
-    final effectiveEnglishTranscript = whisperResult.englishTranscript.isNotEmpty
-        ? whisperResult.englishTranscript
-        : (hasExplicitClientText
-            ? await OnDeviceWhisperService.translateWithMlKit(clientTranscript)
-            : '');
+    final effectiveEnglishTranscript = whisperResult.englishTranscript;
 
-    // Tahap 5: MentalBERT ONNX 768D (edge parity) dari teks Bahasa Inggris terjemahan
+    // Tahap 5: Multilingual-E5-MentalBERT INT4 ONNX 768D langsung dari tuturan pengguna
     onProgress?.call(
-      'Memproses representasi semantik teks MentalBERT 768D...',
+      'Memproses representasi semantik teks dwibahasa 768D...',
       0.95,
     );
-    final englishForMentalBert = effectiveEnglishTranscript.isNotEmpty
-        ? effectiveEnglishTranscript
-        : effectiveIndonesianTranscript;
+    final textForEncoder = effectiveIndonesianTranscript.isNotEmpty
+        ? effectiveIndonesianTranscript
+        : effectiveEnglishTranscript;
     List<double> textFeatures;
     bool usedMentalBertOnnx = false;
     String textEmbeddingEngine;
     if (kUseEdgeParityFeatureSpace) {
-      if (englishForMentalBert.trim().isEmpty) {
+      if (textForEncoder.trim().isEmpty) {
         textFeatures = _buildNoTranscriptTextBaseline(
           visualSummary: visualResult.summaryStats,
           audioSummary: audioResult.summaryStats,
@@ -459,15 +480,15 @@ class MultimodalExtractorService {
       } else {
         try {
           textFeatures =
-              await OnDeviceMentalBertService.embedEnglish(englishForMentalBert);
+              await OnDeviceMentalBertService.embedText(textForEncoder);
           usedMentalBertOnnx = true;
-          textEmbeddingEngine = 'MentalBERT-INT4 ONNX (768D)';
-          debugPrint('[MentalBERT] embedding ONNX 768D berhasil (${englishForMentalBert.length} chars).');
+          textEmbeddingEngine = 'Multilingual-MentalBERT INT4 ONNX (768D)';
+          debugPrint('[MentalBERT] embedding ONNX 768D berhasil (${textForEncoder.length} chars).');
         } catch (e, st) {
           debugPrint('[MentalBERT] fallback ke leksikon: $e\n$st');
           textFeatures = _computeRealTextFeatures768D(
             userNote: userNote,
-            clientTranscript: englishForMentalBert,
+            clientTranscript: textForEncoder,
             visualSummary: visualResult.summaryStats,
             audioSummary: audioResult.summaryStats,
           );
@@ -477,7 +498,7 @@ class MultimodalExtractorService {
     } else {
       textFeatures = _computeRealTextFeatures768D(
         userNote: userNote,
-        clientTranscript: englishForMentalBert,
+        clientTranscript: textForEncoder,
         visualSummary: visualResult.summaryStats,
         audioSummary: audioResult.summaryStats,
       );
@@ -1048,14 +1069,34 @@ class MultimodalExtractorService {
             0.10 * eyeAlertTerm)
         .clamp(-1.0, 1.15);
 
-    final boundedVisual = _softBoundToTrainingDistribution(
+    final boundedVisual = _projectToEdaicManifold(
       rawStats,
       'visual',
+      severity: visualSeverity,
+      detailAlpha: 0.15,
       maxSigma: 4.5,
       unitIntervalIndices: {
         for (int i = 0; i < 16; i++) i * 4 + 3,
         64,
         68,
+      },
+      preservePhysicalIndices: const {
+        8,
+        10,
+        16,
+        28,
+        29,
+        36,
+        38,
+        53,
+        57,
+        60,
+        64,
+        66,
+        69,
+        70,
+        73,
+        74,
       },
     );
 
@@ -1456,9 +1497,9 @@ class MultimodalExtractorService {
     });
 
     // Hitung Indeks Keparahan Akustik & Prosodi Vokal (audioSeverity in [-1.0, +1.15])
-    // untuk ringkasan klinis, UI inspeksi multimodal, serta kalibrasi rentang aman:
-    final pauseTerm = ((pauseRatio - 0.34) / 0.20).clamp(-0.95, 1.20);
-    final monotoneTerm = ((13.5 - pitchStats.std) / 8.5).clamp(-0.95, 1.10);
+    // Dikalibrasi untuk monolog wicara bebas 30-90 detik (jeda ~24-26%, std pitch ~17.5 Hz):
+    final pauseTerm = ((pauseRatio - 0.25) / 0.16).clamp(-0.95, 1.20);
+    final monotoneTerm = ((17.5 - pitchStats.std) / 7.5).clamp(-0.95, 1.10);
     final lowPitchTerm = ((138.0 - pitchStats.mean) / 36.0).clamp(-0.85, 1.00);
     final hypophoniaTerm = ((0.055 - rmsStats.mean) / 0.038).clamp(-0.90, 1.10);
     final perturbationTerm = (((jitter - 0.017) / 0.012) * 0.55 +
@@ -1503,18 +1544,14 @@ class MultimodalExtractorService {
     for (final st in egemapsStats) {
       rawAudio248D.addAll([st.mean, st.std, st.minVal, st.maxVal]);
     }
-    final boundedAudio = _softBoundToTrainingDistribution(
+    final boundedAudio = _projectToEdaicManifold(
       rawAudio248D,
       'audio',
-      maxSigma: 0.22,
+      severity: audioSeverity,
+      detailAlpha: 0.04,
+      lowProtoGain: 0.08,
+      maxSigma: 2.5,
     );
-    final audioMean = _meanStats?['audio'];
-    if (audioMean != null) {
-      final tailEnd = min(boundedAudio.length, audioMean.length);
-      for (int i = 78; i < tailEnd; i++) {
-        boundedAudio[i] = audioMean[i];
-      }
-    }
 
     return _AudioExtractionResult(
       features: boundedAudio,
@@ -1840,6 +1877,80 @@ class MultimodalExtractorService {
     return out;
   }
 
+  /// Memproyeksikan fitur kamera/mikrofon ponsel ke manifold statistik E-DAIC Train
+  /// (prototipe `z_low`, `z_mid`, `z_high`) sesuai tingkat keparahan terukur,
+  /// sekaligus mempertahankan indeks fisik langsung (`preservePhysicalIndices`) untuk UI XAI AU.
+  static List<double> _projectToEdaicManifold(
+    List<double> raw,
+    String modality, {
+    required double severity,
+    double detailAlpha = 0.15,
+    double lowProtoGain = 1.0,
+    double maxSigma = 2.8,
+    Set<int> unitIntervalIndices = const {},
+    Set<int> preservePhysicalIndices = const {},
+  }) {
+    final mean = _meanStats?[modality];
+    final std = _stdStats?[modality];
+    final zLow = _zLowStats?[modality];
+    final zMid = _zMidStats?[modality];
+    final zHigh = _zHighStats?[modality];
+    if (mean == null ||
+        std == null ||
+        zLow == null ||
+        zMid == null ||
+        zHigh == null) {
+      return _softBoundToTrainingDistribution(
+        raw,
+        modality,
+        maxSigma: maxSigma,
+        unitIntervalIndices: unitIntervalIndices,
+      );
+    }
+    final out = List<double>.from(raw);
+    final n = min(out.length, min(mean.length, std.length));
+    final sev = severity.clamp(-0.85, 0.95);
+    for (int i = 0; i < n; i++) {
+      final s = std[i] > 1e-7 ? std[i] : 1.0;
+      final zLocal = ((out[i] - mean[i]) / s).clamp(-3.5, 3.5);
+      final double zFinal;
+      if (preservePhysicalIndices.contains(i)) {
+        zFinal = maxSigma * _tanh(zLocal / maxSigma);
+      } else {
+        final zl = i < zLow.length ? zLow[i] : 0.0;
+        final zm = i < zMid.length ? zMid[i] : 0.0;
+        final zh = i < zHigh.length ? zHigh[i] : 0.0;
+        final double zProto;
+        if (lowProtoGain < 0.999) {
+          // Skala lunak prototipe rendah agar centroid z_low tidak menarik skor
+          // secara ekstrem ke ~1.0 saat berbicara bebas normal (mis. audio HP).
+          final zAnchorZero = (0.75 * zl + 0.18 * zm) * lowProtoGain;
+          if (sev <= 0.0) {
+            final t = ((sev + 0.65) / 0.65).clamp(0.0, 1.0);
+            zProto = (zl * (1.0 - t * 0.25) + zm * (t * 0.18)) * lowProtoGain;
+          } else {
+            final t = (sev / 0.75).clamp(0.0, 1.0);
+            zProto = zAnchorZero * (1.0 - t) + zh * t;
+          }
+        } else if (sev <= 0.0) {
+          final t = ((sev + 0.65) / 0.65).clamp(0.0, 1.0);
+          zProto = zl * (1.0 - t * 0.35) + zm * (t * 0.35);
+        } else {
+          final t = (sev / 0.75).clamp(0.0, 1.0);
+          zProto = (0.65 * zl + 0.35 * zm) * (1.0 - t) + zh * t;
+        }
+        final zCombined = (1.0 - detailAlpha) * zProto + detailAlpha * zLocal;
+        zFinal = maxSigma * _tanh(zCombined / maxSigma);
+      }
+      var val = mean[i] + zFinal * s;
+      if (unitIntervalIndices.contains(i)) {
+        val = val.clamp(0.0, 1.0);
+      }
+      out[i] = val;
+    }
+    return out;
+  }
+
   static _SeriesStats _calcSeriesStats(List<double> values) {
     if (values.isEmpty) {
       return const _SeriesStats(mean: 0.0, std: 0.0, median: 0.0, iqr: 0.0);
@@ -1884,6 +1995,20 @@ class MultimodalExtractorService {
   ) async {
     await _ensureNormStatsLoaded();
     return _computeRealVisualFeatures75D(frames).features;
+  }
+
+  /// Pengujian unit langsung untuk ekstraksi vektor audio 248D + ringkasan prosodi
+  @visibleForTesting
+  static Future<Map<String, dynamic>> extractAudioFeatures248DFromPcmForTest(
+    List<double> pcmSamples, {
+    int sampleRate = 16000,
+  }) async {
+    await _ensureNormStatsLoaded();
+    final res = _computeRealAcousticFeatures248D(pcmSamples, sampleRate);
+    return {
+      'features': res.features,
+      'summaryStats': res.summaryStats,
+    };
   }
 
   static bool _hasMediaPipeBlendshapes(Map<String, double> frame) {

@@ -137,13 +137,11 @@ class OnDeviceWhisperService {
       );
     }
 
-    return _retranslateWithMlKit(
-      _buildSegmentedResultFromText(
-        text: spokenText,
-        durationSec: effectiveDuration,
-        audioSummary: audioSummary,
-        confidence: 0.98,
-      ),
+    return _buildSegmentedResultFromText(
+      text: spokenText,
+      durationSec: effectiveDuration,
+      audioSummary: audioSummary,
+      confidence: 0.98,
     );
   }
 
@@ -214,39 +212,6 @@ class OnDeviceWhisperService {
       confidence: 0.0,
       isWhisperModel: false,
       isSuccess: false,
-    );
-  }
-
-  /// Mengganti terjemahan hasil builder sinkron dengan terjemahan ML Kit
-  static Future<WhisperTranscriptionResult> _retranslateWithMlKit(
-    WhisperTranscriptionResult r,
-  ) async {
-    final segs = <TranscriptSegmentItem>[];
-    for (final s in r.segments) {
-      segs.add(
-        TranscriptSegmentItem(
-          timeRangeLabel: s.timeRangeLabel,
-          text: s.text,
-          translatedText: await translateWithMlKit(s.text),
-          detectedKeywords: s.detectedKeywords,
-          prosodyNote: s.prosodyNote,
-        ),
-      );
-    }
-    return WhisperTranscriptionResult(
-      indonesianTranscript: r.indonesianTranscript,
-      englishTranscript: segs.isEmpty
-          ? await translateWithMlKit(r.indonesianTranscript)
-          : segs.map((e) => e.translatedText).join(' '),
-      segments: segs,
-      detectedKeywords: r.detectedKeywords,
-      emotionalValence: r.emotionalValence,
-      selfPronounCount: r.selfPronounCount,
-      linguisticTitle: r.linguisticTitle,
-      linguisticDescription: r.linguisticDescription,
-      confidence: r.confidence,
-      isWhisperModel: r.isWhisperModel,
-      isSuccess: r.isSuccess,
     );
   }
 

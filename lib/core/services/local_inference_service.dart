@@ -10,6 +10,7 @@ import '../../data/models/screening_models.dart';
 import '../constants/clinical_constants.dart';
 import 'local_preprocessing_service.dart';
 import 'on_device_mentalbert_service.dart';
+import 'onnx_asset_loader.dart';
 
 class LocalInferenceService {
   final LocalPreprocessingService _preprocessor = LocalPreprocessingService();
@@ -80,8 +81,14 @@ class LocalInferenceService {
     await _preprocessor.initialize(variant);
 
     // 2. Inisialisasi Sesi ONNX (Multimodal Fusion + Shapley Regressor + MentalBERT INT4)
-    _mainSession = await _ort.createSessionFromAsset(variant.modelAssetPath);
-    _regSession = await _ort.createSessionFromAsset(variant.regressorAssetPath);
+    _mainSession = await OnnxAssetLoader.createSessionFromAsset(
+      _ort,
+      variant.modelAssetPath,
+    );
+    _regSession = await OnnxAssetLoader.createSessionFromAsset(
+      _ort,
+      variant.regressorAssetPath,
+    );
     try {
       await OnDeviceMentalBertService.initialize();
     } catch (e) {
@@ -156,13 +163,35 @@ class LocalInferenceService {
         'text': textOrt,
       });
 
-      final predList = await mainOutputs['phq8_pred']!.asFlattenedList();
+      final predList = await _requireOutput(
+        mainOutputs,
+        const ['pred_phq8', 'phq8_pred'],
+        'main prediction',
+      ).asFlattenedList();
       final double rawScore = (predList[0] as num).toDouble();
 
-      final aIList = (await mainOutputs['audio_latent']!.asFlattenedList()).map((e) => (e as num).toDouble()).toList();
-      final rawVIList = (await mainOutputs['visual_latent']!.asFlattenedList()).map((e) => (e as num).toDouble()).toList();
+      final aIList = (await _requireOutput(
+        mainOutputs,
+        const ['lat_audio', 'audio_latent'],
+        'audio latent',
+      ).asFlattenedList())
+          .map((e) => (e as num).toDouble())
+          .toList();
+      final rawVIList = (await _requireOutput(
+        mainOutputs,
+        const ['lat_visual', 'visual_latent'],
+        'visual latent',
+      ).asFlattenedList())
+          .map((e) => (e as num).toDouble())
+          .toList();
       final vIList = disableVisualBranch ? List<double>.from(_visualBase!) : rawVIList;
-      final tIList = (await mainOutputs['text_latent']!.asFlattenedList()).map((e) => (e as num).toDouble()).toList();
+      final tIList = (await _requireOutput(
+        mainOutputs,
+        const ['lat_text', 'text_latent'],
+        'text latent',
+      ).asFlattenedList())
+          .map((e) => (e as num).toDouble())
+          .toList();
 
       // 4. Hitung 8 Koalisi Exact Shapley menggunakan Regressor ONNX
       // Koalisi: (a, v, t) berukuran fusedDim (384D untuk Model 3 atau 768D untuk Model 2)
@@ -197,7 +226,13 @@ class LocalInferenceService {
       fusedOrt = await OrtValue.fromList(coalitionBatch, [8, fusedDim]);
       regOutputs = await _regSession!.run({'fused_latents': fusedOrt});
 
-      final scoresList = (await regOutputs['scores']!.asFlattenedList()).map((e) => (e as num).toDouble()).toList();
+      final scoresList = (await _requireOutput(
+        regOutputs,
+        const ['pred_phq8', 'scores'],
+        'regressor coalition scores',
+      ).asFlattenedList())
+          .map((e) => (e as num).toDouble())
+          .toList();
       final v000 = scoresList[0];
       final v100 = scoresList[1];
       final v010 = scoresList[2];
@@ -335,6 +370,23 @@ class LocalInferenceService {
 
       final completedAt = DateTime.now().toUtc();
 
+      debugPrint(
+        '[LocalInference] model=$_modelKey phq8=$phq8Score '
+        '(raw=${rawScore.toStringAsFixed(3)}) prob=$probProxy '
+        'risk=$riskCategory binary=$binaryPred th=$_binaryThreshold | '
+        'dom=$dominantMod (A:$pctA% V:$pctV% T:$pctT%) | '
+        'S0=${v000.toStringAsFixed(2)} S1=${v100.toStringAsFixed(2)} '
+        'S2=${v010.toStringAsFixed(2)} S3=${v001.toStringAsFixed(2)} '
+        'S4=${v110.toStringAsFixed(2)} S5=${v101.toStringAsFixed(2)} '
+        'S6=${v011.toStringAsFixed(2)} S7=${v111.toStringAsFixed(2)}',
+      );
+      if ((v000 - _v000Baseline).abs() > 0.1) {
+        debugPrint(
+          '[LocalInference] WARNING baseline drift: S0=${v000.toStringAsFixed(4)} '
+          'vs xai_baseline=${_v000Baseline.toStringAsFixed(4)}',
+        );
+      }
+
       final dominantPct = dominantMod == 'visual' ? pctV : (dominantMod == 'audio' ? pctA : pctT);
       final dominantClinicalLabel = ClinicalConstants.getModalityClinicalName(dominantMod);
       final riskClinicalLabel = ClinicalConstants.getRiskLabel(riskCategory);
@@ -419,6 +471,23 @@ class LocalInferenceService {
         }
       }
     }
+  }
+
+  /// Mengambil tensor output ONNX dengan daftar kandidat nama agar kompatibel
+  /// dengan model Model 3 (`pred_phq8`, `lat_*`) maupun Model 2 legacy (`phq8_pred`, `scores`).
+  static OrtValue _requireOutput(
+    Map<String, OrtValue> outputs,
+    List<String> candidateNames,
+    String label,
+  ) {
+    for (final name in candidateNames) {
+      final tensor = outputs[name];
+      if (tensor != null) return tensor;
+    }
+    throw StateError(
+      'Missing ONNX output for $label. Tried $candidateNames, '
+      'available keys: ${outputs.keys.toList()}',
+    );
   }
 
   /// Menutup sesi ONNX ketika tidak lagi digunakan
