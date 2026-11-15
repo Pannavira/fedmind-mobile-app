@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
+import '../../../core/services/clinical_media_service.dart';
 import '../../../data/models/multimodal_inspection_models.dart';
 
 class FaceModalityCard extends StatefulWidget {
@@ -52,6 +53,9 @@ class _FaceModalityCardState extends State<FaceModalityCard> {
     try {
       final file = File(path);
       if (!await file.exists()) return;
+
+      await ClinicalMediaService.ensureVideoHasAudio(path);
+      if (!mounted) return;
 
       final ctrl = VideoPlayerController.file(file);
       await ctrl.initialize();
@@ -378,6 +382,7 @@ class _FaceModalityCardState extends State<FaceModalityCard> {
                               if (_videoController!.value.isPlaying) {
                                 _videoController!.pause();
                               } else {
+                                ClinicalAudioPlayerService.instance.pause();
                                 _videoController!.play();
                               }
                             });

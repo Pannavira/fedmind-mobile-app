@@ -295,7 +295,7 @@ class _ClinicalVerificationScreenState
       screening: widget.screening,
       verification: verification,
       inspectionData: widget.inspectionData,
-      videoPath: widget.localVideoPath,
+      videoPath: widget.localVideoPath ?? widget.inspectionData?.videoPath,
     );
 
     if (!mounted) return;

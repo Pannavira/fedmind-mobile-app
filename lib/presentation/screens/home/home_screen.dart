@@ -9,6 +9,7 @@ import 'package:fedmind_mobile_app/presentation/screens/history/screening_histor
 import 'package:fedmind_mobile_app/presentation/screens/result/screening_result_screen.dart';
 import 'package:fedmind_mobile_app/presentation/screens/verification/clinical_verification_screen.dart';
 import 'package:fedmind_mobile_app/presentation/screens/screening/screening_form_screen.dart';
+import 'package:fedmind_mobile_app/presentation/widgets/calibration_benchmark_dialog.dart';
 import 'package:fedmind_mobile_app/presentation/widgets/clinical_disclaimer_dialog.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -42,11 +43,32 @@ class _HomeScreenState extends State<HomeScreen> {
       provider.checkServerHealth();
       provider.fetchHistory(limit: 50);
 
+      bool openedDisclaimerHere = false;
       if (!_hasShownDisclaimer && mounted) {
         _hasShownDisclaimer = true;
+        openedDisclaimerHere = true;
         ClinicalDisclaimerDialog.show(context);
       }
+
+      _checkBenchmarkLaunch(dismissDisclaimerFirst: openedDisclaimerHere);
     });
+  }
+
+  Future<void> _checkBenchmarkLaunch({
+    required bool dismissDisclaimerFirst,
+  }) async {
+    bool launchedBenchmark = false;
+    try {
+      const ch = MethodChannel('com.fedmind.edge/multimodal_extractor');
+      final res = await ch.invokeMethod<bool>('consumeBenchmarkLaunch');
+      launchedBenchmark = res == true;
+    } catch (_) {}
+
+    if (!mounted || !launchedBenchmark) return;
+    if (dismissDisclaimerFirst) {
+      Navigator.of(context, rootNavigator: true).maybePop();
+    }
+    CalibrationBenchmarkDialog.show(context);
   }
 
   @override
@@ -906,6 +928,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   MaterialPageRoute(
                     builder: (context) => ScreeningResultScreen(
                       result: provider.currentScreening!,
+                      localVideoPath: provider.currentInspectionData?.videoPath,
                       inspectionData: provider.currentInspectionData,
                       initialNavIndex: 0,
                     ),
@@ -1027,6 +1050,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               MaterialPageRoute(
                                 builder: (context) => ClinicalVerificationScreen(
                                   screening: provider.currentScreening!,
+                                  localVideoPath: provider.currentInspectionData?.videoPath,
                                   inspectionData: provider.currentInspectionData,
                                   initialNavIndex: 0,
                                 ),

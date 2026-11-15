@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 import '../../core/services/local_preprocessing_service.dart';
 import '../../core/services/local_storage_service.dart';
@@ -440,9 +442,21 @@ class ScreeningProvider extends ChangeNotifier {
 
         final savedInspection =
             await repository.getLocalInspectionData(screeningId);
+        final savedVideoPath =
+            await repository.getLocalVideoPath(screeningId);
         if (savedInspection != null) {
-          _currentInspectionData = savedInspection;
-          _localInspectionCache[screeningId] = savedInspection;
+          final hasInspectionVideo =
+              savedInspection.videoPath != null &&
+              savedInspection.videoPath!.trim().isNotEmpty;
+          final enriched = (!hasInspectionVideo &&
+                  savedVideoPath != null &&
+                  savedVideoPath.trim().isNotEmpty)
+              ? savedInspection.copyWith(videoPath: savedVideoPath.trim())
+              : savedInspection;
+          _currentInspectionData = enriched;
+          _localInspectionCache[screeningId] = enriched;
+        } else {
+          _currentInspectionData = _localInspectionCache[screeningId];
         }
       } else if (_localScreeningCache.containsKey(screeningId)) {
         _currentScreening = _localScreeningCache[screeningId];
@@ -460,6 +474,21 @@ class ScreeningProvider extends ChangeNotifier {
       _isExecuting = false;
       notifyListeners();
     }
+  }
+
+  /// Mengambil path video lokal tersimpan di SQLite (untuk History & Detail).
+  Future<String?> resolveLocalVideoPath(String screeningId) async {
+    final cached = _localInspectionCache[screeningId]?.videoPath;
+    if (cached != null && cached.trim().isNotEmpty) {
+      return cached.trim();
+    }
+    try {
+      final dbPath = await repository.getLocalVideoPath(screeningId);
+      if (dbPath != null && dbPath.trim().isNotEmpty) {
+        return dbPath.trim();
+      }
+    } catch (_) {}
+    return null;
   }
 
   /// Menghapus riwayat skrining dari SQLite dan memori
@@ -512,4 +541,285 @@ class ScreeningProvider extends ChangeNotifier {
       return false;
     }
   }
+
+  /// Menjalankan uji kalibrasi Before vs After pada seluruh rekaman lokal di riwayat SQLite
+  /// tanpa mengubah data atau skor asli yang tersimpan di database.
+  Future<List<CalibrationBenchmarkEntry>> runHistoryCalibrationBenchmark({
+    void Function(String message)? onStatus,
+  }) async {
+    final items = await repository.getLocalScreeningHistory(limit: 100);
+    final results = <CalibrationBenchmarkEntry>[];
+    debugPrint('[CALIB_BENCHMARK] START total_records=${items.length}');
+
+    for (int i = 0; i < items.length; i++) {
+      final item = items[i];
+      onStatus?.call(
+        'Mengevaluasi skenario ${i + 1}/${items.length}: ${item.participantId}...',
+      );
+
+      final detail = await repository.getLocalScreeningDetail(item.screeningId);
+      final insp = await repository.getLocalInspectionData(item.screeningId);
+      final savedVideoPath =
+          (insp?.videoPath != null && insp!.videoPath!.trim().isNotEmpty)
+              ? insp.videoPath!.trim()
+              : await repository.getLocalVideoPath(item.screeningId);
+
+      final transcriptText = insp?.fullTranscript.trim() ?? '';
+      final clientTranscript =
+          transcriptText.isNotEmpty ? transcriptText : null;
+      final savedSnap = CalibrationRunSnapshot.fromSaved(
+        item: item,
+        detail: detail,
+        insp: insp,
+      );
+
+      if (savedVideoPath == null || !await File(savedVideoPath).exists()) {
+        debugPrint(
+          '[CALIB_BENCHMARK] #${i + 1} id=${item.screeningId} pid=${item.participantId} SKIP=missing_video',
+        );
+        results.add(
+          CalibrationBenchmarkEntry(
+            screeningId: item.screeningId,
+            participantId: item.participantId,
+            createdAt: item.createdAt,
+            durationSec: insp?.videoDurationSec ?? 0.0,
+            transcriptChars: transcriptText.length,
+            saved: savedSnap,
+            errorMessage: 'Berkas video lokal tidak ditemukan.',
+          ),
+        );
+        continue;
+      }
+
+      try {
+        final wavSidecar =
+            savedVideoPath.replaceFirst(RegExp(r'\.[A-Za-z0-9]+$'), '.wav');
+        final hasSidecarWav = await File(wavSidecar).exists();
+        final disableVisual = insp?.isVisualBranchDisabled == true;
+
+        final legFeat = await MultimodalExtractorService.extractFromLocalVideo(
+          videoPath: savedVideoPath,
+          participantId: item.participantId,
+          clientTranscript: clientTranscript,
+          requireFaceDetection: false,
+          audioProfile: AudioCalibrationProfile.legacyBaseline,
+        );
+        final legResp = await repository.executeLocalScreening(
+          participantId: item.participantId,
+          textFeatures: legFeat.textFeatures,
+          audioFeatures: legFeat.audioFeatures,
+          visualFeatures: legFeat.visualFeatures,
+          sessionId: '${item.screeningId}_LEG',
+          transcription: clientTranscript,
+          disableVisualBranch: disableVisual,
+        );
+        final legSnap = CalibrationRunSnapshot.fromRun(
+          response: legResp,
+          features: legFeat,
+          coalitions: repository.localInferenceService.lastCoalitionScores,
+        );
+
+        final calFeat = await MultimodalExtractorService.extractFromLocalVideo(
+          videoPath: savedVideoPath,
+          participantId: item.participantId,
+          clientTranscript: clientTranscript,
+          requireFaceDetection: false,
+          audioProfile: AudioCalibrationProfile.phoneMicCalibrated,
+        );
+        final calResp = await repository.executeLocalScreening(
+          participantId: item.participantId,
+          textFeatures: calFeat.textFeatures,
+          audioFeatures: calFeat.audioFeatures,
+          visualFeatures: calFeat.visualFeatures,
+          sessionId: '${item.screeningId}_CAL',
+          transcription: clientTranscript,
+          disableVisualBranch: disableVisual,
+        );
+        final calSnap = CalibrationRunSnapshot.fromRun(
+          response: calResp,
+          features: calFeat,
+          coalitions: repository.localInferenceService.lastCoalitionScores,
+        );
+
+        debugPrint(
+          '[CALIB_BENCHMARK] #${i + 1} id=${item.screeningId} pid=${item.participantId} '
+          'created=${item.createdAt} dur=${calFeat.inspectionData.videoDurationSec.toStringAsFixed(1)}s '
+          'txtChars=${transcriptText.length} hasWav=$hasSidecarWav '
+          'faces=${calFeat.facesDetected}/${calFeat.framesAnalyzed} samples=${calFeat.audioSamplesAnalyzed}',
+        );
+        debugPrint('[CALIB_BENCHMARK]   SAVED  ${savedSnap.toLogSummary()}');
+        debugPrint('[CALIB_BENCHMARK]   LEGACY ${legSnap.toLogSummary()}');
+        debugPrint('[CALIB_BENCHMARK]   CALIB  ${calSnap.toLogSummary()}');
+
+        results.add(
+          CalibrationBenchmarkEntry(
+            screeningId: item.screeningId,
+            participantId: item.participantId,
+            createdAt: item.createdAt,
+            durationSec: calFeat.inspectionData.videoDurationSec,
+            transcriptChars: transcriptText.length,
+            hasSidecarWav: hasSidecarWav,
+            facesDetected: calFeat.facesDetected,
+            framesAnalyzed: calFeat.framesAnalyzed,
+            saved: savedSnap,
+            legacy: legSnap,
+            calibrated: calSnap,
+          ),
+        );
+      } catch (e) {
+        debugPrint(
+          '[CALIB_BENCHMARK] #${i + 1} id=${item.screeningId} ERROR=$e',
+        );
+        results.add(
+          CalibrationBenchmarkEntry(
+            screeningId: item.screeningId,
+            participantId: item.participantId,
+            createdAt: item.createdAt,
+            durationSec: insp?.videoDurationSec ?? 0.0,
+            transcriptChars: transcriptText.length,
+            saved: savedSnap,
+            errorMessage: e.toString(),
+          ),
+        );
+      }
+    }
+
+    debugPrint('[CALIB_BENCHMARK] DONE evaluated=${results.length}');
+    return results;
+  }
+}
+
+class CalibrationRunSnapshot {
+  final double phq8Score;
+  final String riskCategory;
+  final String dominantModality;
+  final double audioPct;
+  final double visualPct;
+  final double textPct;
+  final double rms;
+  final double actRms;
+  final double p90Rms;
+  final double noiseFloor;
+  final double pitchMean;
+  final double pitchStd;
+  final double pauseRatio;
+  final double jitterPct;
+  final double shimmerPct;
+  final double audioSeverity;
+  final List<double> coalitionScores;
+
+  const CalibrationRunSnapshot({
+    required this.phq8Score,
+    required this.riskCategory,
+    required this.dominantModality,
+    this.audioPct = 0.0,
+    this.visualPct = 0.0,
+    this.textPct = 0.0,
+    this.rms = 0.0,
+    this.actRms = 0.0,
+    this.p90Rms = 0.0,
+    this.noiseFloor = 0.0,
+    this.pitchMean = 0.0,
+    this.pitchStd = 0.0,
+    this.pauseRatio = 0.0,
+    this.jitterPct = 0.0,
+    this.shimmerPct = 0.0,
+    this.audioSeverity = 0.0,
+    this.coalitionScores = const [],
+  });
+
+  factory CalibrationRunSnapshot.fromSaved({
+    required ScreeningSummaryItem item,
+    ScreeningResponse? detail,
+    MultimodalInspectionData? insp,
+  }) {
+    final attr = detail?.patientModalityAttribution;
+    return CalibrationRunSnapshot(
+      phq8Score: detail?.prediction?.phq8Score ?? item.phq8Score ?? 0.0,
+      riskCategory: detail?.prediction?.riskCategory ?? item.riskCategory ?? '-',
+      dominantModality: attr?.dominantModality ?? item.dominantModality ?? '-',
+      audioPct: attr?.audioPct ?? 0.0,
+      visualPct: attr?.visualPct ?? 0.0,
+      textPct: attr?.textPct ?? 0.0,
+      pitchMean: insp?.avgPitchHz ?? 0.0,
+      pitchStd: insp?.pitchStdHz ?? 0.0,
+      pauseRatio: (insp?.pauseRatioPct ?? 0.0) / 100.0,
+      jitterPct: insp?.jitterPct ?? 0.0,
+      shimmerPct: insp?.shimmerPct ?? 0.0,
+      coalitionScores:
+          insp?.coalitionScores.map((c) => c.predictedScore).toList() ??
+              const [],
+    );
+  }
+
+  factory CalibrationRunSnapshot.fromRun({
+    required ScreeningResponse response,
+    required ExtractedMultimodalFeatures features,
+    required List<CoalitionStepScore> coalitions,
+  }) {
+    final stats = features.audioSummaryStats;
+    final ins = features.inspectionData;
+    final attr = response.patientModalityAttribution;
+    return CalibrationRunSnapshot(
+      phq8Score: response.prediction?.phq8Score ?? 0.0,
+      riskCategory: response.prediction?.riskCategory ?? '-',
+      dominantModality: attr?.dominantModality ?? '-',
+      audioPct: attr?.audioPct ?? 0.0,
+      visualPct: attr?.visualPct ?? 0.0,
+      textPct: attr?.textPct ?? 0.0,
+      rms: stats['rms'] ?? 0.0,
+      actRms: stats['actRms'] ?? (stats['rms'] ?? 0.0),
+      p90Rms: stats['p90Rms'] ?? 0.0,
+      noiseFloor: stats['noiseFloor'] ?? 0.0,
+      pitchMean: stats['pitchMean'] ?? ins.avgPitchHz,
+      pitchStd: stats['pitchStd'] ?? ins.pitchStdHz,
+      pauseRatio: stats['pauseRatio'] ?? (ins.pauseRatioPct / 100.0),
+      jitterPct: (stats['jitter'] ?? (ins.jitterPct / 100.0)) * 100.0,
+      shimmerPct: (stats['shimmer'] ?? (ins.shimmerPct / 100.0)) * 100.0,
+      audioSeverity: stats['audioSeverity'] ?? 0.0,
+      coalitionScores: coalitions.map((c) => c.predictedScore).toList(),
+    );
+  }
+
+  String toLogSummary() {
+    final sStr = coalitionScores.map((v) => v.toStringAsFixed(2)).join(',');
+    return 'phq8=${phq8Score.toStringAsFixed(2)} risk=$riskCategory '
+        'dom=$dominantModality(A:${audioPct.toStringAsFixed(1)}%,V:${visualPct.toStringAsFixed(1)}%,T:${textPct.toStringAsFixed(1)}%) '
+        'rms=${rms.toStringAsFixed(4)} act=${actRms.toStringAsFixed(4)} '
+        'p90=${p90Rms.toStringAsFixed(4)} nf=${noiseFloor.toStringAsFixed(4)} '
+        'f0=${pitchMean.toStringAsFixed(1)}±${pitchStd.toStringAsFixed(1)} '
+        'pause=${(pauseRatio * 100).toStringAsFixed(1)}% '
+        'jit=${jitterPct.toStringAsFixed(2)}% shim=${shimmerPct.toStringAsFixed(2)}% '
+        'sev=${audioSeverity.toStringAsFixed(3)} S=[$sStr]';
+  }
+}
+
+class CalibrationBenchmarkEntry {
+  final String screeningId;
+  final String participantId;
+  final String createdAt;
+  final double durationSec;
+  final int transcriptChars;
+  final bool hasSidecarWav;
+  final int facesDetected;
+  final int framesAnalyzed;
+  final CalibrationRunSnapshot saved;
+  final CalibrationRunSnapshot? legacy;
+  final CalibrationRunSnapshot? calibrated;
+  final String? errorMessage;
+
+  const CalibrationBenchmarkEntry({
+    required this.screeningId,
+    required this.participantId,
+    required this.createdAt,
+    required this.durationSec,
+    required this.transcriptChars,
+    this.hasSidecarWav = false,
+    this.facesDetected = 0,
+    this.framesAnalyzed = 0,
+    required this.saved,
+    this.legacy,
+    this.calibrated,
+    this.errorMessage,
+  });
 }

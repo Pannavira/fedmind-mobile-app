@@ -1040,5 +1040,139 @@ void main() {
         expect(clauses.first, contains('terakhir ini bagus'));
       },
     );
+
+    test(
+      'AudioCalibrationProfile: quiet VOICE_RECOGNITION normal male speech stays low severity while genuinely paused monotone speech elevates cleanly',
+      () async {
+        const channel = MethodChannel('com.fedmind.edge/multimodal_extractor');
+        final binding = TestDefaultBinaryMessengerBinding.instance;
+        final List<bool?> receivedFullDurationFlags = [];
+
+        const int sr = 16000;
+        const int nSamples = 80000; // 5 detik @ 16 kHz
+
+        // 1. Pembicaraan pria wajar lewat mic VOICE_RECOGNITION lembut (p90~0.016, bicara ~72%, intonasi variatif 105-145 Hz)
+        final normalPcm = List<double>.filled(nSamples, 0.0);
+        double phaseNorm = 0.0;
+        for (int n = 0; n < nSamples; n++) {
+          final sec = n / sr;
+          final isSpeaking = (sec % 1.0) < 0.72;
+          final f0 = 124.0 + 20.0 * sin(2 * pi * 0.9 * sec);
+          phaseNorm += (2 * pi * f0) / sr;
+          if (isSpeaking) {
+            normalPcm[n] = 0.020 *
+                (sin(phaseNorm) +
+                    0.40 * sin(2 * phaseNorm) +
+                    0.18 * sin(3 * phaseNorm));
+          } else {
+            normalPcm[n] = 0.0012 * cos(n * 1.9);
+          }
+        }
+
+        // 2. Pembicaraan tertekan: jeda panjang (~65%), monoton (102 ± 3 Hz), lirih
+        final depressedPcm = List<double>.filled(nSamples, 0.0);
+        double phaseDep = 0.0;
+        for (int n = 0; n < nSamples; n++) {
+          final sec = n / sr;
+          final isSpeaking = (sec % 2.0) < 0.70; // aktif ~35%, jeda ~65%
+          final f0 = 102.0 + 3.0 * sin(2 * pi * 0.4 * sec);
+          phaseDep += (2 * pi * f0) / sr;
+          if (isSpeaking) {
+            depressedPcm[n] = 0.011 *
+                (sin(phaseDep) +
+                    0.25 * sin(2 * phaseDep) +
+                    0.08 * sin(3 * phaseDep));
+          } else {
+            depressedPcm[n] = 0.0012 * cos(n * 1.9);
+          }
+        }
+
+        final baseFrames = List<Map<String, dynamic>>.generate(12, (i) {
+          return {
+            'index': i,
+            'timeSec': i * 2.0,
+            'faceFound': 1.0,
+            'confidence': 0.92,
+            'bboxLeft': 0.25,
+            'bboxTop': 0.20,
+            'bboxRight': 0.75,
+            'bboxBottom': 0.85,
+            'eulerX': 1.0,
+            'eulerY': 0.5,
+            'eulerZ': 0.2,
+            'browActivation': 0.30,
+            'eyeOpenness': 0.90,
+            'cheekActivation': 0.35,
+            'mouthActivation': 0.55,
+            'mouthOpenness': 0.45,
+            'asymmetry': 0.03,
+            'motionEnergy': 0.25,
+          };
+        });
+
+        binding.defaultBinaryMessenger.setMockMethodCallHandler(channel, (call) async {
+          if (call.method == 'extractVideoMultimodal') {
+            final args = call.arguments as Map<dynamic, dynamic>;
+            receivedFullDurationFlags
+                .add(args['fullDurationAudioSampling'] as bool?);
+            final vid = args['videoPath'] as String;
+            final isNorm = vid == tempFileA.path;
+            return {
+              'visual': {
+                'frames': baseFrames,
+                'facesDetectedCount': 12,
+                'totalSampled': 12,
+                'durationMs': 35000,
+              },
+              'audio': {
+                'pcmSamples': isNorm ? normalPcm : depressedPcm,
+                'sampleRate': sr,
+              },
+            };
+          }
+          return null;
+        });
+
+        try {
+          final normLegacy = await MultimodalExtractorService.extractFromLocalVideo(
+            videoPath: tempFileA.path,
+            participantId: 'QUIET_NORM_LEG',
+            audioProfile: AudioCalibrationProfile.legacyBaseline,
+          );
+          final normCal = await MultimodalExtractorService.extractFromLocalVideo(
+            videoPath: tempFileA.path,
+            participantId: 'QUIET_NORM_CAL',
+            audioProfile: AudioCalibrationProfile.phoneMicCalibrated,
+          );
+          final depCal = await MultimodalExtractorService.extractFromLocalVideo(
+            videoPath: tempFileB.path,
+            participantId: 'DEP_MON_CAL',
+            audioProfile: AudioCalibrationProfile.phoneMicCalibrated,
+          );
+
+          expect(receivedFullDurationFlags, equals([false, true, true]));
+
+          // Baseline legacy keliru menilai audio VOICE_RECOGNITION lembut sebagai rendah energi / jeda tinggi
+          expect(
+            normLegacy.audioSummaryStats['audioSeverity']!,
+            greaterThan(normCal.audioSummaryStats['audioSeverity']!),
+          );
+
+          // Kalibrasi adaptif menangkap bicara pria lembut secara akurat
+          expect(normCal.inspectionData.pauseRatioPct, lessThan(45.0));
+          expect(normCal.audioSummaryStats['audioSeverity']!, lessThan(0.05));
+          expect(normCal.inspectionData.avgPitchHz, inInclusiveRange(100.0, 150.0));
+
+          // Bicara tertekan (jeda panjang & monoton) tetap terdeteksi bermakna lebih tinggi
+          expect(depCal.inspectionData.pauseRatioPct, greaterThan(55.0));
+          expect(
+            depCal.audioSummaryStats['audioSeverity']!,
+            greaterThan(normCal.audioSummaryStats['audioSeverity']! + 0.30),
+          );
+        } finally {
+          binding.defaultBinaryMessenger.setMockMethodCallHandler(channel, null);
+        }
+      },
+    );
   });
 }

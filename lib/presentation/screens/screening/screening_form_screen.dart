@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import 'package:video_player/video_player.dart';
 
 import '../../../core/constants/clinical_constants.dart';
+import '../../../core/services/clinical_media_service.dart';
 import '../../../core/services/local_storage_service.dart';
 import '../../../core/services/multimodal_extractor_service.dart';
 import '../../../data/models/multimodal_inspection_models.dart';
@@ -131,6 +132,9 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
       await _inlineVideoController?.dispose();
       final file = File(videoPath);
       if (!await file.exists()) return;
+
+      await ClinicalMediaService.ensureVideoHasAudio(videoPath);
+      if (!mounted) return;
 
       final controller = VideoPlayerController.file(file);
       await controller.initialize();

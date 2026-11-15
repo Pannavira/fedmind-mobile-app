@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
+import '../../core/services/clinical_media_service.dart';
 
 class LocalVideoPlayerDialog extends StatefulWidget {
   final String videoPath;
@@ -54,6 +55,10 @@ class _LocalVideoPlayerDialogState extends State<LocalVideoPlayerDialog> {
         });
         return;
       }
+
+      await ClinicalAudioPlayerService.instance.pause();
+      await ClinicalMediaService.ensureVideoHasAudio(widget.videoPath);
+      if (!mounted) return;
 
       _controller = VideoPlayerController.file(file);
       await _controller.initialize();

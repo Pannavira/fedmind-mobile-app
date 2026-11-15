@@ -8,6 +8,7 @@ import 'package:fedmind_mobile_app/data/models/screening_models.dart';
 import 'package:fedmind_mobile_app/presentation/providers/screening_provider.dart';
 import 'package:fedmind_mobile_app/presentation/screens/result/screening_result_screen.dart';
 import 'package:fedmind_mobile_app/presentation/screens/verification/clinical_verification_screen.dart';
+import 'package:fedmind_mobile_app/presentation/widgets/calibration_benchmark_dialog.dart';
 import 'package:fedmind_mobile_app/presentation/widgets/risk_badge.dart';
 
 class ScreeningHistoryScreen extends StatefulWidget {
@@ -76,6 +77,7 @@ class _ScreeningHistoryScreenState extends State<ScreeningHistoryScreen> {
         MaterialPageRoute(
           builder: (context) => ScreeningResultScreen(
             result: provider.currentScreening!,
+            localVideoPath: provider.currentInspectionData?.videoPath,
             inspectionData: provider.currentInspectionData,
             initialNavIndex: 3,
           ),
@@ -103,6 +105,7 @@ class _ScreeningHistoryScreenState extends State<ScreeningHistoryScreen> {
         MaterialPageRoute(
           builder: (context) => ClinicalVerificationScreen(
             screening: provider.currentScreening!,
+            localVideoPath: provider.currentInspectionData?.videoPath,
             inspectionData: provider.currentInspectionData,
             initialNavIndex: 3,
           ),
@@ -545,6 +548,11 @@ class _ScreeningHistoryScreenState extends State<ScreeningHistoryScreen> {
           ],
         ),
         actions: [
+          IconButton(
+            onPressed: () => CalibrationBenchmarkDialog.show(context),
+            icon: const Icon(Icons.tune_rounded),
+            tooltip: 'Uji Kalibrasi Riwayat',
+          ),
           IconButton(
             onPressed: () => _openExportSheet(provider),
             icon: const Icon(Icons.ios_share_rounded),

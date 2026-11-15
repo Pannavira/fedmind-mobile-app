@@ -26,7 +26,7 @@ class FaceNotDetectedException implements Exception {
   String toString() => message;
 }
 
-/// Pengecualian ketika platform non-Android (mis. iOS) belum memiliki ekstraktor
+/// Pengecualian ketika platform non-Android belum memiliki ekstraktor
 /// frame wajah native sehingga cabang visual diblokir secara eksplisit.
 class UnsupportedVisualPlatformException implements Exception {
   final String platformName;
@@ -39,6 +39,15 @@ class UnsupportedVisualPlatformException implements Exception {
 
   @override
   String toString() => message;
+}
+
+/// Profil kalibrasi fitur akustik mikrofon saat ekstraksi on-device.
+enum AudioCalibrationProfile {
+  /// Kalibrasi adaptif untuk mikrofon ponsel (full-duration sampling, VAD adaptif, kurva Bezier E-DAIC).
+  phoneMicCalibrated,
+
+  /// Baseline pra-kalibrasi (15 detik awal saja, VAD ambang tinggi, lowProtoGain 0.08).
+  legacyBaseline,
 }
 
 class ExtractedMultimodalFeatures {
@@ -59,6 +68,7 @@ class ExtractedMultimodalFeatures {
   final String textEmbeddingEngine;
   final bool isVisualBranchDisabled;
   final String? visualBranchWarning;
+  final Map<String, double> audioSummaryStats;
   final MultimodalInspectionData inspectionData;
 
   ExtractedMultimodalFeatures({
@@ -79,15 +89,14 @@ class ExtractedMultimodalFeatures {
     this.textEmbeddingEngine = 'Multilingual-E5-Small INT4 ONNX (768D)',
     this.isVisualBranchDisabled = false,
     this.visualBranchWarning,
+    this.audioSummaryStats = const {},
     required this.inspectionData,
   });
 
   Map<String, dynamic> toMetadataMap() {
     return {
       'source': 'FED-MIND Real On-Device Multimodal Extractor (Native + DSP)',
-      'device_platform': Platform.isAndroid
-          ? 'Android'
-          : (Platform.isIOS ? 'iOS' : 'Desktop'),
+      'device_platform': Platform.isAndroid ? 'Android' : 'Desktop',
       'video_local_path': videoPath,
       'video_size_mb': videoSizeMb.toStringAsFixed(2),
       'frames_analyzed': framesAnalyzed,
@@ -245,6 +254,7 @@ class MultimodalExtractorService {
     String? clientTranscript,
     bool requireFaceDetection = true,
     double minFaceDetectionRate = 0.40,
+    AudioCalibrationProfile audioProfile = AudioCalibrationProfile.phoneMicCalibrated,
     @visibleForTesting bool allowSyntheticByteFallback = false,
     void Function(String stage, double progress)? onProgress,
   }) async {
@@ -292,6 +302,8 @@ class MultimodalExtractorService {
           'targetSampleRate': 16000,
           // WAV dari MicSession (mic tunggal) bila ada; jika tidak, audio track video
           'audioWavPath': await _sidecarWavIfExists(videoPath),
+          'fullDurationAudioSampling':
+              audioProfile == AudioCalibrationProfile.phoneMicCalibrated,
         },
       );
 
@@ -340,7 +352,7 @@ class MultimodalExtractorService {
       nativeSuccess = false;
     }
 
-    // Proteksi platform non-Android (mis. iOS): jangan menyamarkan byte mentah MP4
+    // Proteksi platform non-Android: jangan menyamarkan byte mentah MP4
     // sebagai sinyal wajah manusia. Hanya izinkan fallback byte bila diaktifkan
     // secara eksplisit pada unit test desktop (@visibleForTesting).
     if (!nativeSuccess && missingPluginOnNonAndroid && !Platform.isAndroid) {
@@ -433,7 +445,11 @@ class MultimodalExtractorService {
       'Menganalisis gelombang suara (${pcmSamples.length} sampel PCM @ ${sampleRate}Hz)...',
       0.75,
     );
-    final audioResult = _computeRealAcousticFeatures248D(pcmSamples, sampleRate);
+    final audioResult = _computeRealAcousticFeatures248D(
+      pcmSamples,
+      sampleRate,
+      profile: audioProfile,
+    );
     debugPrint('[PERF] visual+acoustic features done at: ${perfSw.elapsedMilliseconds} ms');
 
     // Tahap 4: On-Device Google STT & Cross-Lingual Translation
@@ -572,6 +588,7 @@ class MultimodalExtractorService {
       textEmbeddingEngine: textEmbeddingEngine,
       isVisualBranchDisabled: isVisualBranchDisabled,
       visualBranchWarning: visualBranchWarning,
+      audioSummaryStats: audioResult.summaryStats,
       inspectionData: inspectionData,
     );
   }
@@ -1137,13 +1154,17 @@ class MultimodalExtractorService {
   /// serta Normalized Cross-Correlation Function (NCCF) Pitch F0, Jitter, Shimmer, RMS Energy, dan Zero-Crossing Rate.
   static _AudioExtractionResult _computeRealAcousticFeatures248D(
     List<double> pcmSamples,
-    int sampleRate,
-  ) {
+    int sampleRate, {
+    AudioCalibrationProfile profile = AudioCalibrationProfile.phoneMicCalibrated,
+  }) {
     if (pcmSamples.length < 256) {
       return _AudioExtractionResult(
         features: List<double>.filled(248, 0.0),
         summaryStats: {
           'rms': 0.0,
+          'actRms': 0.0,
+          'p90Rms': 0.0,
+          'noiseFloor': 0.0,
           'pitchMean': 0.0,
           'pitchStd': 0.0,
           'voicedRatio': 0.0,
@@ -1160,6 +1181,8 @@ class MultimodalExtractorService {
     const int hopLen = 128;
     const int numMelBins = 26;
     const int numMfcc = 13;
+    final bool isCalibrated =
+        profile == AudioCalibrationProfile.phoneMicCalibrated;
 
     // Pre-emphasis filter: y[n] = x[n] - 0.97 * x[n-1]
     final emphasized = List<double>.filled(pcmSamples.length, 0.0);
@@ -1178,26 +1201,15 @@ class MultimodalExtractorService {
     final totalPossibleFrames = (emphasized.length - frameLen) ~/ hopLen;
     final frameStep = max(1, totalPossibleFrames ~/ 360);
 
-    final mfccFrames = <List<double>>[];
-    final logMelFrames = <List<double>>[];
+    // Pass 1: Hitung distribusi energi RMS & ZCR di seluruh frame untuk menentukan noise floor adaptif
+    final frameOffsets = <int>[];
+    final rawMeanList = <double>[];
     final rmsList = <double>[];
     final zcrList = <double>[];
-    final rawPitchCandidates = <double>[];
-    final pitchFrameIndices = <int>[];
-    final framePitchOrZero = <double>[];
-    final frameNccfList = <double>[];
-    final peakAmpList = <double>[];
+    final peakAmpByFrame = <double>[];
 
-    final melFilterbank = _buildMelFilterbank(
-      numBins: numMelBins,
-      fftSize: frameLen,
-      sampleRate: sampleRate,
-    );
-
-    int analyzedFrameIdx = 0;
     for (int fIdx = 0; fIdx < totalPossibleFrames; fIdx += frameStep) {
       final offset = fIdx * hopLen;
-      final frame = List<double>.filled(frameLen, 0.0);
       double rawEnergySum = 0.0;
       double rawMean = 0.0;
       int zeroCrossings = 0;
@@ -1213,14 +1225,63 @@ class MultimodalExtractorService {
                 (raw < 0 && pcmSamples[offset + n - 1] >= 0))) {
           zeroCrossings++;
         }
+      }
+      frameOffsets.add(offset);
+      rawMeanList.add(rawMean / frameLen);
+      rmsList.add(sqrt(rawEnergySum / frameLen));
+      zcrList.add(zeroCrossings / frameLen);
+      peakAmpByFrame.add(peakAmp);
+    }
+
+    final sortedRms = List<double>.from(rmsList)..sort();
+    final p05Rms = sortedRms.isEmpty
+        ? 0.0
+        : sortedRms[(sortedRms.length * 0.05).floor().clamp(0, sortedRms.length - 1)];
+    final p90Rms = sortedRms.isEmpty
+        ? 0.05
+        : sortedRms[(sortedRms.length * 0.90).floor().clamp(0, sortedRms.length - 1)];
+    final noiseFloor = min(p05Rms, p90Rms * 0.35);
+
+    final double pitchRmsFloor =
+        isCalibrated ? min(0.006, max(0.0012, p90Rms * 0.07)) : 0.006;
+    final double pitchZcrMax = isCalibrated ? 0.42 : 0.40;
+    final double nccfMin = isCalibrated ? 0.42 : 0.45;
+    final double vadThreshold = isCalibrated
+        ? max(0.0020, noiseFloor + (p90Rms - noiseFloor) * 0.18)
+        : max(0.007, noiseFloor + (p90Rms - noiseFloor) * 0.22);
+    final double vadZcrMax = isCalibrated ? 0.46 : 0.44;
+    final double periodicRmsMin = isCalibrated
+        ? max(0.0015, p90Rms * 0.10)
+        : max(0.005, p90Rms * 0.12);
+    final double periodicNccfMin = isCalibrated ? 0.42 : 0.48;
+
+    final mfccFrames = <List<double>>[];
+    final logMelFrames = <List<double>>[];
+    final rawPitchCandidates = <double>[];
+    final pitchFrameIndices = <int>[];
+    final framePitchOrZero = <double>[];
+    final frameNccfList = <double>[];
+    final peakAmpList = <double>[];
+    final intraCycleShimmers = <double>[];
+
+    final melFilterbank = _buildMelFilterbank(
+      numBins: numMelBins,
+      fftSize: frameLen,
+      sampleRate: sampleRate,
+    );
+
+    // Pass 2: Ekstrak F0 NCCF (dengan pitchRmsFloor adaptif) & MFCC + Log-Mel
+    for (int frameIdx = 0; frameIdx < frameOffsets.length; frameIdx++) {
+      final offset = frameOffsets[frameIdx];
+      final rawMean = rawMeanList[frameIdx];
+      final rms = rmsList[frameIdx];
+      final zcr = zcrList[frameIdx];
+      final peakAmp = peakAmpByFrame[frameIdx];
+
+      final frame = List<double>.filled(frameLen, 0.0);
+      for (int n = 0; n < frameLen; n++) {
         frame[n] = emphasized[offset + n] * hamming[n];
       }
-      rawMean /= frameLen;
-
-      final rms = sqrt(rawEnergySum / frameLen);
-      final zcr = zeroCrossings / frameLen;
-      rmsList.add(rms);
-      zcrList.add(zcr);
 
       // Low-pass filter 3-tap (zero-phase smoothing) & mean-centering untuk menekan Formant 1 (>300 Hz)
       // sebelum menghitung Normalized Cross-Correlation Function (NCCF) pada rentang vokal manusia (75 Hz - 285 Hz).
@@ -1234,7 +1295,7 @@ class MultimodalExtractorService {
 
       double bestNccf = 0.0;
       double detectedF0 = 0.0;
-      if (rms > 0.006 && zcr < 0.40) {
+      if (rms > pitchRmsFloor && zcr < pitchZcrMax) {
         final minLag = max(2, sampleRate ~/ 285);
         final maxLag = min(frameLen - 16, sampleRate ~/ 75);
         final nccfByLag = List<double>.filled(maxLag + 2, 0.0);
@@ -1258,7 +1319,7 @@ class MultimodalExtractorService {
           }
         }
 
-        if (bestNccf > 0.45) {
+        if (bestNccf > nccfMin) {
           // Pilih puncak lokal pertama yang mencapai >= 92% dari puncak global NCCF
           // untuk mencegah subharmonik (kelipatan periode 2*T0) menggeser F0 ke separuh frekuensi.
           int chosenLag = minLag;
@@ -1298,13 +1359,38 @@ class MultimodalExtractorService {
 
           detectedF0 = (sampleRate / refinedLag).clamp(75.0, 285.0);
           rawPitchCandidates.add(detectedF0);
-          pitchFrameIndices.add(analyzedFrameIdx);
+          pitchFrameIndices.add(frameIdx);
           peakAmpList.add(peakAmp);
+          if (isCalibrated && bestNccf > 0.55) {
+            final periodSamples = refinedLag.round().clamp(2, 220);
+            if (offset + periodSamples * 2 <= pcmSamples.length) {
+              double sum1 = 0.0;
+              double sum2 = 0.0;
+              for (int n = 0; n < periodSamples; n++) {
+                sum1 += pcmSamples[offset + n];
+                sum2 += pcmSamples[offset + periodSamples + n];
+              }
+              final m1 = sum1 / periodSamples;
+              final m2 = sum2 / periodSamples;
+              double sq1 = 0.0;
+              double sq2 = 0.0;
+              for (int n = 0; n < periodSamples; n++) {
+                final d1 = pcmSamples[offset + n] - m1;
+                final d2 = pcmSamples[offset + periodSamples + n] - m2;
+                sq1 += d1 * d1;
+                sq2 += d2 * d2;
+              }
+              final r1 = sqrt(sq1 / periodSamples);
+              final r2 = sqrt(sq2 / periodSamples);
+              intraCycleShimmers.add(
+                (r1 - r2).abs() / max(1e-6, 0.5 * (r1 + r2)),
+              );
+            }
+          }
         }
       }
       frameNccfList.add(bestNccf);
       framePitchOrZero.add(detectedF0);
-      analyzedFrameIdx++;
 
       // Radix-2 FFT untuk spektrum daya
       final re = List<double>.from(frame);
@@ -1400,7 +1486,9 @@ class MultimodalExtractorService {
     }
 
     double shimmer = 0.045;
-    if (peakAmpList.length > 2) {
+    if (isCalibrated && intraCycleShimmers.isNotEmpty) {
+      shimmer = _calcSeriesStats(intraCycleShimmers).median.clamp(0.008, 0.180);
+    } else if (peakAmpList.length > 2) {
       double ampDiffSum = 0.0;
       double ampSum = 0.0;
       int validAmpPairs = 0;
@@ -1459,25 +1547,20 @@ class MultimodalExtractorService {
 
     // Voice Activity Detection (VAD) adaptif berbasis distribusi lantai derau (noise floor p05)
     // dan puncak ucapan (p90), dikombinasikan dengan periodisitas NCCF dan ZCR
-    final sortedRms = List<double>.from(rmsList)..sort();
-    final p05Rms = sortedRms.isEmpty
-        ? 0.0
-        : sortedRms[(sortedRms.length * 0.05).floor().clamp(0, sortedRms.length - 1)];
-    final p90Rms = sortedRms.isEmpty
-        ? 0.05
-        : sortedRms[(sortedRms.length * 0.90).floor().clamp(0, sortedRms.length - 1)];
-    final noiseFloor = min(p05Rms, p90Rms * 0.35);
-    final vadThreshold = max(0.007, noiseFloor + (p90Rms - noiseFloor) * 0.22);
-
     int activeVadFrames = 0;
+    final activeRmsList = <double>[];
     for (int i = 0; i < rmsList.length; i++) {
-      final isEnergeticSpeech = rmsList[i] >= vadThreshold && zcrList[i] < 0.44;
+      final isEnergeticSpeech = rmsList[i] >= vadThreshold && zcrList[i] < vadZcrMax;
       final isPeriodicSpeech =
-          frameNccfList[i] >= 0.48 && rmsList[i] >= max(0.005, p90Rms * 0.12);
+          frameNccfList[i] >= periodicNccfMin && rmsList[i] >= periodicRmsMin;
       if (isEnergeticSpeech || isPeriodicSpeech) {
         activeVadFrames++;
+        activeRmsList.add(rmsList[i]);
       }
     }
+    final activeRmsStats = _calcSeriesStats(
+      activeRmsList.isEmpty ? rmsList : activeRmsList,
+    );
     final voicedRatio =
         (activeVadFrames / max(1, rmsList.length)).clamp(0.08, 0.95);
     final pauseRatio = (1.0 - voicedRatio).clamp(0.05, 0.92);
@@ -1511,26 +1594,48 @@ class MultimodalExtractorService {
       return double.parse(est.clamp(75.0, 285.0).toStringAsFixed(1));
     });
 
-    // Hitung Indeks Keparahan Akustik & Prosodi Vokal (audioSeverity in [-1.0, +1.15])
-    // Dikalibrasi untuk monolog wicara bebas 30-90 detik (jeda ~24-26%, std pitch ~17.5 Hz):
-    final pauseTerm = ((pauseRatio - 0.25) / 0.16).clamp(-0.95, 1.20);
-    final monotoneTerm = ((17.5 - pitchStats.std) / 7.5).clamp(-0.95, 1.10);
-    final lowPitchTerm = ((138.0 - pitchStats.mean) / 36.0).clamp(-0.85, 1.00);
-    final hypophoniaTerm = ((0.055 - rmsStats.mean) / 0.038).clamp(-0.90, 1.10);
-    final perturbationTerm = (((jitter - 0.017) / 0.012) * 0.55 +
-            ((shimmer - 0.060) / 0.040) * 0.45)
-        .clamp(-0.65, 1.05);
     final lowBandMel = logMelColStats.take(6).map((s) => s.mean).reduce((a, b) => a + b) / 6.0;
     final highBandMel = logMelColStats.skip(12).take(8).map((s) => s.mean).reduce((a, b) => a + b) / 8.0;
-    final spectralDullnessTerm = (((lowBandMel - highBandMel) - 1.5) / 2.2).clamp(-0.85, 1.00);
 
-    final audioSeverity = (0.32 * pauseTerm +
-            0.22 * monotoneTerm +
-            0.16 * lowPitchTerm +
-            0.14 * hypophoniaTerm +
-            0.10 * perturbationTerm +
-            0.06 * spectralDullnessTerm)
-        .clamp(-1.0, 1.15);
+    final double audioSeverity;
+    if (isCalibrated) {
+      final pauseTerm = ((pauseRatio - 0.36) / 0.18).clamp(-0.95, 1.20);
+      final pitchCvPct = (pitchStats.std / max(80.0, pitchStats.mean)) * 100.0;
+      final monotoneTerm = ((13.5 - pitchCvPct) / 6.5).clamp(-0.95, 1.10);
+      final lowPitchTerm = ((112.0 - pitchStats.mean) / 28.0).clamp(-0.75, 0.85);
+      final snrRatio = p90Rms / max(0.0008, noiseFloor);
+      final hypophoniaTerm = (0.60 * ((0.028 - activeRmsStats.mean) / 0.024).clamp(-0.85, 0.90) +
+              0.40 * ((4.0 - snrRatio) / 3.0).clamp(-0.80, 0.85))
+          .clamp(-0.85, 0.95);
+      final perturbationTerm = (((jitter - 0.022) / 0.015) * 0.55 +
+              ((shimmer - 0.095) / 0.055) * 0.45)
+          .clamp(-0.65, 1.05);
+      final spectralDullnessTerm = (((lowBandMel - highBandMel) - 1.8) / 2.4).clamp(-0.85, 1.00);
+      audioSeverity = (0.30 * pauseTerm +
+              0.24 * monotoneTerm +
+              0.06 * lowPitchTerm +
+              0.16 * hypophoniaTerm +
+              0.14 * perturbationTerm +
+              0.10 * spectralDullnessTerm)
+          .clamp(-1.0, 1.15);
+    } else {
+      // Dikalibrasi untuk monolog wicara bebas 30-90 detik (jeda ~24-26%, std pitch ~17.5 Hz):
+      final pauseTerm = ((pauseRatio - 0.25) / 0.16).clamp(-0.95, 1.20);
+      final monotoneTerm = ((17.5 - pitchStats.std) / 7.5).clamp(-0.95, 1.10);
+      final lowPitchTerm = ((138.0 - pitchStats.mean) / 36.0).clamp(-0.85, 1.00);
+      final hypophoniaTerm = ((0.055 - rmsStats.mean) / 0.038).clamp(-0.90, 1.10);
+      final perturbationTerm = (((jitter - 0.017) / 0.012) * 0.55 +
+              ((shimmer - 0.060) / 0.040) * 0.45)
+          .clamp(-0.65, 1.05);
+      final spectralDullnessTerm = (((lowBandMel - highBandMel) - 1.5) / 2.2).clamp(-0.85, 1.00);
+      audioSeverity = (0.32 * pauseTerm +
+              0.22 * monotoneTerm +
+              0.16 * lowPitchTerm +
+              0.14 * hypophoniaTerm +
+              0.10 * perturbationTerm +
+              0.06 * spectralDullnessTerm)
+          .clamp(-1.0, 1.15);
+    }
 
     // Susun rawAudio248D sesuai 00_prepare_index_and_features.py:
     // - Indeks 0..77: 39 kolom MFCC/Delta/Delta2 (mean & std) dibatasi halus (±0.22 sigma)
@@ -1563,15 +1668,21 @@ class MultimodalExtractorService {
       rawAudio248D,
       'audio',
       severity: audioSeverity,
-      detailAlpha: 0.04,
-      lowProtoGain: 0.08,
+      detailAlpha: isCalibrated ? 0.06 : 0.04,
+      lowProtoGain: isCalibrated ? 0.26 : 0.08,
+      zeroProtoGain: isCalibrated ? 0.38 : null,
       maxSigma: 2.5,
+      useBezierMidpointCurve: isCalibrated,
     );
 
     return _AudioExtractionResult(
       features: boundedAudio,
       summaryStats: {
         'rms': rmsStats.mean,
+        'actRms': activeRmsStats.mean,
+        'p90Rms': p90Rms,
+        'noiseFloor': noiseFloor,
+        'pitchRmsFloor': pitchRmsFloor,
         'pitchMean': pitchStats.mean,
         'pitchStd': pitchStats.std,
         'voicedRatio': voicedRatio,
@@ -1898,7 +2009,9 @@ class MultimodalExtractorService {
     required double severity,
     double detailAlpha = 0.15,
     double lowProtoGain = 1.0,
+    double? zeroProtoGain,
     double maxSigma = 2.8,
+    bool useBezierMidpointCurve = false,
     Set<int> unitIntervalIndices = const {},
     Set<int> preservePhysicalIndices = const {},
   }) {
@@ -1933,7 +2046,22 @@ class MultimodalExtractorService {
         final zm = i < zMid.length ? zMid[i] : 0.0;
         final zh = i < zHigh.length ? zHigh[i] : 0.0;
         final double zProto;
-        if (lowProtoGain < 0.999) {
+        if (useBezierMidpointCurve) {
+          // Kurva Bezier kuadratik asimetris (Asym3): redam tarikan audio negatif ekstrem agar
+          // suara normal tidak menutupi sinyal teks depresi, lalu melandai naik menuju z_high.
+          final gZero = zeroProtoGain ?? lowProtoGain;
+          final anchorNeg = zl * lowProtoGain;
+          final anchor0 = (0.65 * zl + 0.35 * zm) * gZero;
+          final ctrl = 0.35 * zm;
+          if (sev <= 0.0) {
+            final t = ((sev + 0.65) / 0.65).clamp(0.0, 1.0);
+            zProto = anchorNeg * (1.0 - t) + anchor0 * t;
+          } else {
+            final t = (sev / 0.85).clamp(0.0, 1.0);
+            final omt = 1.0 - t;
+            zProto = (omt * omt) * anchor0 + (2.0 * omt * t) * ctrl + (t * t) * zh;
+          }
+        } else if (lowProtoGain < 0.999) {
           // Skala lunak prototipe rendah agar centroid z_low tidak menarik skor
           // secara ekstrem ke ~1.0 saat berbicara bebas normal (mis. audio HP).
           final zAnchorZero = (0.75 * zl + 0.18 * zm) * lowProtoGain;

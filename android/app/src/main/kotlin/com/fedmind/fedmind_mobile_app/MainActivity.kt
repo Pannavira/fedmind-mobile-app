@@ -39,11 +39,19 @@ import kotlin.math.sqrt
 
 class MainActivity : FlutterActivity() {
     private val channelName = "com.fedmind.edge/multimodal_extractor"
+    private val audioChannelName = "com.fedmind.edge/audio_player"
     private val executor = Executors.newSingleThreadExecutor()
     private val mainHandler = Handler(Looper.getMainLooper())
 
     private var methodChannel: MethodChannel? = null
+    private var audioChannel: MethodChannel? = null
     private var micSession: MicSession? = null
+    private var audioPlayer: ClinicalAudioPlayer? = null
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+    }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -51,7 +59,41 @@ class MainActivity : FlutterActivity() {
         micSession = MicSession(this) { event ->
             mainHandler.post { methodChannel?.invokeMethod("onMicEvent", event) }
         }
+        audioPlayer = ClinicalAudioPlayer { event ->
+            mainHandler.post { audioChannel?.invokeMethod("onAudioEvent", event) }
+        }
         methodChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName)
+        audioChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, audioChannelName)
+
+        audioChannel!!.setMethodCallHandler { call, result ->
+            when (call.method) {
+                "playAudio" -> {
+                    val path = call.argument<String>("path")
+                    if (path.isNullOrBlank()) {
+                        result.error("INVALID_ARG", "path is required", null)
+                        return@setMethodCallHandler
+                    }
+                    val positionMs = call.argument<Number>("positionMs")?.toInt()
+                    val ok = audioPlayer?.play(path, positionMs) ?: false
+                    result.success(ok)
+                }
+                "pauseAudio" -> {
+                    audioPlayer?.pause()
+                    result.success(true)
+                }
+                "seekAudio" -> {
+                    val positionMs = call.argument<Number>("positionMs")?.toInt() ?: 0
+                    audioPlayer?.seek(positionMs)
+                    result.success(true)
+                }
+                "stopAudio" -> {
+                    audioPlayer?.stop(silent = false)
+                    result.success(true)
+                }
+                else -> result.notImplemented()
+            }
+        }
+
         methodChannel!!.setMethodCallHandler { call, result ->
                 when (call.method) {
                     "startMicSession" -> {
@@ -79,11 +121,20 @@ class MainActivity : FlutterActivity() {
                             )
                         )
                     }
+                    "consumeBenchmarkLaunch" -> {
+                        val shouldRun = intent?.getBooleanExtra("run_calibration_benchmark", false) ?: false
+                        if (shouldRun) {
+                            intent?.removeExtra("run_calibration_benchmark")
+                        }
+                        result.success(shouldRun)
+                    }
                     "extractVideoMultimodal" -> {
                         val videoPath = call.argument<String>("videoPath")
                         val maxFrames = call.argument<Int>("maxFrames") ?: 24
                         val targetSampleRate = call.argument<Int>("targetSampleRate") ?: 8000
                         val audioWavPath = call.argument<String>("audioWavPath")
+                        val fullDurationAudioSampling =
+                            call.argument<Boolean>("fullDurationAudioSampling") ?: true
 
                         if (videoPath.isNullOrBlank() || !File(videoPath).exists()) {
                             result.error("FILE_NOT_FOUND", "Video file not found: $videoPath", null)
@@ -94,9 +145,9 @@ class MainActivity : FlutterActivity() {
                             try {
                                 val visualData = extractVisualFrames(videoPath, maxFrames)
                                 val audioData = if (!audioWavPath.isNullOrBlank() && File(audioWavPath).exists()) {
-                                    loadWavPcm(audioWavPath)
+                                    loadWavPcm(audioWavPath, fullDurationAudioSampling)
                                 } else {
-                                    decodeAudioTrackPcm(videoPath, targetSampleRate)
+                                    decodeAudioTrackPcm(videoPath, targetSampleRate, fullDurationAudioSampling)
                                 }
 
                                 val payload = hashMapOf<String, Any>(
@@ -117,9 +168,54 @@ class MainActivity : FlutterActivity() {
                             }
                         }
                     }
+                    "setKeepScreenOn" -> {
+                        val enabled = call.argument<Boolean>("enabled") ?: false
+                        ClinicalMediaUtils.setKeepScreenOn(this, enabled)
+                        result.success(true)
+                    }
+                    "muxAudioIntoMp4" -> {
+                        val videoPath = call.argument<String>("videoPath")
+                        val wavPath = call.argument<String>("wavPath")
+                        if (videoPath.isNullOrBlank() || wavPath.isNullOrBlank()) {
+                            result.success(false)
+                            return@setMethodCallHandler
+                        }
+                        executor.execute {
+                            val ok = ClinicalMediaUtils.muxWavIntoMp4(videoPath, wavPath)
+                            mainHandler.post { result.success(ok) }
+                        }
+                    }
+                    "ensureVideoHasAudio" -> {
+                        val videoPath = call.argument<String>("videoPath")
+                        val wavPath = call.argument<String>("wavPath")
+                        if (videoPath.isNullOrBlank()) {
+                            result.success(false)
+                            return@setMethodCallHandler
+                        }
+                        executor.execute {
+                            val ok = if (ClinicalMediaUtils.hasAudioTrack(videoPath)) {
+                                true
+                            } else if (!wavPath.isNullOrBlank()) {
+                                ClinicalMediaUtils.muxWavIntoMp4(videoPath, wavPath)
+                            } else {
+                                false
+                            }
+                            mainHandler.post { result.success(ok) }
+                        }
+                    }
                     else -> result.notImplemented()
                 }
             }
+    }
+
+    override fun onDestroy() {
+        try {
+            ClinicalMediaUtils.setKeepScreenOn(this, false)
+        } catch (_: Exception) {}
+        try {
+            audioPlayer?.stop(silent = true)
+        } catch (_: Exception) {}
+        super.onDestroy()
     }
 
     /**
@@ -801,11 +897,13 @@ class MainActivity : FlutterActivity() {
      * secara kontinu (tanpa pemotongan jendela) langsung ke berkas WAV lokal, serta mengirimkan
      * subset sampel kontinu untuk representasi akustik DSP di Dart.
      */
-    private fun decodeAudioTrackPcm(videoPath: String, targetSampleRate: Int): Map<String, Any> {
+    private fun decodeAudioTrackPcm(
+        videoPath: String,
+        targetSampleRate: Int,
+        fullDurationSampling: Boolean = true
+    ): Map<String, Any> {
         val extractor = MediaExtractor()
         var codec: MediaCodec? = null
-        val maxDspSamples = 240000 // Hingga 15 detik sampel kontinu untuk FFT/MFCC di Dart
-        val samplesOut = ArrayList<Double>(minOf(maxDspSamples, 65536))
         var sourceSampleRate = 44100
         var channelCount = 1
 
@@ -880,9 +978,6 @@ class MainActivity : FlutterActivity() {
 
             fun emit16kSample(sample: Double) {
                 val clamped = sample.coerceIn(-1.0, 1.0)
-                if (samplesOut.size < maxDspSamples) {
-                    samplesOut.add(clamped)
-                }
                 val intVal = (clamped * 32767.0).toInt().coerceIn(-32768, 32767).toShort()
                 writeBuf[writeBufPos++] = (intVal.toInt() and 0xff).toByte()
                 writeBuf[writeBufPos++] = ((intVal.toInt() shr 8) and 0xff).toByte()
@@ -982,6 +1077,7 @@ class MainActivity : FlutterActivity() {
             )
         }
 
+        val samplesOut = readWavSamples(tempWavFile, totalSamplesWritten, fullDurationSampling)
         val actualDurationSec = totalSamplesWritten.toDouble() / targetSampleRate.toDouble()
         return hashMapOf(
             "hasAudioTrack" to true,
@@ -994,23 +1090,14 @@ class MainActivity : FlutterActivity() {
     }
 
     /** Memuat WAV PCM16 mono hasil MicSession (header 44 byte) sebagai sampel DSP. */
-    private fun loadWavPcm(path: String): Map<String, Any> {
+    private fun loadWavPcm(path: String, fullDurationSampling: Boolean = true): Map<String, Any> {
         val f = File(path)
         val rate = 16000
-        val maxDspSamples = 240000
         val total = ((f.length() - 44) / 2).coerceAtLeast(0)
-        val out = ArrayList<Double>(minOf(maxDspSamples.toLong(), total).toInt())
-        java.io.BufferedInputStream(java.io.FileInputStream(f), 65536).use { ins ->
-            ins.skip(44)
-            val b = ByteArray(2)
-            while (out.size < maxDspSamples && ins.read(b) == 2) {
-                val v = ((b[1].toInt() shl 8) or (b[0].toInt() and 0xff)).toShort()
-                out.add(v / 32768.0)
-            }
-        }
         if (total == 0L) {
             return hashMapOf("hasAudioTrack" to false, "sampleRate" to rate, "pcmSamples" to emptyList<Double>())
         }
+        val out = readWavSamples(f, total, fullDurationSampling)
         return hashMapOf(
             "hasAudioTrack" to true,
             "sampleRate" to rate,
@@ -1019,5 +1106,72 @@ class MainActivity : FlutterActivity() {
             "durationSec" to total.toDouble() / rate,
             "pcmSamples" to out
         )
+    }
+
+    /**
+     * Membaca sampel PCM16 mono dari berkas WAV secara seragam di seluruh durasi rekaman
+     * (jika fullDurationSampling = true) atau 15 detik awal saja (untuk baseline legacy).
+     */
+    private fun readWavSamples(
+        file: File,
+        totalSamples: Long,
+        fullDurationSampling: Boolean,
+        maxBlocks: Int = 15,
+        blockSamples: Long = 32000L
+    ): List<Double> {
+        if (totalSamples <= 0L) return emptyList()
+        val legacyCap = 240000L
+        val maxUniformSamples = maxBlocks * blockSamples
+
+        RandomAccessFile(file, "r").use { raf ->
+            if (!fullDurationSampling || totalSamples <= maxUniformSamples) {
+                val targetCount = if (fullDurationSampling) {
+                    totalSamples.toInt()
+                } else {
+                    minOf(legacyCap, totalSamples).toInt()
+                }
+                val out = ArrayList<Double>(targetCount)
+                raf.seek(44L)
+                val buf = ByteArray(minOf(65536, targetCount * 2))
+                var samplesRemaining = targetCount
+                while (samplesRemaining > 0) {
+                    val bytesWanted = minOf(buf.size, samplesRemaining * 2)
+                    val nRead = raf.read(buf, 0, bytesWanted)
+                    if (nRead < 2) break
+                    val usableBytes = nRead - (nRead % 2)
+                    var i = 0
+                    while (i < usableBytes) {
+                        val v = ((buf[i + 1].toInt() shl 8) or (buf[i].toInt() and 0xff)).toShort()
+                        out.add(v / 32768.0)
+                        i += 2
+                    }
+                    samplesRemaining -= (usableBytes / 2)
+                }
+                return out
+            }
+
+            // Rekaman > 30 detik: ambil maxBlocks blok kontigu @ blockSamples tersebar seragam 0%..100%
+            val out = ArrayList<Double>(maxUniformSamples.toInt())
+            val maxStart = (totalSamples - blockSamples).coerceAtLeast(0L)
+            val byteBuf = ByteArray((blockSamples * 2L).toInt())
+            for (b in 0 until maxBlocks) {
+                val startSample = if (maxBlocks <= 1) 0L else (b.toLong() * maxStart) / (maxBlocks - 1)
+                raf.seek(44L + startSample * 2L)
+                var offset = 0
+                while (offset < byteBuf.size) {
+                    val nRead = raf.read(byteBuf, offset, byteBuf.size - offset)
+                    if (nRead <= 0) break
+                    offset += nRead
+                }
+                val usableBytes = offset - (offset % 2)
+                var i = 0
+                while (i < usableBytes) {
+                    val v = ((byteBuf[i + 1].toInt() shl 8) or (byteBuf[i].toInt() and 0xff)).toShort()
+                    out.add(v / 32768.0)
+                    i += 2
+                }
+            }
+            return out
+        }
     }
 }

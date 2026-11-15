@@ -4,6 +4,7 @@ import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../../../core/constants/edaic_interview_protocol.dart';
+import '../../../core/services/clinical_media_service.dart';
 import '../../../core/services/local_storage_service.dart';
 import '../../../core/services/mic_session_service.dart';
 import '../../../core/services/realtime_face_detector_service.dart';
@@ -48,7 +49,17 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
   bool _isCameraInitialized = false;
   bool _isSwitchingCamera = false;
   bool _isRecording = false;
+  bool _isStopping = false;
   String? _errorMessage;
+
+  // Kontrol Exposure & Tap-to-Focus agar preview tetap terang di berbagai pencahayaan
+  double _minExposureOffset = 0.0;
+  double _maxExposureOffset = 0.0;
+  double _exposureOffset = 0.0;
+  bool _userAdjustedExposure = false;
+  Offset? _focusPointNorm;
+  Timer? _focusOverlayTimer;
+  String? _lastCameraError;
 
   // Protokol Wawancara E-DAIC / PHQ-8 Interaktif
   EdaicProtocolMode _protocolMode = EdaicProtocolMode.standard;
@@ -75,11 +86,20 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
   bool get _isBackCamera =>
       _currentLensDirection == CameraLensDirection.back;
   bool get _canSwitchCamera =>
-      _availableCameras.length > 1 && !_isRecording && !_isSwitchingCamera;
+      _availableCameras.length > 1 &&
+      !_isRecording &&
+      !_isSwitchingCamera &&
+      !_isStopping;
 
   // Real-Time Speech Recognition (Google Native SpeechRecognizer)
   String _liveTranscript = '';
   String? _speechWarning;
+
+  // Notifier terpisah agar pembaruan detik/transkrip tidak me-rebuild CameraPreview
+  final ValueNotifier<int> _secondsNotifier = ValueNotifier<int>(0);
+  final ValueNotifier<String> _liveTranscriptNotifier =
+      ValueNotifier<String>('');
+  bool _targetNoticeShown = false;
 
   // Real-Time Face Presence Detection (Google ML Kit)
   final RealtimeFaceDetectorService _faceDetectorService =
@@ -102,13 +122,18 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    ClinicalMediaService.setKeepScreenOn(true);
     _checkPermissionsAndInit();
   }
 
   @override
   void dispose() {
+    ClinicalMediaService.setKeepScreenOn(false);
     WidgetsBinding.instance.removeObserver(this);
     _timer?.cancel();
+    _focusOverlayTimer?.cancel();
+    _secondsNotifier.dispose();
+    _liveTranscriptNotifier.dispose();
     if (_isRecording) {
       MicSessionService.stop();
     }
@@ -121,14 +146,45 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     final cameraController = _controller;
-    if (cameraController == null || !cameraController.value.isInitialized) {
+
+    if (state == AppLifecycleState.inactive) {
+      // Jangan dispose kamera saat `inactive` sesaat (mis. overlay/dialog SpeechRecognizer)
+      // apalagi ketika perekaman sedang aktif, karena memicu preview tiba-tiba gelap.
+      if (!_isRecording) {
+        _stopPreviewFaceStreamSync();
+      }
       return;
     }
-    if (state == AppLifecycleState.inactive) {
-      _stopPreviewFaceStreamSync();
-      cameraController.dispose();
-    } else if (state == AppLifecycleState.resumed) {
-      _initCamera(_selectedCameraIndex);
+
+    if (state == AppLifecycleState.paused) {
+      if (_isRecording && !_isStopping) {
+        _stopRecording();
+        return;
+      }
+      if (cameraController != null) {
+        _controller = null;
+        _isCameraInitialized = false;
+        _stopPreviewFaceStreamSync();
+        cameraController.dispose();
+        if (mounted) {
+          setState(() {});
+        }
+      }
+      return;
+    }
+
+    if (state == AppLifecycleState.resumed) {
+      ClinicalMediaService.setKeepScreenOn(true);
+      if (!_isRecording &&
+          !_isStopping &&
+          (_controller == null || !_controller!.value.isInitialized)) {
+        _initCamera(_selectedCameraIndex);
+      } else if (!_isRecording &&
+          _controller != null &&
+          _controller!.value.isInitialized) {
+        _configureExposureAndFocus(_controller!);
+        _startPreviewFaceStream();
+      }
     }
   }
 
@@ -185,6 +241,7 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
         await _stopPreviewFaceStream();
         _resetFaceDetectionState();
         await _controller!.setDescription(targetCamera);
+        await _configureExposureAndFocus(_controller!);
         if (mounted) {
           setState(() {
             _isCameraInitialized = true;
@@ -202,11 +259,7 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
               : ImageFormatGroup.bgra8888,
         );
 
-        newController.addListener(() {
-          if (mounted) {
-            setState(() {});
-          }
-        });
+        _attachControllerErrorListener(newController);
 
         await newController.initialize();
         if (!mounted) {
@@ -216,6 +269,11 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
 
         final oldController = _controller;
         _resetFaceDetectionState();
+        await _configureExposureAndFocus(newController);
+        if (!mounted) {
+          await newController.dispose();
+          return;
+        }
         setState(() {
           _controller = newController;
           _isCameraInitialized = true;
@@ -251,12 +309,15 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
               ? ImageFormatGroup.nv21
               : ImageFormatGroup.bgra8888,
         );
-        fallbackController.addListener(() {
-          if (mounted) setState(() {});
-        });
+        _attachControllerErrorListener(fallbackController);
         await fallbackController.initialize();
         if (mounted) {
           _resetFaceDetectionState();
+          await _configureExposureAndFocus(fallbackController);
+          if (!mounted) {
+            await fallbackController.dispose();
+            return;
+          }
           setState(() {
             _controller = fallbackController;
             _isCameraInitialized = true;
@@ -286,7 +347,7 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
   }
 
   Future<void> _startPreviewFaceStream() async {
-    if (!(Platform.isAndroid || Platform.isIOS)) return;
+    if (!Platform.isAndroid) return;
     final controller = _controller;
     if (controller == null ||
         !controller.value.isInitialized ||
@@ -482,10 +543,108 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
     return proceed ?? false;
   }
 
+  void _attachControllerErrorListener(CameraController controller) {
+    controller.addListener(() {
+      if (!mounted) return;
+      final err = controller.value.errorDescription;
+      if (controller.value.hasError && err != null && err != _lastCameraError) {
+        _lastCameraError = err;
+        debugPrint('[ClinicalCamera] Error kamera: $err');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Peringatan sensor kamera: $err'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+    });
+  }
+
+  Future<void> _configureExposureAndFocus(CameraController controller) async {
+    try {
+      final minExp = await controller.getMinExposureOffset();
+      final maxExp = await controller.getMaxExposureOffset();
+      final targetEv = (_userAdjustedExposure &&
+              _exposureOffset >= minExp &&
+              _exposureOffset <= maxExp)
+          ? _exposureOffset
+          : 0.0.clamp(minExp, maxExp).toDouble();
+
+      await controller.setExposureMode(ExposureMode.auto);
+      await controller.setFocusMode(FocusMode.auto);
+      await controller.setExposureOffset(targetEv);
+      if (mounted) {
+        setState(() {
+          _minExposureOffset = minExp;
+          _maxExposureOffset = maxExp;
+          _exposureOffset = targetEv;
+        });
+      }
+    } catch (_) {
+      // Sensor tertentu tidak mengekspos offset exposure manual; lanjut aman.
+    }
+  }
+
+  Future<void> _adjustExposureStep(double delta) async {
+    final controller = _controller;
+    if (controller == null || !controller.value.isInitialized) return;
+    if (_maxExposureOffset <= _minExposureOffset) return;
+
+    final next =
+        (_exposureOffset + delta).clamp(_minExposureOffset, _maxExposureOffset).toDouble();
+    try {
+      await controller.setExposureMode(ExposureMode.auto);
+      await controller.setExposureOffset(next);
+      if (mounted) {
+        setState(() {
+          _userAdjustedExposure = true;
+          _exposureOffset = next;
+        });
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _handlePreviewTap(
+    TapDownDetails details,
+    BoxConstraints constraints,
+  ) async {
+    final controller = _controller;
+    if (controller == null ||
+        !controller.value.isInitialized ||
+        constraints.maxWidth <= 0 ||
+        constraints.maxHeight <= 0) {
+      return;
+    }
+
+    final nx = (details.localPosition.dx / constraints.maxWidth).clamp(0.0, 1.0);
+    final ny = (details.localPosition.dy / constraints.maxHeight).clamp(0.0, 1.0);
+    final point = Offset(nx, ny);
+
+    _focusOverlayTimer?.cancel();
+    setState(() {
+      _focusPointNorm = point;
+    });
+    _focusOverlayTimer = Timer(const Duration(milliseconds: 1400), () {
+      if (mounted) {
+        setState(() => _focusPointNorm = null);
+      }
+    });
+
+    try {
+      await controller.setExposureMode(ExposureMode.auto);
+      await controller.setFocusMode(FocusMode.auto);
+      await controller.setFocusPoint(point);
+      await controller.setExposurePoint(point);
+    } catch (_) {
+      // Abaikan bila sensor depan tidak mendukung metering point.
+    }
+  }
+
   Future<void> _startRecording() async {
     if (_controller == null ||
         !_controller!.value.isInitialized ||
-        _isRecording) {
+        _isRecording ||
+        _isStopping) {
       return;
     }
 
@@ -495,6 +654,7 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
     }
 
     try {
+      ClinicalMediaService.setKeepScreenOn(true);
       // Hentikan image stream preview terlebih dahulu sebelum mengikat VideoCapture CameraX
       await _stopPreviewFaceStream();
       _receivedRecordingStreamFrame = false;
@@ -513,7 +673,8 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
       await MicSessionService.start(
         onTranscript: (text) {
           if (!mounted) return;
-          setState(() => _liveTranscript = text);
+          _liveTranscript = text;
+          _liveTranscriptNotifier.value = text;
         },
         onProblem: (msg) {
           if (!mounted) return;
@@ -524,32 +685,55 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
         },
       );
 
-      // 2) Video tanpa audio (audio ditangani MicSession), sertakan stream jika hardware LEVEL_3 mendukung
+      // 2) Rekam video tanpa concurrent ImageAnalysis stream agar CameraX Camera/Preview
+      //    pada perangkat FULL/LIMITED (non-LEVEL_3) tidak meredup atau konflik surface.
       try {
-        await _controller!.startVideoRecording(
-          onAvailable:
-              (Platform.isAndroid || Platform.isIOS) ? _onCameraFrame : null,
-        );
+        await _controller!.startVideoRecording();
       } catch (e) {
         await MicSessionService.stop();
         await _startPreviewFaceStream();
         rethrow;
       }
+
+      // Segarkan mode auto-exposure/focus segera setelah Pipeline RECORD dimulai.
+      await _configureExposureAndFocus(_controller!);
+      if (!mounted) return;
+
+      _secondsRecorded = 0;
+      _secondsNotifier.value = 0;
+      _liveTranscript = '';
+      _liveTranscriptNotifier.value = '';
+      _targetNoticeShown = false;
+
       setState(() {
         _isRecording = true;
-        _secondsRecorded = 0;
         _currentQuestionIndex = 0;
-        _liveTranscript = '';
       });
 
       _timer?.cancel();
       _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
-        setState(() {
-          _secondsRecorded++;
-        });
+        if (!mounted || !_isRecording) {
+          timer.cancel();
+          return;
+        }
+        _secondsRecorded++;
+        _secondsNotifier.value = _secondsRecorded;
 
-        if (_secondsRecorded >= _maxDuration) {
-          _stopRecording();
+        // Tidak ada auto-stop paksa pada 90/120 detik; tampilkan pengingat non-blocking
+        // agar klinisi tetap mengendalikan kapan wawancara dihentikan.
+        if (_secondsRecorded == _maxDuration && !_targetNoticeShown) {
+          _targetNoticeShown = true;
+          ScaffoldMessenger.of(context).removeCurrentSnackBar();
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Durasi referensi protokol (${_formatTimer(_maxDuration)}) tercapai. Lanjutkan wawancara bila masih diperlukan, ketuk tombol Stop saat selesai.',
+              ),
+              backgroundColor: const Color(0xFF0F172A),
+              behavior: SnackBarBehavior.floating,
+              duration: const Duration(seconds: 5),
+            ),
+          );
         }
       });
     } catch (e) {
@@ -564,9 +748,13 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
   }
 
   Future<void> _stopRecording() async {
-    if (_controller == null || !_isRecording) return;
+    if (_controller == null || !_isRecording || _isStopping) return;
 
     _timer?.cancel();
+    setState(() {
+      _isStopping = true;
+    });
+
     try {
       final results = await Future.wait([
         _controller!.stopVideoRecording(),
@@ -574,24 +762,31 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
       ]);
       final xFile = results[0] as XFile;
       final mic = results[1] as ({String transcript, String? wavPath});
-      setState(() {
-        _isRecording = false;
-      });
 
       final savedPath = await LocalStorageService.saveClinicalVideo(
         sourceFilePath: xFile.path,
         participantId: widget.participantId,
       );
 
-      // Audio asli dari mikrofon disimpan berdampingan dengan video
+      // Audio asli dari mikrofon disimpan berdampingan dengan video secara utuh (untuk fitur model),
+      // lalu digabung (mux) ke track audio .mp4 (video copy lossless) agar pemutaran video bersuara.
       if (mic.wavPath != null) {
-        await File(mic.wavPath!).copy(MicSessionService.sidecarWavPath(savedPath));
+        final sidecarWav = MicSessionService.sidecarWavPath(savedPath);
+        await File(mic.wavPath!).copy(sidecarWav);
+        await ClinicalMediaService.muxAudioIntoMp4(
+          videoPath: savedPath,
+          wavPath: sidecarWav,
+        );
       }
 
       final finalTranscript =
           mic.transcript.isNotEmpty ? mic.transcript : _liveTranscript.trim();
 
       if (!mounted) return;
+      setState(() {
+        _isRecording = false;
+        _isStopping = false;
+      });
       Navigator.of(context).pop(ClinicalCameraResult(
         videoPath: savedPath,
         liveTranscript: finalTranscript.isNotEmpty ? finalTranscript : null,
@@ -601,6 +796,10 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
       ));
     } catch (e) {
       if (!mounted) return;
+      setState(() {
+        _isRecording = false;
+        _isStopping = false;
+      });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Gagal menyimpan berkas observasi klinis: $e'),
@@ -669,14 +868,75 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
       body: Stack(
         fit: StackFit.expand,
         children: [
-          // 1. Pratinjau Kamera (Dilindungi dari null pointer saat switch kamera)
+          // 1. Pratinjau Kamera + Tap-to-Focus/Metering (Dilindungi dari null pointer saat switch kamera)
           Center(
             child: (_controller != null && _controller!.value.isInitialized)
-                ? CameraPreview(_controller!)
+                ? LayoutBuilder(
+                    builder: (context, constraints) {
+                      return GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTapDown: (details) =>
+                            _handlePreviewTap(details, constraints),
+                        child: Stack(
+                          fit: StackFit.loose,
+                          children: [
+                            CameraPreview(_controller!),
+                            if (_focusPointNorm != null)
+                              Positioned(
+                                left: (_focusPointNorm!.dx *
+                                            constraints.maxWidth -
+                                        26)
+                                    .clamp(0.0, constraints.maxWidth - 52),
+                                top: (_focusPointNorm!.dy *
+                                            constraints.maxHeight -
+                                        26)
+                                    .clamp(0.0, constraints.maxHeight - 52),
+                                child: IgnorePointer(
+                                  child: Container(
+                                    width: 52,
+                                    height: 52,
+                                    decoration: BoxDecoration(
+                                      borderRadius: BorderRadius.circular(12),
+                                      border: Border.all(
+                                        color: const Color(0xFF5EEAD4),
+                                        width: 2,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      );
+                    },
+                  )
                 : const Center(
                     child: CircularProgressIndicator(color: _brandTeal),
                   ),
           ),
+
+          // Indikator Penyimpanan & Penggabungan Audio Video
+          if (_isStopping)
+            Container(
+              color: Colors.black54,
+              child: const Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    CircularProgressIndicator(color: _brandTeal),
+                    SizedBox(height: 12),
+                    Text(
+                      'Menyimpan video & menggabungkan audio...',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
 
           // Indikator Transisi Pengalihan Lensa Kamera
           if (_isSwitchingCamera)
@@ -785,6 +1045,7 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
                           child: InkWell(
                             borderRadius: BorderRadius.circular(10),
                             onTap: () {
+                              if (_isStopping) return;
                               if (_isRecording) {
                                 _stopRecording();
                               } else {
@@ -832,17 +1093,22 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
                                 ),
                                 const SizedBox(width: 6),
                                 Flexible(
-                                  child: Text(
-                                    _isRecording
-                                        ? 'REC ${_formatTimer(_secondsRecorded)} (${widget.participantId})'
-                                        : 'Siap Rekam (${widget.participantId})',
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 11.5,
-                                      fontWeight: FontWeight.w700,
-                                    ),
+                                  child: ValueListenableBuilder<int>(
+                                    valueListenable: _secondsNotifier,
+                                    builder: (context, seconds, _) {
+                                      return Text(
+                                        _isRecording
+                                            ? 'REC ${_formatTimer(seconds)} (${widget.participantId})'
+                                            : 'Siap Rekam (${widget.participantId})',
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 11.5,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      );
+                                    },
                                   ),
                                 ),
                               ],
@@ -954,54 +1220,59 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
                     const SizedBox(height: 8),
 
                     // Overlay Pertanyaan Wawancara Klinis Interaktif E-DAIC / PHQ-8
-                    InteractiveInterviewOverlay(
-                      questions: _questions,
-                      currentQuestionIndex: _currentQuestionIndex,
-                      isRecording: _isRecording,
-                      liveTranscript: _liveTranscript,
-                      currentMode: _protocolMode,
-                      onQuestionChanged: (idx) {
-                        setState(() {
-                          _currentQuestionIndex = idx;
-                        });
-                      },
-                      onModeChanged: (mode) {
-                        setState(() {
-                          _protocolMode = mode;
-                          _currentQuestionIndex = 0;
-                        });
-                      },
-                      onAllQuestionsCompleted: () {
-                        ScaffoldMessenger.of(context).removeCurrentSnackBar();
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: const Row(
-                              children: [
-                                Icon(
-                                  Icons.check_circle_rounded,
-                                  color: Color(0xFF5EEAD4),
-                                  size: 18,
-                                ),
-                                SizedBox(width: 8),
-                                Expanded(
-                                  child: Text(
-                                    'Semua pertanyaan telah dijawab! Ketuk tombol merah di bawah untuk menyimpan rekaman.',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w600,
-                                      color: Colors.white,
+                    ValueListenableBuilder<String>(
+                      valueListenable: _liveTranscriptNotifier,
+                      builder: (context, liveTranscript, _) {
+                        return InteractiveInterviewOverlay(
+                          questions: _questions,
+                          currentQuestionIndex: _currentQuestionIndex,
+                          isRecording: _isRecording,
+                          liveTranscript: liveTranscript,
+                          currentMode: _protocolMode,
+                          onQuestionChanged: (idx) {
+                            setState(() {
+                              _currentQuestionIndex = idx;
+                            });
+                          },
+                          onModeChanged: (mode) {
+                            setState(() {
+                              _protocolMode = mode;
+                              _currentQuestionIndex = 0;
+                            });
+                          },
+                          onAllQuestionsCompleted: () {
+                            ScaffoldMessenger.of(context).removeCurrentSnackBar();
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: const Row(
+                                  children: [
+                                    Icon(
+                                      Icons.check_circle_rounded,
+                                      color: Color(0xFF5EEAD4),
+                                      size: 18,
                                     ),
-                                  ),
+                                    SizedBox(width: 8),
+                                    Expanded(
+                                      child: Text(
+                                        'Semua pertanyaan telah dijawab! Ketuk tombol merah di bawah untuk menyimpan rekaman.',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w600,
+                                          color: Colors.white,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                 ),
-                              ],
-                            ),
-                            backgroundColor: const Color(0xFF0F172A),
-                            behavior: SnackBarBehavior.floating,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            duration: const Duration(seconds: 4),
-                          ),
+                                backgroundColor: const Color(0xFF0F172A),
+                                behavior: SnackBarBehavior.floating,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                duration: const Duration(seconds: 4),
+                              ),
+                            );
+                          },
                         );
                       },
                     ),
@@ -1012,103 +1283,112 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
           ),
 
           // 4. Kartu Subtitle / Transkrip Tuturan Real-Time (Ramping & Bebas Overflow)
-          if (_isRecording || _liveTranscript.isNotEmpty)
-            Positioned(
-              left: 12,
-              right: 12,
-              bottom: 105,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.82),
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(
-                    color: const Color(0xFF10B981).withValues(alpha: 0.75),
-                    width: 1.2,
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: const Color(0xFF10B981).withValues(alpha: 0.2),
-                      blurRadius: 10,
-                      offset: const Offset(0, 3),
+          ValueListenableBuilder<String>(
+            valueListenable: _liveTranscriptNotifier,
+            builder: (context, liveTranscript, _) {
+              if (!_isRecording && liveTranscript.isEmpty) {
+                return const SizedBox.shrink();
+              }
+              return Positioned(
+                left: 12,
+                right: 12,
+                bottom: _maxExposureOffset > _minExposureOffset ? 138 : 105,
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.82),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                      color: const Color(0xFF10B981).withValues(alpha: 0.75),
+                      width: 1.2,
                     ),
-                  ],
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Row(
-                      children: [
-                        Container(
-                          width: 7,
-                          height: 7,
-                          decoration: BoxDecoration(
-                            color: _isRecording
-                                ? const Color(0xFF10B981)
-                                : const Color(0xFFF59E0B),
-                            shape: BoxShape.circle,
-                          ),
-                        ),
-                        const SizedBox(width: 6),
-                        Expanded(
-                          child: Text(
-                            'Jawaban Q${_currentQuestionIndex + 1} (${_questions[_currentQuestionIndex].category}):',
-                            style: const TextStyle(
-                              color: Color(0xFF5EEAD4),
-                              fontSize: 10.5,
-                              fontWeight: FontWeight.w700,
+                    boxShadow: [
+                      BoxShadow(
+                        color:
+                            const Color(0xFF10B981).withValues(alpha: 0.2),
+                        blurRadius: 10,
+                        offset: const Offset(0, 3),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            width: 7,
+                            height: 7,
+                            decoration: BoxDecoration(
+                              color: _isRecording
+                                  ? const Color(0xFF10B981)
+                                  : const Color(0xFFF59E0B),
+                              shape: BoxShape.circle,
                             ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
                           ),
-                        ),
-                        if (_isRecording)
-                          const Text(
-                            '● Mendengarkan...',
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              'Jawaban Q${_currentQuestionIndex + 1} (${_questions[_currentQuestionIndex].category}):',
+                              style: const TextStyle(
+                                color: Color(0xFF5EEAD4),
+                                fontSize: 10.5,
+                                fontWeight: FontWeight.w700,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          if (_isRecording)
+                            const Text(
+                              '● Mendengarkan...',
+                              style: TextStyle(
+                                color: Color(0xFF34D399),
+                                fontSize: 10,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      ConstrainedBox(
+                        constraints: const BoxConstraints(maxHeight: 55),
+                        child: SingleChildScrollView(
+                          reverse: true,
+                          child: Text(
+                            liveTranscript.isEmpty
+                                ? 'Mulai berbicara, tuturan Anda akan ditranskripsikan secara langsung...'
+                                : liveTranscript,
                             style: TextStyle(
-                              color: Color(0xFF34D399),
-                              fontSize: 10,
+                              color: liveTranscript.isEmpty
+                                  ? Colors.white60
+                                  : Colors.white,
+                              fontSize: 11.5,
+                              fontStyle: liveTranscript.isEmpty
+                                  ? FontStyle.italic
+                                  : FontStyle.normal,
+                              height: 1.3,
                               fontWeight: FontWeight.w600,
                             ),
                           ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    ConstrainedBox(
-                      constraints: const BoxConstraints(maxHeight: 55),
-                      child: SingleChildScrollView(
-                        reverse: true,
-                        child: Text(
-                          _liveTranscript.isEmpty
-                              ? 'Mulai berbicara, tuturan Anda akan ditranskripsikan secara langsung...'
-                              : _liveTranscript,
-                          style: TextStyle(
-                            color: _liveTranscript.isEmpty
-                                ? Colors.white60
-                                : Colors.white,
-                            fontSize: 11.5,
-                            fontStyle: _liveTranscript.isEmpty
-                                ? FontStyle.italic
-                                : FontStyle.normal,
-                            height: 1.3,
-                            fontWeight: FontWeight.w600,
-                          ),
                         ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-              ),
-            ),
+              );
+            },
+          ),
 
-          // 5. Tombol Akuisisi di Bawah
+          // 5. Tombol Akuisisi di Bawah + Kontrol Exposure Cepat
           Align(
             alignment: Alignment.bottomCenter,
             child: SafeArea(
               child: Container(
                 padding:
-                    const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+                    const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
                     colors: [
@@ -1119,82 +1399,171 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
                     end: Alignment.bottomCenter,
                   ),
                 ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Durasi Observasi:',
-                          style:
-                              TextStyle(color: Colors.white70, fontSize: 10.5),
-                        ),
-                        Text(
-                          'Min. $_recommendedDuration detik',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 12.5,
-                            fontWeight: FontWeight.w700,
+                    if (_maxExposureOffset > _minExposureOffset)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 4,
                           ),
-                        ),
-                      ],
-                    ),
-                    GestureDetector(
-                      onTap: () {
-                        if (_isRecording) {
-                          _stopRecording();
-                        } else {
-                          _startRecording();
-                        }
-                      },
-                      child: Container(
-                        width: 74,
-                        height: 74,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          border: Border.all(color: Colors.white, width: 4),
-                          color: Colors.transparent,
-                        ),
-                        padding: const EdgeInsets.all(4),
-                        child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 200),
                           decoration: BoxDecoration(
-                            color: _isRecording
-                                ? const Color(0xFFEF4444)
-                                : _brandTeal,
-                            borderRadius:
-                                BorderRadius.circular(_isRecording ? 14 : 50),
+                            color: Colors.black54,
+                            borderRadius: BorderRadius.circular(18),
+                            border: Border.all(
+                              color: Colors.white24,
+                              width: 1,
+                            ),
                           ),
-                          child: Icon(
-                            _isRecording
-                                ? Icons.stop_rounded
-                                : Icons.videocam_rounded,
-                            color: Colors.white,
-                            size: 32,
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              InkWell(
+                                borderRadius: BorderRadius.circular(12),
+                                onTap: () => _adjustExposureStep(-0.5),
+                                child: const Padding(
+                                  padding: EdgeInsets.symmetric(
+                                    horizontal: 6,
+                                    vertical: 2,
+                                  ),
+                                  child: Icon(
+                                    Icons.remove_rounded,
+                                    color: Colors.white,
+                                    size: 16,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              const Icon(
+                                Icons.wb_sunny_outlined,
+                                color: Color(0xFFFDE047),
+                                size: 14,
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                'EV ${_exposureOffset >= 0 ? '+' : ''}${_exposureOffset.toStringAsFixed(1)}',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              InkWell(
+                                borderRadius: BorderRadius.circular(12),
+                                onTap: () => _adjustExposureStep(0.5),
+                                child: const Padding(
+                                  padding: EdgeInsets.symmetric(
+                                    horizontal: 6,
+                                    vertical: 2,
+                                  ),
+                                  child: Icon(
+                                    Icons.add_rounded,
+                                    color: Colors.white,
+                                    size: 16,
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                       ),
-                    ),
-                    Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.end,
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceAround,
                       children: [
-                        const Text(
-                          'Protokol Elisitasi:',
-                          style:
-                              TextStyle(color: Colors.white70, fontSize: 10.5),
+                        ValueListenableBuilder<int>(
+                          valueListenable: _secondsNotifier,
+                          builder: (context, seconds, _) {
+                            final targetReached =
+                                _isRecording && seconds >= _recommendedDuration;
+                            return Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'Target Minimal:',
+                                  style: TextStyle(
+                                    color: Colors.white70,
+                                    fontSize: 10.5,
+                                  ),
+                                ),
+                                Text(
+                                  targetReached
+                                      ? 'Min. $_recommendedDuration dtk ✓'
+                                      : 'Min. $_recommendedDuration dtk',
+                                  style: TextStyle(
+                                    color: targetReached
+                                        ? const Color(0xFF34D399)
+                                        : Colors.white,
+                                    fontSize: 12.5,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ],
+                            );
+                          },
                         ),
-                        Text(
-                          _protocolMode == EdaicProtocolMode.standard
-                              ? 'E-DAIC 4-Soal'
-                              : 'PHQ-8 8-Dimensi',
-                          style: const TextStyle(
-                            color: Color(0xFF34D399),
-                            fontSize: 12.5,
-                            fontWeight: FontWeight.w700,
+                        GestureDetector(
+                          onTap: _isStopping
+                              ? null
+                              : () {
+                                  if (_isRecording) {
+                                    _stopRecording();
+                                  } else {
+                                    _startRecording();
+                                  }
+                                },
+                          child: Container(
+                            width: 74,
+                            height: 74,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              border: Border.all(color: Colors.white, width: 4),
+                              color: Colors.transparent,
+                            ),
+                            padding: const EdgeInsets.all(4),
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 200),
+                              decoration: BoxDecoration(
+                                color: _isRecording
+                                    ? const Color(0xFFEF4444)
+                                    : _brandTeal,
+                                borderRadius: BorderRadius.circular(
+                                    _isRecording ? 14 : 50),
+                              ),
+                              child: Icon(
+                                _isRecording
+                                    ? Icons.stop_rounded
+                                    : Icons.videocam_rounded,
+                                color: Colors.white,
+                                size: 32,
+                              ),
+                            ),
                           ),
+                        ),
+                        Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            const Text(
+                              'Protokol Elisitasi:',
+                              style: TextStyle(
+                                  color: Colors.white70, fontSize: 10.5),
+                            ),
+                            Text(
+                              _protocolMode == EdaicProtocolMode.standard
+                                  ? 'E-DAIC 4-Soal'
+                                  : 'PHQ-8 8-Dimensi',
+                              style: const TextStyle(
+                                color: Color(0xFF34D399),
+                                fontSize: 12.5,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ],
                         ),
                       ],
                     ),

@@ -1,8 +1,11 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:fedmind_mobile_app/core/constants/clinical_constants.dart';
+import 'package:fedmind_mobile_app/core/services/clinical_media_service.dart';
 import 'package:fedmind_mobile_app/core/services/multimodal_extractor_service.dart';
 import 'package:fedmind_mobile_app/data/models/multimodal_inspection_models.dart';
 import 'package:fedmind_mobile_app/data/models/screening_models.dart';
@@ -60,8 +63,47 @@ class _ScreeningResultScreenState extends State<ScreeningResultScreen> {
     super.initState();
     _currentResult = widget.result;
     _currentNavIndex = widget.initialNavIndex;
-    final p = widget.localVideoPath;
-    _activeVideoPath = (p != null && p.trim().isNotEmpty) ? p : null;
+    final candidate =
+        widget.localVideoPath ?? widget.inspectionData?.videoPath;
+    _activeVideoPath =
+        (candidate != null && candidate.trim().isNotEmpty)
+            ? candidate.trim()
+            : null;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _resolveAndVerifyMediaPath();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    ClinicalAudioPlayerService.instance.stop();
+    super.dispose();
+  }
+
+  Future<void> _resolveAndVerifyMediaPath() async {
+    if (_isSim) return;
+    String? candidate = _activeVideoPath;
+    if (candidate == null || candidate.isEmpty) {
+      try {
+        final provider = context.read<ScreeningProvider>();
+        candidate =
+            provider.getInspectionForScreening(_currentResult.screeningId)?.videoPath ??
+                await provider.resolveLocalVideoPath(_currentResult.screeningId);
+      } catch (_) {}
+    }
+    if (!mounted || candidate == null || candidate.trim().isEmpty) return;
+
+    final clean = candidate.trim();
+    final hasVideo = File(clean).existsSync();
+    final hasAudio = ClinicalMediaService.resolvePlayableAudioPath(clean) != null;
+    final resolved = (hasVideo || hasAudio) ? clean : null;
+    if (resolved != _activeVideoPath && mounted) {
+      setState(() {
+        _activeVideoPath = resolved;
+      });
+    }
   }
 
   String _formatDate(String isoString) {
@@ -183,6 +225,7 @@ Waktu Sesi        : ${_formatDate(_currentResult.createdAt ?? '')}
     if (confirmed != true || !mounted) return;
 
     final provider = context.read<ScreeningProvider>();
+    await ClinicalAudioPlayerService.instance.stop();
     final ok = await provider.removeRawVideoForScreening(
       _currentResult.screeningId,
       path,
@@ -1663,7 +1706,8 @@ Waktu Sesi        : ${_formatDate(_currentResult.createdAt ?? '')}
                 ],
               ),
             ),
-            if (_activeVideoPath != null) ...[
+            if (_activeVideoPath != null &&
+                File(_activeVideoPath!).existsSync()) ...[
               OutlinedButton.icon(
                 onPressed: () {
                   LocalVideoPlayerDialog.show(
