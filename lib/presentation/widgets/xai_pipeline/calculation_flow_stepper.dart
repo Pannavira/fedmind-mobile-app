@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import '../../../data/models/multimodal_inspection_models.dart';
 import '../../../data/models/screening_models.dart';
 

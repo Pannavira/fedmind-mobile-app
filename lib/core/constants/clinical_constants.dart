@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 class ClinicalConstants {
   // PHQ-8 Thresholds aligned with Fed-Mind Model 3 edge protocol (binary cutoff = 9.4)

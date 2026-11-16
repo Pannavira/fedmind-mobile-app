@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 /// Model pertanyaan wawancara klinis semi-terstruktur selaras E-DAIC (DAIC-WOZ) dan PHQ-8
 class EdaicQuestion {

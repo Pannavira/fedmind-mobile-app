@@ -1,6 +1,6 @@
 import 'dart:io' show Platform;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import '../../../core/services/mic_session_service.dart';
 import '../../../core/services/on_device_mentalbert_service.dart';
