@@ -15,14 +15,12 @@ class ClinicalCameraResult {
   final String videoPath;
   final String? liveTranscript;
   final String? speechWarning;
-  final EdaicProtocolMode? protocolMode;
   final int? questionsCompletedCount;
 
   const ClinicalCameraResult({
     required this.videoPath,
     this.liveTranscript,
     this.speechWarning,
-    this.protocolMode,
     this.questionsCompletedCount,
   });
 }
@@ -61,17 +59,14 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
   Timer? _focusOverlayTimer;
   String? _lastCameraError;
 
-  // Protokol Wawancara E-DAIC / PHQ-8 Interaktif
-  EdaicProtocolMode _protocolMode = EdaicProtocolMode.standard;
+  // Panduan 8 Pertanyaan PHQ-8 Interaktif (Bahasa Indonesia)
   int _currentQuestionIndex = 0;
 
-  List<EdaicQuestion> get _questions =>
-      EdaicInterviewProtocol.getQuestions(_protocolMode);
+  List<EdaicQuestion> get _questions => EdaicInterviewProtocol.questions;
 
   int get _recommendedDuration =>
-      EdaicInterviewProtocol.getRecommendedMinDuration(_protocolMode);
-  int get _maxDuration =>
-      EdaicInterviewProtocol.getMaxDuration(_protocolMode);
+      EdaicInterviewProtocol.recommendedMinDurationSec;
+  int get _maxDuration => EdaicInterviewProtocol.maxReferenceDurationSec;
 
   CameraLensDirection? get _currentLensDirection {
     if (_availableCameras.isEmpty ||
@@ -791,7 +786,6 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
         videoPath: savedPath,
         liveTranscript: finalTranscript.isNotEmpty ? finalTranscript : null,
         speechWarning: _speechWarning,
-        protocolMode: _protocolMode,
         questionsCompletedCount: _currentQuestionIndex + 1,
       ));
     } catch (e) {
@@ -820,7 +814,7 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
     if (_errorMessage != null) {
       return Scaffold(
         backgroundColor: const Color(0xFFF8FAFC),
-        appBar: AppBar(title: const Text('Clinical Camera & Audio Capture')),
+        appBar: AppBar(title: const Text('Kamera & Audio Klinis')),
         body: Center(
           child: Padding(
             padding: const EdgeInsets.all(24),
@@ -1158,121 +1152,49 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
                       ],
                     ),
 
-                    // Selector Pilihan Mode Kamera & Protokol (Saat Tidak Merekam)
-                    if (!_isRecording) ...[
-                      const SizedBox(height: 8),
-                      SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            if (_availableCameras.length > 1) ...[
-                              _buildLensOptionChip(
-                                title: 'Belakang (Klien)',
-                                icon: Icons.camera_alt_rounded,
-                                isSelected: _isBackCamera,
-                                onTap: () => _selectCameraLens(
-                                  CameraLensDirection.back,
-                                ),
-                              ),
-                              const SizedBox(width: 6),
-                              _buildLensOptionChip(
-                                title: 'Depan (Mandiri)',
-                                icon: Icons.person_rounded,
-                                isSelected: _isFrontCamera,
-                                onTap: () => _selectCameraLens(
-                                  CameraLensDirection.front,
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                            ],
-                            _buildProtocolModeChip(
-                              title: 'E-DAIC 4-Soal',
-                              icon: Icons.bolt_rounded,
-                              isSelected:
-                                  _protocolMode == EdaicProtocolMode.standard,
-                              onTap: () {
-                                setState(() {
-                                  _protocolMode = EdaicProtocolMode.standard;
-                                  _currentQuestionIndex = 0;
-                                });
-                              },
-                            ),
-                            const SizedBox(width: 6),
-                            _buildProtocolModeChip(
-                              title: 'PHQ-8 8-Dimensi',
-                              icon: Icons.checklist_rounded,
-                              isSelected: _protocolMode ==
-                                  EdaicProtocolMode.comprehensive,
-                              onTap: () {
-                                setState(() {
-                                  _protocolMode =
-                                      EdaicProtocolMode.comprehensive;
-                                  _currentQuestionIndex = 0;
-                                });
-                              },
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-
                     const SizedBox(height: 8),
 
-                    // Overlay Pertanyaan Wawancara Klinis Interaktif E-DAIC / PHQ-8
-                    ValueListenableBuilder<String>(
-                      valueListenable: _liveTranscriptNotifier,
-                      builder: (context, liveTranscript, _) {
-                        return InteractiveInterviewOverlay(
-                          questions: _questions,
-                          currentQuestionIndex: _currentQuestionIndex,
-                          isRecording: _isRecording,
-                          liveTranscript: liveTranscript,
-                          currentMode: _protocolMode,
-                          onQuestionChanged: (idx) {
-                            setState(() {
-                              _currentQuestionIndex = idx;
-                            });
-                          },
-                          onModeChanged: (mode) {
-                            setState(() {
-                              _protocolMode = mode;
-                              _currentQuestionIndex = 0;
-                            });
-                          },
-                          onAllQuestionsCompleted: () {
-                            ScaffoldMessenger.of(context).removeCurrentSnackBar();
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: const Row(
-                                  children: [
-                                    Icon(
-                                      Icons.check_circle_rounded,
-                                      color: Color(0xFF5EEAD4),
-                                      size: 18,
-                                    ),
-                                    SizedBox(width: 8),
-                                    Expanded(
-                                      child: Text(
-                                        'Semua pertanyaan telah dijawab! Ketuk tombol merah di bawah untuk menyimpan rekaman.',
-                                        style: TextStyle(
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.w600,
-                                          color: Colors.white,
-                                        ),
-                                      ),
-                                    ),
-                                  ],
+                    // Overlay Pertanyaan PHQ-8 Bahasa Indonesia
+                    InteractiveInterviewOverlay(
+                      questions: _questions,
+                      currentQuestionIndex: _currentQuestionIndex,
+                      isRecording: _isRecording,
+                      onQuestionChanged: (idx) {
+                        setState(() {
+                          _currentQuestionIndex = idx;
+                        });
+                      },
+                      onAllQuestionsCompleted: () {
+                        ScaffoldMessenger.of(context).removeCurrentSnackBar();
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: const Row(
+                              children: [
+                                Icon(
+                                  Icons.check_circle_rounded,
+                                  color: Color(0xFF5EEAD4),
+                                  size: 18,
                                 ),
-                                backgroundColor: const Color(0xFF0F172A),
-                                behavior: SnackBarBehavior.floating,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(10),
+                                SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    'Semua 8 pertanyaan PHQ-8 selesai dijawab. Ketuk tombol merah di bawah untuk menyimpan rekaman.',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                      color: Colors.white,
+                                    ),
+                                  ),
                                 ),
-                                duration: const Duration(seconds: 4),
-                              ),
-                            );
-                          },
+                              ],
+                            ),
+                            backgroundColor: const Color(0xFF0F172A),
+                            behavior: SnackBarBehavior.floating,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            duration: const Duration(seconds: 4),
+                          ),
                         );
                       },
                     ),
@@ -1331,7 +1253,7 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
                           const SizedBox(width: 6),
                           Expanded(
                             child: Text(
-                              'Jawaban Q${_currentQuestionIndex + 1} (${_questions[_currentQuestionIndex].category}):',
+                              'Pertanyaan ${_currentQuestionIndex + 1}/${_questions.length} • ${_questions[_currentQuestionIndex].category}',
                               style: const TextStyle(
                                 color: Color(0xFF5EEAD4),
                                 fontSize: 10.5,
@@ -1549,14 +1471,12 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
                           crossAxisAlignment: CrossAxisAlignment.end,
                           children: [
                             const Text(
-                              'Protokol Elisitasi:',
+                              'Panduan PHQ-8:',
                               style: TextStyle(
                                   color: Colors.white70, fontSize: 10.5),
                             ),
                             Text(
-                              _protocolMode == EdaicProtocolMode.standard
-                                  ? 'E-DAIC 4-Soal'
-                                  : 'PHQ-8 8-Dimensi',
+                              '${_currentQuestionIndex + 1} / ${_questions.length} Soal',
                               style: const TextStyle(
                                 color: Color(0xFF34D399),
                                 fontSize: 12.5,
@@ -1619,91 +1539,5 @@ class _ClinicalCameraScreenState extends State<ClinicalCameraScreen>
               : 'Mendeteksi Wajah pada Zona FACS...',
         );
     }
-  }
-
-  Widget _buildLensOptionChip({
-    required String title,
-    required IconData icon,
-    required bool isSelected,
-    required VoidCallback onTap,
-  }) {
-    return InkWell(
-      borderRadius: BorderRadius.circular(18),
-      onTap: _canSwitchCamera ? onTap : null,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        decoration: BoxDecoration(
-          color: isSelected ? _brandTeal : Colors.transparent,
-          borderRadius: BorderRadius.circular(18),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              icon,
-              color: isSelected ? Colors.white : Colors.white70,
-              size: 15,
-            ),
-            const SizedBox(width: 6),
-            Text(
-              title,
-              style: TextStyle(
-                color: isSelected ? Colors.white : Colors.white70,
-                fontSize: 11,
-                fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildProtocolModeChip({
-    required String title,
-    required IconData icon,
-    required bool isSelected,
-    required VoidCallback onTap,
-  }) {
-    return InkWell(
-      borderRadius: BorderRadius.circular(18),
-      onTap: !_isRecording ? onTap : null,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        decoration: BoxDecoration(
-          color: isSelected
-              ? const Color(0xFF10B981).withValues(alpha: 0.9)
-              : Colors.black.withValues(alpha: 0.4),
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(
-            color: isSelected
-                ? const Color(0xFF10B981)
-                : Colors.white.withValues(alpha: 0.2),
-            width: 1,
-          ),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              icon,
-              color: isSelected ? Colors.white : Colors.white70,
-              size: 14,
-            ),
-            const SizedBox(width: 6),
-            Text(
-              title,
-              style: TextStyle(
-                color: isSelected ? Colors.white : Colors.white70,
-                fontSize: 11,
-                fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
   }
 }

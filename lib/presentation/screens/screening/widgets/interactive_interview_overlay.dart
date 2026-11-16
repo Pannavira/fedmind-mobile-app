@@ -1,29 +1,23 @@
-import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
+import 'package:material_ui/material_ui.dart';
 import '../../../../core/constants/edaic_interview_protocol.dart';
 
-/// Overlay interaktif pemandu pertanyaan wawancara klinis selaras E-DAIC & PHQ-8
-/// Didesain ramping dan kompak agar tidak menghalangi wajah (area tengah kamera)
+/// Overlay interaktif pemandu 8 pertanyaan PHQ-8 berbahasa Indonesia.
+/// Didesain ringkas dan ramping agar area wajah pada pratinjau kamera tetap lega.
 class InteractiveInterviewOverlay extends StatefulWidget {
   final List<EdaicQuestion> questions;
   final int currentQuestionIndex;
   final bool isRecording;
-  final String liveTranscript;
   final ValueChanged<int> onQuestionChanged;
   final VoidCallback? onAllQuestionsCompleted;
-  final EdaicProtocolMode currentMode;
-  final ValueChanged<EdaicProtocolMode>? onModeChanged;
 
   const InteractiveInterviewOverlay({
     super.key,
     required this.questions,
     required this.currentQuestionIndex,
     required this.isRecording,
-    required this.liveTranscript,
     required this.onQuestionChanged,
     this.onAllQuestionsCompleted,
-    required this.currentMode,
-    this.onModeChanged,
   });
 
   @override
@@ -104,31 +98,36 @@ class _InteractiveInterviewOverlayState
     HapticFeedback.selectionClick();
     showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
       backgroundColor: const Color(0xFF0F172A),
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder: (ctx) {
         return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.of(ctx).size.height * 0.72,
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     const Row(
                       children: [
                         Icon(
-                          Icons.psychology_alt_rounded,
+                          Icons.checklist_rounded,
                           color: _brandTealLight,
                           size: 20,
                         ),
                         SizedBox(width: 8),
                         Text(
-                          'Protokol Pertanyaan E-DAIC / PHQ-8',
+                          'Daftar Pertanyaan PHQ-8',
                           style: TextStyle(
                             color: Colors.white,
                             fontSize: 14,
@@ -143,12 +142,10 @@ class _InteractiveInterviewOverlayState
                     ),
                   ],
                 ),
-                const SizedBox(height: 6),
-                Text(
-                  widget.currentMode == EdaicProtocolMode.standard
-                      ? 'Protokol Standar: 4 Pertanyaan Inti Klinis (Optimal 45–60 detik)'
-                      : 'Protokol Lengkap: 8 Dimensi E-DAIC / PHQ-8 (Optimal 60–90+ detik)',
-                  style: const TextStyle(
+                const SizedBox(height: 4),
+                const Text(
+                  '8 butir skrining gejala dalam 2 minggu terakhir',
+                  style: TextStyle(
                     color: Colors.white60,
                     fontSize: 11.5,
                   ),
@@ -187,7 +184,7 @@ class _InteractiveInterviewOverlayState
                         ),
                         title: Text(
                           q.questionIndonesian,
-                          maxLines: 2,
+                          maxLines: 3,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                             color: isSelected ? Colors.white : Colors.white70,
@@ -223,6 +220,7 @@ class _InteractiveInterviewOverlayState
               ],
             ),
           ),
+        ),
         );
       },
     );
@@ -259,16 +257,15 @@ class _InteractiveInterviewOverlayState
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // 1. Header Bar Pertanyaan (Kategori, Indikator, Equalizer, Kontrol)
+          // 1. Header Ringkas (Kategori PHQ-8, Posisi, Equalizer, Daftar Soal, Collapse)
           Padding(
-            padding: const EdgeInsets.fromLTRB(10, 6, 8, 4),
+            padding: const EdgeInsets.fromLTRB(10, 5, 8, 4),
             child: Row(
               children: [
-                // Tag Kategori / Dimensi PHQ-8 (RichText mencegah RenderFlex overflow)
                 Flexible(
                   child: Container(
                     padding: const EdgeInsets.symmetric(
-                      horizontal: 6,
+                      horizontal: 7,
                       vertical: 2.5,
                     ),
                     decoration: BoxDecoration(
@@ -284,7 +281,7 @@ class _InteractiveInterviewOverlayState
                       children: [
                         Icon(question.icon, color: _brandTealLight, size: 12),
                         const SizedBox(width: 4),
-                        Expanded(
+                        Flexible(
                           child: Text(
                             question.category,
                             maxLines: 1,
@@ -302,8 +299,6 @@ class _InteractiveInterviewOverlayState
                   ),
                 ),
                 const SizedBox(width: 6),
-
-                // Indikator Pertanyaan N dari Total
                 Text(
                   '${widget.currentQuestionIndex + 1}/$total',
                   style: const TextStyle(
@@ -312,16 +307,11 @@ class _InteractiveInterviewOverlayState
                     fontWeight: FontWeight.w700,
                   ),
                 ),
-
                 const Spacer(),
-
-                // Audio recording equalizer pulse (hanya bar visualizer, ringkas)
                 if (widget.isRecording) ...[
                   _buildAnimatedEqualizer(),
                   const SizedBox(width: 6),
                 ],
-
-                // Tombol Lihat Seluruh Pertanyaan
                 InkWell(
                   onTap: _showQuestionListModal,
                   borderRadius: BorderRadius.circular(6),
@@ -335,8 +325,6 @@ class _InteractiveInterviewOverlayState
                   ),
                 ),
                 const SizedBox(width: 4),
-
-                // Tombol Collapse/Expand Card
                 InkWell(
                   onTap: () {
                     setState(() {
@@ -359,7 +347,7 @@ class _InteractiveInterviewOverlayState
             ),
           ),
 
-          // Progress Bar Indikator Pertanyaan (Tipis & Elegan)
+          // Indikator Progres Pertanyaan
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 10),
             child: ClipRRect(
@@ -375,10 +363,10 @@ class _InteractiveInterviewOverlayState
             ),
           ),
 
-          // 2. Isi Pertanyaan (Ramping & Tidak Menghalangi Wajah)
+          // 2. Isi Pertanyaan Bahasa Indonesia (Simpel & Jelas)
           if (_isCardExpanded) ...[
             Padding(
-              padding: const EdgeInsets.fromLTRB(12, 6, 12, 4),
+              padding: const EdgeInsets.fromLTRB(12, 6, 12, 5),
               child: AnimatedSwitcher(
                 duration: const Duration(milliseconds: 200),
                 transitionBuilder: (child, animation) {
@@ -386,42 +374,25 @@ class _InteractiveInterviewOverlayState
                 },
                 child: KeyedSubtree(
                   key: ValueKey<String>(question.id),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      // Pertanyaan Utama Bahasa Indonesia
-                      Text(
-                        question.questionIndonesian,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 12.5,
-                          fontWeight: FontWeight.w700,
-                          height: 1.25,
-                        ),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      question.questionIndonesian,
+                      maxLines: 3,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 12.2,
+                        fontWeight: FontWeight.w600,
+                        height: 1.24,
                       ),
-                      const SizedBox(height: 3),
-
-                      // Referensi E-DAIC Ellie Prompt
-                      Text(
-                        'E-DAIC: "${question.questionEnglishEdaic}"',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: Color(0xFF67E8F9),
-                          fontSize: 9.5,
-                          fontStyle: FontStyle.italic,
-                        ),
-                      ),
-                    ],
+                    ),
                   ),
                 ),
               ),
             ),
 
-            // 3. Kontrol Navigasi Pertanyaan (Sebelumnya / Berikutnya - Anti Overflow)
+            // 3. Navigasi Simpel (Sebelumnya / Berikutnya / Selesai)
             Container(
               padding: const EdgeInsets.fromLTRB(8, 4, 8, 5),
               decoration: BoxDecoration(
@@ -433,14 +404,13 @@ class _InteractiveInterviewOverlayState
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  // Tombol Sebelumnya
                   Flexible(
                     child: InkWell(
                       borderRadius: BorderRadius.circular(6),
                       onTap: _hasPrevious ? _goToPrevious : null,
                       child: Padding(
                         padding: const EdgeInsets.symmetric(
-                          horizontal: 5,
+                          horizontal: 6,
                           vertical: 3,
                         ),
                         child: Row(
@@ -453,7 +423,7 @@ class _InteractiveInterviewOverlayState
                                   ? Colors.white70
                                   : Colors.white24,
                             ),
-                            const SizedBox(width: 3),
+                            const SizedBox(width: 4),
                             Flexible(
                               child: Text(
                                 'Sebelumnya',
@@ -473,29 +443,6 @@ class _InteractiveInterviewOverlayState
                       ),
                     ),
                   ),
-
-                  // Indikator Posisi Soal
-                  Container(
-                    margin: const EdgeInsets.symmetric(horizontal: 4),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 6,
-                      vertical: 2,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Text(
-                      'Soal ${widget.currentQuestionIndex + 1}',
-                      style: const TextStyle(
-                        color: Colors.white70,
-                        fontSize: 10,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-
-                  // Tombol Berikutnya / Selesai
                   Flexible(
                     child: Material(
                       color: _hasNext ? _brandTeal : _emeraldGreen,
@@ -505,7 +452,7 @@ class _InteractiveInterviewOverlayState
                         onTap: _goToNext,
                         child: Padding(
                           padding: const EdgeInsets.symmetric(
-                            horizontal: 7,
+                            horizontal: 8,
                             vertical: 3.5,
                           ),
                           child: Row(
@@ -513,9 +460,7 @@ class _InteractiveInterviewOverlayState
                             children: [
                               Flexible(
                                 child: Text(
-                                  _hasNext
-                                      ? 'Berikutnya'
-                                      : 'Selesai Menjawab',
+                                  _hasNext ? 'Berikutnya' : 'Selesai',
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: const TextStyle(
@@ -525,7 +470,7 @@ class _InteractiveInterviewOverlayState
                                   ),
                                 ),
                               ),
-                              const SizedBox(width: 3),
+                              const SizedBox(width: 4),
                               Icon(
                                 _hasNext
                                     ? Icons.arrow_forward_rounded

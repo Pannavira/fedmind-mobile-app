@@ -1,5 +1,5 @@
-import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:fedmind_mobile_app/core/constants/edaic_interview_protocol.dart';
 import 'package:fedmind_mobile_app/presentation/screens/screening/widgets/interactive_interview_overlay.dart';
 
@@ -19,7 +19,7 @@ void main() {
       tester.view.devicePixelRatio = 1.0;
       addTearDown(() => tester.view.resetPhysicalSize());
 
-      final questions = EdaicInterviewProtocol.standardQuestions;
+      final questions = EdaicInterviewProtocol.questions;
 
       await tester.pumpWidget(
         MaterialApp(
@@ -31,8 +31,6 @@ void main() {
                   questions: questions,
                   currentQuestionIndex: 0,
                   isRecording: true,
-                  liveTranscript: 'Transkrip suara pengujian',
-                  currentMode: EdaicProtocolMode.standard,
                   onQuestionChanged: (_) {},
                 ),
               ),

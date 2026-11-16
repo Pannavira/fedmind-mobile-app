@@ -1799,7 +1799,7 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
           stepNumber: '02',
           title: 'Mulai Merekam',
           subtitle:
-              'Rekam wawancara observasi klinis secara langsung on-device dengan panduan protokol E-DAIC / PHQ-8 (Min. Android 13 / API 33 untuk ASR paralel)',
+              'Rekam wawancara observasi klinis secara langsung on-device dengan panduan 8 pertanyaan PHQ-8 Bahasa Indonesia (Min. Android 13 / API 33 untuk ASR paralel)',
           icon: Icons.videocam_rounded,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -2007,7 +2007,7 @@ class ScreeningFormScreenState extends State<ScreeningFormScreen> {
           ),
           const SizedBox(height: 6),
           const Text(
-            'Rekam observasi klinis terpandu pertanyaan E-DAIC / PHQ-8 dengan pengenalan suara Google SpeechRecognizer (Android 13+). Setelah selesai rekam, tinjau/sunting transkrip tuturan klien sebelum menekan Jalankan Analisis.',
+            'Rekam observasi klinis terpandu 8 pertanyaan PHQ-8 Bahasa Indonesia dengan pengenalan suara Google SpeechRecognizer (Android 13+). Setelah selesai rekam, tinjau/sunting transkrip tuturan klien sebelum menekan Jalankan Analisis.',
             textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: 12,
